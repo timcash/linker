@@ -1,0 +1,21 @@
+{
+  "name": "linker",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc && vite build",
+    "preview": "vite preview",
+    "test": "node scripts/test.mjs"
+  },
+  "dependencies": {
+    "three": "^0.181.1"
+  },
+  "devDependencies": {
+    "@types/three": "^0.181.0",
+    "puppeteer": "^24.31.0",
+    "typescript": "^5.9.3",
+    "vite": "^7.1.12"
+  }
+}
