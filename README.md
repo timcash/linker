@@ -1,68 +1,123 @@
 # Linker
 
-Minimal Vite + TypeScript app with a fullscreen Three.js canvas and a Puppeteer smoke test.
+Minimal Vite + TypeScript app for a pure `luma.gl` + WebGPU text-rendering prototype.
 
-## Current Local Dev URL
+## Quick Start
 
-If the dev server is already running in this workspace, use:
+Install dependencies:
+
+```bash
+npm install --legacy-peer-deps
+```
+
+Start the dev server:
+
+```bash
+npm run dev -- --host 127.0.0.1
+```
+
+Open:
 
 `http://127.0.0.1:5173/`
 
-If it is not running, start it with:
-
-```bash
-npm run dev -- --host 127.0.0.1
-```
-
-## Stack
-
-- Vite
-- TypeScript
-- Three.js
-- Puppeteer
-
-No React. The app is intentionally small.
-
-## Project Layout
-
-- `index.html`: loads the app entry module
-- `src/main.ts`: creates the Three.js scene, camera, lights, renderer, and animation loop
-- `src/style.css`: makes the canvas fill the viewport
-- `scripts/test.mjs`: starts a Vite server and checks the canvas with Puppeteer
-
 ## Commands
 
-```bash
-npm install
-npm run dev -- --host 127.0.0.1
-npm run build
-npm test
-```
+- `npm run dev -- --host 127.0.0.1`
+  Starts the Vite dev server on `127.0.0.1:5173`.
+- `npm run lint`
+  Runs ESLint.
+- `npm run build`
+  Runs TypeScript and builds the production bundle.
+- `npm test`
+  Runs lint first, then runs the headed Chrome browser test.
 
-## For LLM Agents
+## Required Workflow
 
-This repo is meant to stay simple. When changing it:
+Use this workflow after every code change:
 
-- Keep it framework-free unless a human explicitly asks for a framework.
-- Preserve a fullscreen WebGL canvas unless the request says otherwise.
-- Prefer editing `src/main.ts` and `src/style.css` instead of adding abstraction layers.
-- Keep dependencies minimal.
-- Run `npm run build` after code changes.
-- Run `npm test` when canvas behavior or boot flow changes.
+1. Start or reuse the dev server: `npm run dev -- --host 127.0.0.1`
+2. Make the change.
+3. Run `npm run lint`
+4. Run `npm run build`
+5. Run `npm test`
+6. Inspect `browser.log` and `browser.png`
 
-## Test Contract
+Important notes:
 
-The Puppeteer smoke test currently verifies:
+- Do not stop after `lint`.
+- If `package.json` changes, restart any long-running Vite dev server so optimized deps are rebuilt.
+- `npm test` launches a headed `Google Chrome` instance.
+- `browser.log` is reset at the start of every test run.
+- A passing run intentionally includes `ERROR_PING_TEST` in `browser.log`.
 
-- The app boots without a page error.
-- A `canvas` element is rendered.
-- The canvas width matches `window.innerWidth`.
-- The canvas height matches `window.innerHeight`.
+## What `npm test` Does
 
-If you change rendering structure, keep those guarantees or update the test deliberately.
+The browser test:
 
-## Notes For Future Changes
+- starts its own Vite server on `127.0.0.1:4173`
+- launches headed Chrome with WebGPU enabled
+- verifies the app reaches `ready` or `unsupported`
+- verifies the button-only camera controls
+- verifies label visibility changes with zoom
+- creates an intentional browser error ping and checks that it is written to `browser.log`
+- runs a benchmark route on a synthetic 1024-label dataset
+- writes `browser.log`
+- saves `browser.png`
 
-- Vite dev defaults to port `5173` unless that port is busy.
-- The production bundle is currently large because it includes Three.js; that is expected for this minimal setup.
-- `src/main.ts` includes HMR cleanup so reloading does not leave old renderers attached.
+Current benchmark route used by the test:
+
+`/?dataset=benchmark&benchmark=1&gpuTiming=1&labelCount=1024&benchmarkFrames=28`
+
+## Current App State
+
+What exists now:
+
+- pure `luma.gl` + WebGPU app
+- fullscreen canvas
+- button-only pan, zoom, and reset controls
+- CPU-generated world-space grid
+- atlas-backed text labels
+- synthetic benchmark dataset
+- CPU and GPU benchmark metrics exposed through browser datasets and `browser.log`
+
+What does not exist yet:
+
+- chunked label visibility
+- decluttering
+- packed static glyph buffers
+- visible-glyph index draw path
+- SDF/MSDF text
+
+## Important Repo Rules
+
+- Keep this repo framework-free unless a human explicitly asks otherwise.
+- Do not add `three.js`, `deck.gl`, or `MapLibre` unless explicitly requested.
+- Keep the pure `luma.gl` + WebGPU direction.
+- Do not add a WebGL fallback.
+- Keep `npm run lint`, `npm run build`, and `npm test` passing.
+
+## Key Files
+
+- `src/app.ts`
+  App shell, UI panels, benchmark route, and render loop.
+- `src/camera.ts`
+  2D camera math.
+- `src/grid.ts`
+  CPU-built grid renderer.
+- `src/data/labels.ts`
+  Demo labels and synthetic benchmark label generator.
+- `src/text/atlas.ts`
+  Canvas 2D glyph atlas generation.
+- `src/text/layout.ts`
+  Label-to-glyph layout.
+- `src/text/renderer.ts`
+  Current atlas-backed text renderer.
+- `src/perf.ts`
+  CPU and GPU frame timing support.
+- `scripts/test.ts`
+  Headed Chrome browser test.
+
+## Version Notes
+
+- Current verified luma set: `9.3.0-alpha.10`
+- These packages currently require `npm install --legacy-peer-deps`

@@ -6,16 +6,24 @@
   "scripts": {
     "dev": "vite",
     "build": "tsc && vite build",
+    "lint": "eslint .",
     "preview": "vite preview",
-    "test": "node scripts/test.mjs"
+    "test": "npm run lint && tsx scripts/test.ts"
   },
   "dependencies": {
-    "three": "^0.181.1"
+    "@luma.gl/core": "9.3.0-alpha.10",
+    "@luma.gl/engine": "9.3.0-alpha.10",
+    "@luma.gl/shadertools": "9.3.0-alpha.10",
+    "@luma.gl/webgpu": "9.3.0-alpha.10"
   },
   "devDependencies": {
-    "@types/three": "^0.181.0",
+    "@eslint/js": "^10.0.1",
+    "@types/node": "^24.6.0",
+    "eslint": "^10.1.0",
     "puppeteer": "^24.31.0",
+    "tsx": "^4.20.6",
     "typescript": "^5.9.3",
+    "typescript-eslint": "^8.57.2",
     "vite": "^7.1.12"
   }
 }

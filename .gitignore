@@ -1,2 +1,5 @@
+browser.log
+browser.png
 dist
 node_modules
+vite.dev.log

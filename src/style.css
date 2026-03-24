@@ -1,8 +1,15 @@
 :root {
   color-scheme: dark;
+  --bg-0: #020617;
+  --bg-1: #09111f;
+  --panel: rgb(9 17 31 / 82%);
+  --panel-border: rgb(148 163 184 / 18%);
+  --ink: #e5edf9;
+  --muted: #90a3bf;
+  --accent: #7dd3fc;
   background:
-    radial-gradient(circle at top, #0f172a, #020617 60%),
-    #020617;
+    radial-gradient(circle at top, #10213e, var(--bg-0) 58%),
+    linear-gradient(180deg, var(--bg-1), var(--bg-0));
 }
 
 html,
@@ -13,12 +20,181 @@ body {
   overflow: hidden;
 }
 
-body {
-  min-height: 100vh;
+[hidden] {
+  display: none !important;
 }
 
-canvas {
+body {
+  min-height: 100vh;
+  font-family:
+    'IBM Plex Mono',
+    'JetBrains Mono',
+    'SF Mono',
+    'Fira Code',
+    monospace;
+}
+
+#app,
+.app-shell {
+  width: 100%;
+  height: 100%;
+}
+
+.app-shell {
+  position: relative;
+  overflow: hidden;
+  background:
+    radial-gradient(circle at 20% 20%, rgb(34 197 94 / 6%), transparent 25%),
+    radial-gradient(circle at 80% 15%, rgb(125 211 252 / 10%), transparent 30%);
+}
+
+.app-canvas {
   display: block;
-  width: 100vw;
-  height: 100vh;
+  width: 100%;
+  height: 100%;
+}
+
+.status-panel {
+  position: absolute;
+  top: 24px;
+  left: 24px;
+  z-index: 2;
+  max-width: min(420px, calc(100vw - 32px));
+  padding: 18px 20px;
+  border: 1px solid var(--panel-border);
+  border-radius: 18px;
+  backdrop-filter: blur(18px);
+  background: var(--panel);
+  box-shadow:
+    0 18px 50px rgb(2 6 23 / 38%),
+    inset 0 1px 0 rgb(255 255 255 / 4%);
+}
+
+.status-eyebrow {
+  margin-bottom: 10px;
+  color: var(--accent);
+  font-size: 0.72rem;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+}
+
+.status-panel h1 {
+  margin: 0;
+  color: var(--ink);
+  font-size: clamp(1.4rem, 2vw, 2rem);
+  line-height: 1.05;
+}
+
+.status-panel p {
+  margin: 12px 0 0;
+  color: var(--muted);
+  font-size: 0.94rem;
+  line-height: 1.5;
+}
+
+.button-panel {
+  position: absolute;
+  right: 24px;
+  bottom: 24px;
+  z-index: 2;
+  display: grid;
+  gap: 10px;
+}
+
+.control-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.control-pad {
+  display: grid;
+  gap: 10px;
+  justify-items: center;
+}
+
+.control-button {
+  min-width: 84px;
+  padding: 10px 14px;
+  border: 1px solid rgb(125 211 252 / 22%);
+  border-radius: 999px;
+  background:
+    linear-gradient(180deg, rgb(14 35 63 / 92%), rgb(7 18 34 / 92%));
+  color: var(--ink);
+  font: inherit;
+  font-size: 0.84rem;
+  line-height: 1;
+  cursor: pointer;
+  transition:
+    transform 120ms ease,
+    border-color 120ms ease,
+    background 120ms ease;
+}
+
+.control-button:hover {
+  border-color: rgb(125 211 252 / 40%);
+  background:
+    linear-gradient(180deg, rgb(18 47 84 / 94%), rgb(8 24 44 / 94%));
+}
+
+.control-button:active {
+  transform: translateY(1px) scale(0.98);
+}
+
+.control-button:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.status-stats {
+  margin-top: 14px;
+  padding-top: 12px;
+  border-top: 1px solid rgb(148 163 184 / 14%);
+  font-size: 0.78rem;
+  line-height: 1.7;
+  word-break: break-word;
+}
+
+.center-message {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  text-align: center;
+  color: var(--ink);
+}
+
+.center-message strong {
+  display: block;
+  margin-bottom: 10px;
+  font-size: clamp(1.3rem, 2vw, 2rem);
+}
+
+.center-message p {
+  margin: 0;
+  max-width: 40rem;
+  color: var(--muted);
+  line-height: 1.6;
+}
+
+@media (max-width: 720px) {
+  .status-panel {
+    top: 16px;
+    left: 16px;
+    right: 16px;
+    max-width: none;
+    padding: 16px 18px;
+  }
+
+  .button-panel {
+    right: 16px;
+    bottom: 16px;
+  }
+
+  .control-button {
+    min-width: 0;
+    flex: 1 1 30%;
+  }
 }
