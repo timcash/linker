@@ -98,7 +98,28 @@ body {
   bottom: 24px;
   z-index: 2;
   display: grid;
+  gap: 14px;
+  min-width: min(420px, calc(100vw - 32px));
+}
+
+.control-group {
+  display: grid;
   gap: 10px;
+  padding: 14px;
+  border: 1px solid var(--panel-border);
+  border-radius: 18px;
+  backdrop-filter: blur(18px);
+  background: var(--panel);
+  box-shadow:
+    0 18px 50px rgb(2 6 23 / 34%),
+    inset 0 1px 0 rgb(255 255 255 / 4%);
+}
+
+.control-label {
+  color: var(--accent);
+  font-size: 0.72rem;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
 }
 
 .control-row {
@@ -135,6 +156,15 @@ body {
   border-color: rgb(125 211 252 / 40%);
   background:
     linear-gradient(180deg, rgb(18 47 84 / 94%), rgb(8 24 44 / 94%));
+}
+
+.control-button[data-active='true'] {
+  border-color: rgb(125 211 252 / 58%);
+  background:
+    linear-gradient(180deg, rgb(24 65 111 / 96%), rgb(10 32 59 / 96%));
+  box-shadow:
+    0 0 0 1px rgb(125 211 252 / 18%) inset,
+    0 10px 30px rgb(14 116 144 / 18%);
 }
 
 .control-button:active {
@@ -191,6 +221,8 @@ body {
   .button-panel {
     right: 16px;
     bottom: 16px;
+    left: 16px;
+    min-width: 0;
   }
 
   .control-button {

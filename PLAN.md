@@ -19,20 +19,34 @@ Verified on March 24, 2026 with:
 - `luma.gl 9.3.0-alpha.10`
 - `npm test`
 
-Current benchmark route:
+Current benchmark route template:
 
-`/?dataset=benchmark&benchmark=1&gpuTiming=1&labelCount=1024&benchmarkFrames=28`
+`/?dataset=benchmark&benchmark=1&gpuTiming=1&renderer=<baseline|instanced|packed|visible-index|chunked>&labelCount=<1024|4096|16384>&benchmarkFrames=40`
 
-Latest benchmark summary from `browser.log`:
+Latest comparison snapshots from `browser.log`:
 
-- `cpuFrame=2.166ms`
-- `cpuText=1.731ms`
-- `cpuDraw=0.369ms`
-- `gpu=1.390ms`
-- `visibleLabels=102`
-- `visibleGlyphs=1003`
+- `1024 labels`
+  `baseline cpuFrame=3.332ms gpu=2.646ms uploaded=886272B`
+  `instanced cpuFrame=2.589ms gpu=2.021ms uploaded=221584B`
+  `visible-index cpuFrame=1.934ms gpu=2.258ms uploaded=18496B`
+  `chunked cpuFrame=1.884ms gpu=2.384ms uploaded=18496B`
+  `packed cpuFrame=1.807ms gpu=2.251ms uploaded=32B`
+- `4096 labels`
+  `baseline cpuFrame=5.386ms gpu=3.066ms uploaded=1818048B`
+  `instanced cpuFrame=3.909ms gpu=2.250ms uploaded=454528B`
+  `visible-index cpuFrame=3.666ms gpu=2.767ms uploaded=37908B`
+  `chunked cpuFrame=1.982ms gpu=2.841ms uploaded=37908B`
+  `packed cpuFrame=2.975ms gpu=3.056ms uploaded=32B`
+- `16384 labels`
+  `baseline cpuFrame=8.639ms gpu=2.735ms uploaded=1818048B`
+  `instanced cpuFrame=5.793ms gpu=2.621ms uploaded=454528B`
+  `visible-index cpuFrame=4.668ms gpu=2.543ms uploaded=37908B`
+  `chunked cpuFrame=2.543ms gpu=3.030ms uploaded=37908B`
+  `packed cpuFrame=4.820ms gpu=5.061ms uploaded=32B`
 
-This is the baseline to beat.
+Large-scale sweep evidence at `labelCount=4096` now exists in `browser.log` for all five modes, using the fixed dataset `static-benchmark-v2`. The trace starts with `600` visible labels / `8901` visible glyphs at zoom `0.00` and reaches a fully hidden state at zoom `4.08+`. `chunked` reports `16` visible chunks at reset and `2` chunks near zoom `3.84` before dropping to `0`.
+
+The baseline remains the correctness reference. `visible-index` is the current direct replacement for packed full-draw submission, and `chunked` is the current best CPU path on the benchmark routes.
 
 ## What Exists Now
 
@@ -41,19 +55,28 @@ This is the baseline to beat.
 - `src/perf.ts`
   Owns rolling CPU timings plus WebGPU timestamp-query timing.
 - `src/data/labels.ts`
-  Owns both the demo labels and the synthetic benchmark label generator.
+  Owns the demo labels.
+- `src/data/static-benchmark.ts`
+  Owns the centered static benchmark dataset `static-benchmark-v2`.
 - `src/text/atlas.ts`
   Builds the bitmap glyph atlas with Canvas 2D.
 - `src/text/layout.ts`
   Converts labels into glyph placements.
 - `src/text/renderer.ts`
-  Current baseline renderer.
+  Shared text resources plus explicit `baseline`, `instanced`, `packed`, `visible-index`, and `chunked` renderer modes.
 
-Important fact about the current renderer:
+Important facts about the current renderers:
 
-- it still expands visible glyph quads on the CPU every frame
-- it uploads full position/uv/color vertex data every frame
-- it is correct enough for comparison, but it is not the efficient design we want
+- `baseline`
+  expands visible glyph quads on the CPU every frame and uploads full position/uv/color vertex data
+- `instanced`
+  still filters visible glyphs on the CPU, but uploads one visible-glyph instance record instead of six expanded vertices
+- `packed`
+  uploads packed glyph records once and only updates camera uniforms per frame, but currently draws the full packed glyph set every frame
+- `visible-index`
+  uploads packed glyph records once, then uploads only the per-frame visible glyph index list
+- `chunked`
+  uses the visible-index draw path, but limits CPU visibility work to chunk candidates and exposes visible chunk counts
 
 ## Hard Constraints
 
@@ -83,21 +106,27 @@ The repo should support renderer modes like:
 
 - `baseline`
   Current CPU-expanded visible quad path.
+- `instanced`
+  Visible-glyph instancing with per-frame instance uploads.
 - `packed`
-  Static packed glyph records plus compact visible draw list.
+  Static packed glyph records with camera-uniform updates only.
+- `visible-index`
+  Static packed glyph records plus per-frame visible glyph index uploads.
 - `chunked`
-  Packed renderer plus chunk visibility filtering.
+  Visible-index renderer plus chunk visibility filtering.
 - `decluttered`
   Packed renderer plus chunking plus label overlap rejection.
 
 Recommended query param:
 
 - `?renderer=baseline`
+- `?renderer=instanced`
 - `?renderer=packed`
+- `?renderer=visible-index`
 - `?renderer=chunked`
 - `?renderer=decluttered`
 
-The default can stay on the current renderer until the next mode is proven.
+The default still stays on `baseline`.
 
 ## Metrics We Need
 
@@ -111,15 +140,16 @@ Already present:
 - GPU frame average
 - visible label count
 - visible glyph count
-
-Add next:
-
 - renderer mode
 - benchmark label count
 - total glyph count
 - bytes uploaded to GPU per frame
 - vertex count submitted per frame
+- submitted glyph count
 - visible chunk count
+
+Add next:
+
 - accepted labels after declutter
 
 These should be exposed through `document.body.dataset` so Puppeteer can read them directly.
@@ -150,32 +180,29 @@ If a renderer only wins at 1024 labels and falls apart at 4096+, it is not the r
 
 The browser test should evolve from “does it render” to “does the better renderer actually reduce work.”
 
-### Phase A
+### Current coverage
 
-Keep the current correctness checks:
+The browser test now does all of this:
 
 - app reaches `ready` or `unsupported`
-- controls work
-- zoom-window label visibility works
+- button-only camera controls work
+- demo zoom-window label visibility works
+- renderer buttons switch between `baseline`, `instanced`, `packed`, `visible-index`, and `chunked`
+- the `4096` label sweep zooms out and then in for each renderer mode, proving both visible and hidden text states on `static-benchmark-v2`
+- benchmark routes run for all five current renderer modes
+- benchmark routes run at `1024`, `4096`, and `16384`
+- benchmark routes verify the shared static dataset preset
+- upload bytes and submitted vertices are compared structurally across modes
+- visible chunk counts are checked for `chunked`
 - intentional error ping appears in `browser.log`
 
-### Phase B
+### Next coverage
 
-Add renderer-comparison checks:
+Next additions should focus on declutter:
 
-- run benchmark once with `renderer=baseline`
-- run benchmark once with `renderer=packed`
-- assert both runs complete
-- log both summaries
-- assert the packed path uploads less per-frame data than baseline
-
-### Phase C
-
-Add scaling checks:
-
-- run `renderer=packed` at `1024`, `4096`, and `16384`
-- assert CPU text time does not scale linearly with total glyph count once chunking is added
-- assert bytes uploaded per frame stay bounded relative to visible glyphs, not total glyphs
+- `decluttered` at `1024`, `4096`, and `16384`
+- declutter-specific accepted-label assertions
+- overlap rejection correctness checks against the non-decluttered modes
 
 The test should prefer structural assertions over brittle absolute thresholds.
 
@@ -189,51 +216,35 @@ Bad example:
 
 ## Immediate Next Work
 
-### 1. Make renderer mode explicit
-
-Add renderer selection to `src/app.ts`.
+### 1. Add declutter as another explicit mode
 
 Goal:
 
-- choose between `baseline` and future renderers through query params
-- write the selected mode into `document.body.dataset.rendererMode`
+- compare correctness and accepted-label counts against non-decluttered paths
+- keep it benchmarkable behind `?renderer=decluttered`
 
-### 2. Instrument upload cost
-
-Add metrics for:
-
-- vertex count submitted
-- bytes written to buffers each frame
+### 2. Add accepted-label and overlap metrics
 
 Goal:
 
-- prove when a renderer reduces per-frame upload cost
+- expose accepted-label counts through `document.body.dataset`
+- make `npm test` assert that declutter is dropping overlaps instead of silently hiding too much or too little
 
-### 3. Build the packed renderer
+### 3. Explore whether chunked draw submission should stay CPU-driven
 
-Replace per-frame quad expansion with:
+Current tradeoff:
 
-- one static packed glyph-record buffer
-- one compact visible-glyph index buffer
-- one instanced draw path
+- `chunked` materially reduces CPU text-update cost
+- `chunked` still has a small GPU cost increase versus `visible-index` because the chunk optimization only changes CPU search work
 
 Goal:
 
-- keep atlas and layout code
-- stop rebuilding full quad geometry every frame
-
-### 4. Compare baseline vs packed in Puppeteer
-
-Update `scripts/test.ts` to benchmark both modes and log both summaries.
-
-Minimum required win for the packed renderer:
-
-- fewer bytes uploaded per frame than baseline
-- same or better visible text correctness
+- keep `chunked` as the fast CPU path
+- evaluate whether chunk metadata or GPU-assisted filtering can reduce the remaining draw-path overhead without regressing correctness
 
 ## Implementation Direction
 
-The next efficient renderer should look like this:
+The current efficient renderer direction now looks like this:
 
 - atlas built once
 - glyph layout built once
@@ -241,6 +252,7 @@ The next efficient renderer should look like this:
 - per-frame work limited to:
   camera uniforms
   visible glyph index list
+  chunk candidate filtering
   optional declutter results
 
 Do not jump to compute shaders first.
@@ -261,5 +273,5 @@ If work stops here, the next agent should know:
 - `npm test` uses headed Chrome and records real GPU timestamp samples
 - `README.md` is now simplified and up to date
 - `luma.gl 9.3.0-alpha.10` is working here, but the install used `npm install --legacy-peer-deps`
-- the most important missing capability is not “more text features”
-- the most important missing capability is a second renderer mode that is measurably more efficient than the baseline
+- the benchmark dataset is now a fixed centered prefix set in `src/data/static-benchmark.ts`
+- the most important missing capability is now declutter plus accepted-label metrics, not another basic renderer split

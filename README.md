@@ -58,15 +58,24 @@ The browser test:
 - launches headed Chrome with WebGPU enabled
 - verifies the app reaches `ready` or `unsupported`
 - verifies the button-only camera controls
-- verifies label visibility changes with zoom
+- verifies renderer-mode buttons for `baseline`, `instanced`, `packed`, `visible-index`, and `chunked`
+- verifies label visibility changes with zoom for every renderer mode
+- verifies the benchmark routes report the shared static dataset preset `static-benchmark-v2`
 - creates an intentional browser error ping and checks that it is written to `browser.log`
-- runs a benchmark route on a synthetic 1024-label dataset
+- runs a large-scale 4096-label zoom sweep for every renderer mode, including hidden and visible phases
+- runs benchmark routes for every renderer mode at `1024`, `4096`, and `16384` labels
 - writes `browser.log`
 - saves `browser.png`
 
-Current benchmark route used by the test:
+Benchmark route template used by the test:
 
-`/?dataset=benchmark&benchmark=1&gpuTiming=1&labelCount=1024&benchmarkFrames=28`
+`/?dataset=benchmark&benchmark=1&gpuTiming=1&renderer=<baseline|instanced|packed|visible-index|chunked>&labelCount=<1024|4096|16384>&benchmarkFrames=40`
+
+Representative benchmark results from the latest passing run:
+
+- `1024 labels`: `baseline cpuFrame=3.332ms gpu=2.646ms uploaded=886272B`, `instanced cpuFrame=2.589ms gpu=2.021ms uploaded=221584B`, `visible-index cpuFrame=1.934ms gpu=2.258ms uploaded=18496B`, `chunked cpuFrame=1.884ms gpu=2.384ms uploaded=18496B`, `packed cpuFrame=1.807ms gpu=2.251ms uploaded=32B`
+- `4096 labels`: `baseline cpuFrame=5.386ms gpu=3.066ms uploaded=1818048B`, `instanced cpuFrame=3.909ms gpu=2.250ms uploaded=454528B`, `visible-index cpuFrame=3.666ms gpu=2.767ms uploaded=37908B`, `chunked cpuFrame=1.982ms gpu=2.841ms uploaded=37908B`, `packed cpuFrame=2.975ms gpu=3.056ms uploaded=32B`
+- `16384 labels`: `baseline cpuFrame=8.639ms gpu=2.735ms uploaded=1818048B`, `instanced cpuFrame=5.793ms gpu=2.621ms uploaded=454528B`, `visible-index cpuFrame=4.668ms gpu=2.543ms uploaded=37908B`, `chunked cpuFrame=2.543ms gpu=3.030ms uploaded=37908B`, `packed cpuFrame=4.820ms gpu=5.061ms uploaded=32B`
 
 ## Current App State
 
@@ -75,18 +84,20 @@ What exists now:
 - pure `luma.gl` + WebGPU app
 - fullscreen canvas
 - button-only pan, zoom, and reset controls
+- button-panel renderer switching for `baseline`, `instanced`, `packed`, `visible-index`, and `chunked`
 - CPU-generated world-space grid
-- atlas-backed text labels
-- synthetic benchmark dataset
+- atlas-backed text labels with explicit comparison modes
+- centered static benchmark dataset `static-benchmark-v2` shared across all benchmark routes
+- visible-glyph index draw path
+- chunked visibility filtering with visible chunk metrics
 - CPU and GPU benchmark metrics exposed through browser datasets and `browser.log`
 
 What does not exist yet:
 
-- chunked label visibility
 - decluttering
-- packed static glyph buffers
-- visible-glyph index draw path
+- accepted-label metrics after declutter
 - SDF/MSDF text
+- GPU-assisted visibility filtering
 
 ## Important Repo Rules
 
@@ -105,13 +116,15 @@ What does not exist yet:
 - `src/grid.ts`
   CPU-built grid renderer.
 - `src/data/labels.ts`
-  Demo labels and synthetic benchmark label generator.
+  Demo labels.
+- `src/data/static-benchmark.ts`
+  Static benchmark dataset builder with centered prefix ordering.
 - `src/text/atlas.ts`
   Canvas 2D glyph atlas generation.
 - `src/text/layout.ts`
   Label-to-glyph layout.
 - `src/text/renderer.ts`
-  Current atlas-backed text renderer.
+  Shared atlas resources plus the `baseline`, `instanced`, `packed`, `visible-index`, and `chunked` renderer modes.
 - `src/perf.ts`
   CPU and GPU frame timing support.
 - `scripts/test.ts`

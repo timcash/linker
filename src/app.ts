@@ -3,11 +3,21 @@ import {Geometry, Model} from '@luma.gl/engine';
 import {webgpuAdapter} from '@luma.gl/webgpu';
 
 import {Camera2D, type ViewportSize} from './camera';
-import {createBenchmarkLabels, DEFAULT_BENCHMARK_LABEL_COUNT, DEMO_LABELS} from './data/labels';
+import {DEMO_LABELS} from './data/labels';
+import {
+  DEFAULT_BENCHMARK_LABEL_COUNT,
+  STATIC_BENCHMARK_DATASET_ID,
+  getStaticBenchmarkLabels,
+} from './data/static-benchmark';
 import {GridRenderer} from './grid';
 import {FrameProfiler, type PerfSnapshot} from './perf';
 import {TextRenderer} from './text/renderer';
-import type {LabelDefinition} from './text/types';
+import {
+  RENDERER_MODES,
+  RENDERER_MODE_OPTIONS,
+  type LabelDefinition,
+  type RendererMode,
+} from './text/types';
 
 const SHELL_SHADER = /* wgsl */ `
 struct VertexInputs {
@@ -55,31 +65,40 @@ const QUAD_UVS = new Float32Array([
   1, 1,
 ]);
 
-const DEFAULT_BENCHMARK_ACTION_COUNT = 24;
+const DEFAULT_BENCHMARK_ACTION_COUNT = 33;
 const BENCHMARK_ACTION_SEQUENCE: ControlAction[] = [
+  'zoom-out',
+  'zoom-out',
+  'zoom-out',
+  'zoom-out',
+  'pan-right',
+  'pan-up',
+  'zoom-in',
+  'zoom-in',
+  'zoom-in',
+  'zoom-in',
+  'pan-left',
+  'pan-down',
+  'zoom-in',
+  'zoom-in',
+  'zoom-in',
+  'zoom-in',
+  'zoom-in',
   'zoom-in',
   'pan-right',
   'pan-up',
   'zoom-in',
+  'zoom-in',
   'pan-left',
   'pan-down',
   'zoom-out',
-  'pan-right',
-  'zoom-in',
-  'pan-left',
   'zoom-out',
-  'pan-up',
-  'pan-right',
   'zoom-out',
-  'pan-down',
-  'zoom-in',
-  'pan-right',
-  'pan-up',
-  'zoom-in',
-  'pan-left',
   'zoom-out',
-  'pan-down',
-  'pan-left',
+  'zoom-out',
+  'zoom-out',
+  'zoom-out',
+  'zoom-out',
   'reset-camera',
 ];
 
@@ -99,21 +118,29 @@ type DatasetName = 'demo' | 'benchmark';
 type AppConfig = {
   benchmarkActionCount: number;
   benchmarkEnabled: boolean;
+  datasetPreset: string;
   datasetName: DatasetName;
   gpuTimingEnabled: boolean;
   labels: LabelDefinition[];
   requestedLabelCount: number;
+  rendererMode: RendererMode;
 };
 
 type BenchmarkSummary = {
+  bytesUploadedPerFrame: number;
   cpuDrawAvgMs: number;
   cpuFrameAvgMs: number;
   cpuFrameSamples: number;
   cpuTextAvgMs: number;
+  glyphCount: number;
   gpuFrameAvgMs: number | null;
   gpuFrameSamples: number;
   gpuSupported: boolean;
   labelCount: number;
+  rendererMode: RendererMode;
+  submittedGlyphCount: number;
+  submittedVertexCount: number;
+  visibleChunkCount: number;
   visibleGlyphCount: number;
   visibleLabelCount: number;
 };
@@ -154,12 +181,17 @@ class WebGPUShell {
   private profiler: FrameProfiler | null = null;
   private text: TextRenderer | null = null;
   private readonly camera = new Camera2D();
+  private readonly actionButtons: HTMLButtonElement[] = [];
+  private readonly rendererButtons: HTMLButtonElement[] = [];
   private destroyed = false;
+  private rendererMode: RendererMode;
 
   constructor(
     private readonly elements: ShellElements,
     private readonly config: AppConfig,
-  ) {}
+  ) {
+    this.rendererMode = config.rendererMode;
+  }
 
   async start(): Promise<void> {
     this.setState('loading');
@@ -217,9 +249,10 @@ class WebGPUShell {
       });
 
       this.grid = new GridRenderer(this.device);
-      this.text = new TextRenderer(this.device, this.config.labels);
+      this.text = new TextRenderer(this.device, this.config.labels, this.rendererMode);
       await this.text.ready;
       this.installInteractionHandlers();
+      this.updateRendererButtons();
 
       this.elements.detail.hidden = true;
       this.elements.message.hidden = true;
@@ -352,34 +385,87 @@ class WebGPUShell {
     };
   }
 
-  private handleControlClick = (event: MouseEvent): void => {
-    const target = event.target;
+  private handleActionButtonClick = (event: MouseEvent): void => {
+    const button = event.currentTarget;
 
-    if (!(target instanceof HTMLElement)) {
-      return;
-    }
-
-    const button = target.closest<HTMLButtonElement>('[data-control]');
-
-    if (!button) {
+    if (!(button instanceof HTMLButtonElement)) {
       return;
     }
 
     const action = button.dataset.control;
 
-    if (!action) {
+    if (action) {
+      this.applyControlAction(action);
+    }
+  };
+
+  private handleRendererButtonClick = (event: MouseEvent): void => {
+    const button = event.currentTarget;
+
+    if (!(button instanceof HTMLButtonElement)) {
       return;
     }
 
-    this.applyControlAction(action);
+    const mode = button.dataset.rendererMode;
+
+    if (isRendererMode(mode)) {
+      this.setRendererMode(mode);
+    }
   };
 
+  private setRendererMode(mode: RendererMode): void {
+    if (!this.text || mode === this.rendererMode || document.body.dataset.benchmarkState === 'running') {
+      return;
+    }
+
+    this.rendererMode = mode;
+    this.text.setMode(mode);
+    this.benchmarkSummary = null;
+    document.body.dataset.benchmarkError = '';
+    document.body.dataset.benchmarkState = this.config.benchmarkEnabled ? 'pending' : 'disabled';
+    syncRendererQueryParam(mode);
+    this.updateRendererButtons();
+    this.updateStatus();
+  }
+
+  private updateRendererButtons(): void {
+    const buttons = this.elements.controls.querySelectorAll<HTMLButtonElement>('[data-renderer-mode]');
+
+    for (const button of buttons) {
+      const isActive = button.dataset.rendererMode === this.rendererMode;
+      button.dataset.active = String(isActive);
+      button.setAttribute('aria-pressed', String(isActive));
+    }
+  }
+
   private installInteractionHandlers(): void {
-    this.elements.controls.addEventListener('click', this.handleControlClick);
+    this.actionButtons.push(
+      ...this.elements.controls.querySelectorAll<HTMLButtonElement>('[data-control]'),
+    );
+    this.rendererButtons.push(
+      ...this.elements.controls.querySelectorAll<HTMLButtonElement>('[data-renderer-mode]'),
+    );
+
+    for (const button of this.actionButtons) {
+      button.addEventListener('click', this.handleActionButtonClick);
+    }
+
+    for (const button of this.rendererButtons) {
+      button.addEventListener('click', this.handleRendererButtonClick);
+    }
   }
 
   private removeInteractionHandlers(): void {
-    this.elements.controls.removeEventListener('click', this.handleControlClick);
+    for (const button of this.actionButtons) {
+      button.removeEventListener('click', this.handleActionButtonClick);
+    }
+
+    for (const button of this.rendererButtons) {
+      button.removeEventListener('click', this.handleRendererButtonClick);
+    }
+
+    this.actionButtons.length = 0;
+    this.rendererButtons.length = 0;
   }
 
   private async runBenchmark(): Promise<void> {
@@ -389,8 +475,9 @@ class WebGPUShell {
 
     this.benchmarkStarted = true;
     document.body.dataset.benchmarkState = 'running';
+    document.body.dataset.benchmarkError = '';
     console.info(
-      `Starting benchmark dataset=${this.config.datasetName} labels=${this.config.labels.length}`,
+      `Starting benchmark renderer=${this.rendererMode} dataset=${this.config.datasetName} labels=${this.config.labels.length}`,
     );
 
     try {
@@ -414,14 +501,20 @@ class WebGPUShell {
       const textStats = this.text.getStats();
 
       this.benchmarkSummary = {
+        bytesUploadedPerFrame: textStats.bytesUploadedPerFrame,
         cpuDrawAvgMs: perf.cpuDrawAvgMs,
         cpuFrameAvgMs: perf.cpuFrameAvgMs,
         cpuFrameSamples: perf.cpuFrameSamples,
         cpuTextAvgMs: perf.cpuTextAvgMs,
+        glyphCount: textStats.glyphCount,
         gpuFrameAvgMs: perf.gpuFrameAvgMs,
         gpuFrameSamples: perf.gpuFrameSamples,
         gpuSupported: perf.gpuSupported,
         labelCount: textStats.labelCount,
+        rendererMode: this.rendererMode,
+        submittedGlyphCount: textStats.submittedGlyphCount,
+        submittedVertexCount: textStats.submittedVertexCount,
+        visibleChunkCount: textStats.visibleChunkCount,
         visibleGlyphCount: textStats.visibleGlyphCount,
         visibleLabelCount: textStats.visibleLabelCount,
       };
@@ -443,15 +536,34 @@ class WebGPUShell {
     document.body.dataset.benchmarkLabelCount = String(this.config.labels.length);
     document.body.dataset.benchmarkGpuTimingEnabled = String(this.config.gpuTimingEnabled);
     document.body.dataset.benchmarkRequestedLabelCount = String(this.config.requestedLabelCount);
+    document.body.dataset.benchmarkDatasetPreset = this.config.datasetPreset;
+    document.body.dataset.benchmarkRendererMode = this.rendererMode;
 
     if (!this.benchmarkSummary) {
+      document.body.dataset.benchmarkBytesUploadedPerFrame = '0';
+      document.body.dataset.benchmarkCpuDrawAvgMs = '0.000';
+      document.body.dataset.benchmarkCpuFrameAvgMs = '0.000';
+      document.body.dataset.benchmarkCpuFrameSamples = '0';
+      document.body.dataset.benchmarkCpuTextAvgMs = '0.000';
+      document.body.dataset.benchmarkGlyphCount = '0';
+      document.body.dataset.benchmarkGpuFrameAvgMs = this.config.gpuTimingEnabled ? 'pending' : 'disabled';
+      document.body.dataset.benchmarkGpuFrameSamples = '0';
+      document.body.dataset.benchmarkGpuSupported = 'false';
+      document.body.dataset.benchmarkSubmittedGlyphCount = '0';
+      document.body.dataset.benchmarkSubmittedVertexCount = '0';
+      document.body.dataset.benchmarkVisibleChunkCount = '0';
+      document.body.dataset.benchmarkVisibleGlyphCount = '0';
+      document.body.dataset.benchmarkVisibleLabelCount = '0';
       return;
     }
 
+    document.body.dataset.benchmarkBytesUploadedPerFrame =
+      String(this.benchmarkSummary.bytesUploadedPerFrame);
     document.body.dataset.benchmarkCpuDrawAvgMs = this.benchmarkSummary.cpuDrawAvgMs.toFixed(3);
     document.body.dataset.benchmarkCpuFrameAvgMs = this.benchmarkSummary.cpuFrameAvgMs.toFixed(3);
     document.body.dataset.benchmarkCpuFrameSamples = String(this.benchmarkSummary.cpuFrameSamples);
     document.body.dataset.benchmarkCpuTextAvgMs = this.benchmarkSummary.cpuTextAvgMs.toFixed(3);
+    document.body.dataset.benchmarkGlyphCount = String(this.benchmarkSummary.glyphCount);
     document.body.dataset.benchmarkGpuFrameAvgMs =
       !this.config.gpuTimingEnabled
         ? 'disabled'
@@ -460,6 +572,9 @@ class WebGPUShell {
         : this.benchmarkSummary.gpuFrameAvgMs.toFixed(3);
     document.body.dataset.benchmarkGpuFrameSamples = String(this.benchmarkSummary.gpuFrameSamples);
     document.body.dataset.benchmarkGpuSupported = String(this.benchmarkSummary.gpuSupported);
+    document.body.dataset.benchmarkSubmittedGlyphCount = String(this.benchmarkSummary.submittedGlyphCount);
+    document.body.dataset.benchmarkSubmittedVertexCount = String(this.benchmarkSummary.submittedVertexCount);
+    document.body.dataset.benchmarkVisibleChunkCount = String(this.benchmarkSummary.visibleChunkCount);
     document.body.dataset.benchmarkVisibleGlyphCount = String(this.benchmarkSummary.visibleGlyphCount);
     document.body.dataset.benchmarkVisibleLabelCount = String(this.benchmarkSummary.visibleLabelCount);
   }
@@ -506,6 +621,12 @@ class WebGPUShell {
     const majorSpacing = gridStats ? formatSpacing(gridStats.majorSpacing) : 'n/a';
     const labelCount = textStats ? textStats.labelCount : 0;
     const glyphCount = textStats ? textStats.glyphCount : 0;
+    const rendererMode = textStats ? textStats.rendererMode : this.rendererMode;
+    const rendererLabel = getRendererModeLabel(rendererMode);
+    const bytesUploadedPerFrame = textStats ? textStats.bytesUploadedPerFrame : 0;
+    const submittedGlyphCount = textStats ? textStats.submittedGlyphCount : 0;
+    const submittedVertexCount = textStats ? textStats.submittedVertexCount : 0;
+    const visibleChunkCount = textStats ? textStats.visibleChunkCount : 0;
     const visibleLabelCount = textStats ? textStats.visibleLabelCount : 0;
     const visibleGlyphCount = textStats ? textStats.visibleGlyphCount : 0;
     const visibleLabels = textStats
@@ -517,12 +638,19 @@ class WebGPUShell {
     document.body.dataset.cameraZoom = snapshot.zoom.toFixed(4);
     document.body.dataset.cameraScale = snapshot.pixelsPerWorldUnit.toFixed(4);
     document.body.dataset.datasetName = this.config.datasetName;
+    document.body.dataset.datasetPreset = this.config.datasetPreset;
     document.body.dataset.datasetLabelCount = String(this.config.labels.length);
     document.body.dataset.gridLineCount = String(lineCount);
     document.body.dataset.gridMinorSpacing = minorSpacing;
     document.body.dataset.gridMajorSpacing = majorSpacing;
+    document.body.dataset.rendererMode = rendererMode;
+    document.body.dataset.rendererLabel = rendererLabel;
+    document.body.dataset.textBytesUploadedPerFrame = String(bytesUploadedPerFrame);
     document.body.dataset.textLabelCount = String(labelCount);
     document.body.dataset.textGlyphCount = String(glyphCount);
+    document.body.dataset.textSubmittedGlyphCount = String(submittedGlyphCount);
+    document.body.dataset.textSubmittedVertexCount = String(submittedVertexCount);
+    document.body.dataset.textVisibleChunkCount = String(visibleChunkCount);
     document.body.dataset.textVisibleLabelCount = String(visibleLabelCount);
     document.body.dataset.textVisibleLabels = visibleLabels;
     document.body.dataset.textVisibleGlyphCount = String(visibleGlyphCount);
@@ -546,6 +674,7 @@ class WebGPUShell {
 
     this.elements.stats.textContent = [
       `dataset ${this.config.datasetName} (${this.config.labels.length} labels)`,
+      `renderer ${rendererLabel}`,
       `center ${snapshot.centerX.toFixed(2)}, ${snapshot.centerY.toFixed(2)}`,
       `zoom ${snapshot.zoom.toFixed(2)}`,
       `scale ${snapshot.pixelsPerWorldUnit.toFixed(1)} px/world`,
@@ -554,9 +683,13 @@ class WebGPUShell {
       textStats
         ? `text ${labelCount} labels / ${visibleLabelCount} visible labels / ${visibleGlyphCount} visible glyphs`
         : 'text 0 labels',
+      textStats && visibleChunkCount > 0 ? `chunks ${visibleChunkCount}` : null,
+      textStats
+        ? `draw ${submittedGlyphCount} glyphs / ${submittedVertexCount} vertices / ${formatBytes(bytesUploadedPerFrame)}`
+        : 'draw 0 glyphs',
       textStats ? `glyphs ${glyphCount}` : 'glyphs 0',
       perf ? formatPerfSummary(perf) : 'perf pending',
-    ].join('  |  ');
+    ].filter(Boolean).join('  |  ');
   }
 
   private async waitForAnimationFrames(count: number): Promise<void> {
@@ -598,7 +731,7 @@ function createShell(root: HTMLElement): ShellElements {
   statusPanel.dataset.testid = 'status-panel';
   statusPanel.innerHTML = `
     <div class="status-eyebrow">Linker / Luma</div>
-    <h1>Camera + Grid</h1>
+    <h1>Text Strategy Lab</h1>
   `;
 
   const detail = document.createElement('p');
@@ -607,26 +740,40 @@ function createShell(root: HTMLElement): ShellElements {
 
   const stats = document.createElement('p');
   stats.className = 'status-stats';
-  stats.textContent = 'center 0.00, 0.00  |  zoom 0.00  |  scale 56.0 px/world  |  grid 0 lines';
+  stats.textContent =
+    'renderer Baseline  |  center 0.00, 0.00  |  zoom 0.00  |  scale 56.0 px/world';
   statusPanel.append(stats);
 
   const controls = document.createElement('div');
   controls.className = 'button-panel';
   controls.dataset.testid = 'button-panel';
   controls.setAttribute('aria-label', 'Button panel');
+  const rendererButtons = RENDERER_MODE_OPTIONS.map(
+    ({mode, label}) =>
+      `<button type="button" class="control-button" data-renderer-mode="${mode}" aria-pressed="false">${label}</button>`,
+  ).join('');
   controls.innerHTML = `
-    <div class="control-row">
-      <button type="button" class="control-button" data-control="zoom-in">Zoom In</button>
-      <button type="button" class="control-button" data-control="zoom-out">Zoom Out</button>
-      <button type="button" class="control-button" data-control="reset-camera">Reset</button>
-    </div>
-    <div class="control-pad" aria-label="Camera pan controls">
-      <button type="button" class="control-button" data-control="pan-up">Up</button>
-      <div class="control-row">
-        <button type="button" class="control-button" data-control="pan-left">Left</button>
-        <button type="button" class="control-button" data-control="pan-right">Right</button>
+    <div class="control-group">
+      <div class="control-label">Renderer</div>
+      <div class="control-row" data-testid="renderer-panel">
+        ${rendererButtons}
       </div>
-      <button type="button" class="control-button" data-control="pan-down">Down</button>
+    </div>
+    <div class="control-group">
+      <div class="control-label">Camera</div>
+      <div class="control-row">
+        <button type="button" class="control-button" data-control="zoom-in">Zoom In</button>
+        <button type="button" class="control-button" data-control="zoom-out">Zoom Out</button>
+        <button type="button" class="control-button" data-control="reset-camera">Reset</button>
+      </div>
+      <div class="control-pad" aria-label="Camera pan controls">
+        <button type="button" class="control-button" data-control="pan-up">Up</button>
+        <div class="control-row">
+          <button type="button" class="control-button" data-control="pan-left">Left</button>
+          <button type="button" class="control-button" data-control="pan-right">Right</button>
+        </div>
+        <button type="button" class="control-button" data-control="pan-down">Down</button>
+      </div>
     </div>
   `;
 
@@ -666,6 +813,18 @@ function formatMs(value: number): string {
   return `${value.toFixed(2)} ms`;
 }
 
+function formatBytes(value: number): string {
+  if (value >= 1024 * 1024) {
+    return `${(value / (1024 * 1024)).toFixed(2)} MB`;
+  }
+
+  if (value >= 1024) {
+    return `${(value / 1024).toFixed(1)} KB`;
+  }
+
+  return `${value} B`;
+}
+
 function formatSpacing(value: number): string {
   if (value >= 1) {
     return value.toFixed(2);
@@ -702,6 +861,12 @@ function isWebGPUUnavailableError(error: unknown): error is Error {
   return /webgpu|gpu adapter|gpu device|navigator\.gpu/i.test(error.message);
 }
 
+function getRendererModeLabel(rendererMode: RendererMode): string {
+  return (
+    RENDERER_MODE_OPTIONS.find((option) => option.mode === rendererMode)?.label ?? rendererMode
+  );
+}
+
 function parseBoundedInteger(
   input: string | null,
   fallback: number,
@@ -717,15 +882,35 @@ function parseBoundedInteger(
   return Math.min(max, Math.max(min, parsed));
 }
 
+function isRendererMode(value: string | null | undefined): value is RendererMode {
+  return RENDERER_MODES.includes(value as RendererMode);
+}
+
+function parseRendererMode(value: string | null): RendererMode {
+  return isRendererMode(value) ? value : 'baseline';
+}
+
+function syncRendererQueryParam(rendererMode: RendererMode): void {
+  const url = new URL(window.location.href);
+
+  if (rendererMode === 'baseline') {
+    url.searchParams.delete('renderer');
+  } else {
+    url.searchParams.set('renderer', rendererMode);
+  }
+
+  window.history.replaceState({}, '', url.toString());
+}
+
 function readAppConfig(search: string): AppConfig {
   const params = new URLSearchParams(search);
   const datasetName: DatasetName = params.get('dataset') === 'benchmark' ? 'benchmark' : 'demo';
   const requestedLabelCount =
     datasetName === 'benchmark'
-      ? parseBoundedInteger(params.get('labelCount'), DEFAULT_BENCHMARK_LABEL_COUNT, 64, 4096)
+      ? parseBoundedInteger(params.get('labelCount'), DEFAULT_BENCHMARK_LABEL_COUNT, 64, 16384)
       : DEMO_LABELS.length;
   const labels =
-    datasetName === 'benchmark' ? createBenchmarkLabels(requestedLabelCount) : DEMO_LABELS;
+    datasetName === 'benchmark' ? getStaticBenchmarkLabels(requestedLabelCount) : DEMO_LABELS;
 
   return {
     benchmarkActionCount: parseBoundedInteger(
@@ -735,9 +920,11 @@ function readAppConfig(search: string): AppConfig {
       120,
     ),
     benchmarkEnabled: params.get('benchmark') === '1',
+    datasetPreset: datasetName === 'benchmark' ? STATIC_BENCHMARK_DATASET_ID : 'demo-v1',
     datasetName,
     gpuTimingEnabled: params.get('gpuTiming') === '1',
     labels,
     requestedLabelCount,
+    rendererMode: parseRendererMode(params.get('renderer')),
   };
 }

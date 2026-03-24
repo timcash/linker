@@ -1,5 +1,23 @@
 export type RgbaColor = [number, number, number, number];
 
+export const RENDERER_MODES = [
+  'baseline',
+  'instanced',
+  'packed',
+  'visible-index',
+  'chunked',
+] as const;
+
+export type RendererMode = (typeof RENDERER_MODES)[number];
+
+export const RENDERER_MODE_OPTIONS = [
+  {mode: 'baseline', label: 'Baseline'},
+  {mode: 'instanced', label: 'Instanced'},
+  {mode: 'packed', label: 'Packed'},
+  {mode: 'visible-index', label: 'Visible Index'},
+  {mode: 'chunked', label: 'Chunked'},
+] as const satisfies ReadonlyArray<{mode: RendererMode; label: string}>;
+
 export type LabelLocation = {
   x: number;
   y: number;
@@ -62,8 +80,13 @@ export type TextLayout = {
 };
 
 export type TextRendererStats = {
+  bytesUploadedPerFrame: number;
   labelCount: number;
   glyphCount: number;
+  rendererMode: RendererMode;
+  submittedGlyphCount: number;
+  submittedVertexCount: number;
+  visibleChunkCount: number;
   visibleLabelCount: number;
   visibleLabels: string[];
   visibleGlyphCount: number;
