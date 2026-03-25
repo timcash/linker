@@ -2,7 +2,7 @@ import {luma, type Device} from '@luma.gl/core';
 import {Geometry, Model} from '@luma.gl/engine';
 import {webgpuAdapter} from '@luma.gl/webgpu';
 
-import {Camera2D, type ViewportSize} from './camera';
+import {Camera2D, type CameraSnapshot, type ViewportSize} from './camera';
 import {DEMO_LABEL_SET_ID} from './data/demo-meta';
 import {DEMO_LABELS} from './data/labels';
 import {
@@ -95,12 +95,15 @@ type StageConfig = {
   benchmarkTraceStepCount: number;
   benchmarkEnabled: boolean;
   gpuTimingEnabled: boolean;
+  initialCamera: CameraView;
   labelSetKind: LabelSetKind;
   labelSetPreset: string;
   labelTargetCount: number;
   labels: LabelDefinition[];
   textStrategy: TextStrategy;
 };
+
+type CameraView = Pick<CameraSnapshot, 'centerX' | 'centerY' | 'zoom'>;
 
 type StageBenchmarkSummary = {
   bytesUploadedPerFrame: number;
@@ -169,6 +172,11 @@ class LumaStageController {
     private readonly config: StageConfig,
   ) {
     this.textStrategy = config.textStrategy;
+    this.camera.setView(
+      config.initialCamera.centerX,
+      config.initialCamera.centerY,
+      config.initialCamera.zoom,
+    );
   }
 
   async start(): Promise<void> {
@@ -237,6 +245,7 @@ class LumaStageController {
       this.chrome.launchBanner.hidden = true;
       this.chrome.canvas.hidden = false;
       this.setState('ready');
+      syncCameraQueryParams(this.camera.getSnapshot());
       this.updateStatus();
       this.render();
 
@@ -325,6 +334,7 @@ class LumaStageController {
     const viewport = this.getViewportSize();
     const panX = viewport.width * 0.16;
     const panY = viewport.height * 0.16;
+    let cameraChanged = true;
 
     switch (action) {
       case 'pan-up':
@@ -346,12 +356,15 @@ class LumaStageController {
         this.camera.zoomAtScreenPoint(160, getViewportCenter(viewport), viewport);
         break;
       case 'reset-camera':
-        this.camera.centerX = 0;
-        this.camera.centerY = 0;
-        this.camera.zoom = 0;
+        this.camera.reset();
         break;
       default:
+        cameraChanged = false;
         break;
+    }
+
+    if (cameraChanged) {
+      syncCameraQueryParams(this.camera.getSnapshot());
     }
   }
 
@@ -882,15 +895,61 @@ function parseTextStrategy(value: string | null): TextStrategy {
 }
 
 function syncTextStrategyQueryParam(textStrategy: TextStrategy): void {
-  const url = new URL(window.location.href);
+  updateRouteSearchParams((searchParams) => {
+    if (textStrategy === 'baseline') {
+      searchParams.delete('textStrategy');
+    } else {
+      searchParams.set('textStrategy', textStrategy);
+    }
+  });
+}
 
-  if (textStrategy === 'baseline') {
-    url.searchParams.delete('textStrategy');
-  } else {
-    url.searchParams.set('textStrategy', textStrategy);
+function syncCameraQueryParams(camera: CameraView): void {
+  updateRouteSearchParams((searchParams) => {
+    syncCameraNumberQueryParam(searchParams, 'cameraCenterX', camera.centerX);
+    syncCameraNumberQueryParam(searchParams, 'cameraCenterY', camera.centerY);
+    syncCameraNumberQueryParam(searchParams, 'cameraZoom', camera.zoom);
+  });
+}
+
+function syncCameraNumberQueryParam(
+  searchParams: URLSearchParams,
+  key: 'cameraCenterX' | 'cameraCenterY' | 'cameraZoom',
+  value: number,
+): void {
+  const normalizedValue = normalizeCameraQueryNumber(value);
+
+  if (normalizedValue === null) {
+    searchParams.delete(key);
+    return;
+  }
+
+  searchParams.set(key, normalizedValue);
+}
+
+function normalizeCameraQueryNumber(value: number): string | null {
+  if (Math.abs(value) < 0.00005) {
+    return null;
+  }
+
+  return value.toFixed(4).replace(/\.?0+$/u, '');
+}
+
+function updateRouteSearchParams(mutate: (searchParams: URLSearchParams) => void): void {
+  const url = new URL(window.location.href);
+  const previousSearch = url.search;
+  mutate(url.searchParams);
+
+  if (url.search === previousSearch) {
+    return;
   }
 
   window.history.replaceState({}, '', url.toString());
+}
+
+function parseFiniteNumber(input: string | null, fallback: number): number {
+  const parsed = input ? Number(input) : Number.NaN;
+  return Number.isFinite(parsed) ? parsed : fallback;
 }
 
 function readStageConfig(search: string): StageConfig {
@@ -912,6 +971,11 @@ function readStageConfig(search: string): StageConfig {
     ),
     benchmarkEnabled: params.get('benchmark') === '1',
     gpuTimingEnabled: params.get('gpuTiming') === '1',
+    initialCamera: {
+      centerX: parseFiniteNumber(params.get('cameraCenterX'), 0),
+      centerY: parseFiniteNumber(params.get('cameraCenterY'), 0),
+      zoom: parseFiniteNumber(params.get('cameraZoom'), 0),
+    },
     labelSetKind,
     labelSetPreset: labelSetKind === 'benchmark' ? STATIC_BENCHMARK_LABEL_SET_ID : DEMO_LABEL_SET_ID,
     labelTargetCount,

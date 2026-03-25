@@ -1,5 +1,7 @@
 # Linker
 
+![Linker UI](./docs/readme-ui.png)
+
 Linker is a pure `luma.gl` + WebGPU text strategy lab.
 
 The system is easiest to reason about as:
@@ -36,6 +38,7 @@ Canonical public surface:
 
 - use `labelSet=...` to choose the label-set
 - use `textStrategy=...` to choose the text strategy
+- use `cameraCenterX=...`, `cameraCenterY=...`, and `cameraZoom=...` to seed or share the camera view
 - read live label, strategy, and benchmark telemetry from `document.body.dataset`
 
 ## Quick Start
@@ -60,6 +63,7 @@ Useful routes:
 
 - Demo route: `/`
 - Start in a specific text strategy: `/?textStrategy=chunked`
+- Start at a specific camera view: `/?cameraCenterX=1.25&cameraCenterY=-2.5&cameraZoom=0.75`
 - Run a benchmark route: `/?labelSet=benchmark&benchmark=1&gpuTiming=1&textStrategy=visible-index&labelCount=4096&benchmarkFrames=8`
 
 The default UI boots the demo label-set preset `demo-label-set-v1`, which is sourced from `src/data/demo-label-set.csv`.

@@ -50,6 +50,16 @@ export class Camera2D {
     };
   }
 
+  reset(): void {
+    this.setView(0, 0, 0);
+  }
+
+  setView(centerX: number, centerY: number, zoom: number): void {
+    this.centerX = centerX;
+    this.centerY = centerY;
+    this.zoom = clamp(zoom, MIN_ZOOM, MAX_ZOOM);
+  }
+
   panByPixels(deltaX: number, deltaY: number): void {
     const inverseScale = 1 / this.pixelsPerWorldUnit;
     this.centerX -= deltaX * inverseScale;

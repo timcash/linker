@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import {readFile, writeFile} from 'node:fs/promises';
+import {mkdir, readFile, writeFile} from 'node:fs/promises';
 import path from 'node:path';
 import puppeteer, {
   type Browser,
@@ -41,6 +41,12 @@ type CameraState = {
   lineCount: number;
   minorSpacing: number;
   majorSpacing: number;
+};
+
+type CameraQueryState = {
+  centerX: number | null;
+  centerY: number | null;
+  zoom: number | null;
 };
 
 type TextState = {
@@ -102,6 +108,7 @@ type CameraTraceStep = {
 
 const logPath = path.resolve(process.cwd(), 'browser.log');
 const screenshotPath = path.resolve(process.cwd(), 'browser.png');
+const readmeScreenshotPath = path.resolve(process.cwd(), 'docs/readme-ui.png');
 const browserLogLines: string[] = [];
 const ERROR_PING_TOKEN = 'ERROR_PING_TEST';
 const INTENTIONAL_ERROR_MARKER = '[intentional-error-ping]';
@@ -315,6 +322,11 @@ try {
       /LUMA TEXT/,
       'LUMA TEXT should be hidden until the zoom reaches its minimum.',
     );
+    assert.deepEqual(
+      await getCameraQueryState(page),
+      {centerX: null, centerY: null, zoom: null},
+      'Default route should omit camera query params.',
+    );
 
     const readyUiState = await page.evaluate(() => {
       const message = document.querySelector('[data-testid="app-message"]');
@@ -418,6 +430,11 @@ try {
 
     const afterZoomIn = await getCameraState(page);
     assert.ok(afterZoomIn.zoom > initialCamera.zoom, 'Zoom In button should increase zoom.');
+    assertCameraQueryClose(
+      await getCameraQueryState(page),
+      {centerX: null, centerY: null, zoom: afterZoomIn.zoom},
+      'Zoom In should write the current camera zoom into the URL.',
+    );
 
     const textAfterZoomIn = await getTextState(page);
     assert.doesNotMatch(
@@ -440,6 +457,11 @@ try {
 
     const afterZoomOut = await getCameraState(page);
     assert.ok(afterZoomOut.zoom < afterZoomIn.zoom, 'Zoom Out button should decrease zoom.');
+    assertCameraQueryClose(
+      await getCameraQueryState(page),
+      {centerX: null, centerY: null, zoom: null},
+      'Zoom Out should keep the URL camera params aligned with the current view.',
+    );
 
     const textAfterZoomOut = await getTextState(page);
     assert.match(
@@ -460,6 +482,11 @@ try {
       afterPanRight.centerX > afterZoomOut.centerX,
       'Right pan control should move the camera center to the right.',
     );
+    assertCameraQueryClose(
+      await getCameraQueryState(page),
+      {centerX: afterPanRight.centerX, centerY: null, zoom: null},
+      'Pan Right should write the current camera centerX into the URL.',
+    );
 
     await clickControl(page, 'pan-up');
     await page.waitForFunction(
@@ -470,6 +497,11 @@ try {
 
     const afterPanUp = await getCameraState(page);
     assert.ok(afterPanUp.centerY > afterPanRight.centerY, 'Up pan control should increase centerY.');
+    assertCameraQueryClose(
+      await getCameraQueryState(page),
+      {centerX: afterPanUp.centerX, centerY: afterPanUp.centerY, zoom: null},
+      'Pan Up should keep the full camera view synchronized in the URL.',
+    );
 
     await clickControl(page, 'reset-camera');
     await page.waitForFunction(
@@ -483,6 +515,11 @@ try {
     assert.equal(afterReset.centerX, 0, 'Reset control should restore centerX.');
     assert.equal(afterReset.centerY, 0, 'Reset control should restore centerY.');
     assert.equal(afterReset.zoom, 0, 'Reset control should restore zoom.');
+    assert.deepEqual(
+      await getCameraQueryState(page),
+      {centerX: null, centerY: null, zoom: null},
+      'Reset should clear camera query params from the URL.',
+    );
 
     const textAfterReset = await getTextState(page);
     assert.match(
@@ -516,6 +553,29 @@ try {
         Number(document.body.dataset.cameraCenterY) === 0 &&
         Number(document.body.dataset.cameraZoom) === 0,
     );
+
+    const seededCameraUrl = new URL(url);
+    seededCameraUrl.searchParams.set('cameraCenterX', '1.25');
+    seededCameraUrl.searchParams.set('cameraCenterY', '-2.5');
+    seededCameraUrl.searchParams.set('cameraZoom', '0.75');
+
+    await page.goto(seededCameraUrl.toString(), {waitUntil: 'networkidle0'});
+    await waitForAppDatasets(page);
+
+    const seededCamera = await getCameraState(page);
+    assertCameraStateClose(
+      seededCamera,
+      {centerX: 1.25, centerY: -2.5, zoom: 0.75},
+      'Camera query params should seed the initial camera view.',
+    );
+    assertCameraQueryClose(
+      await getCameraQueryState(page),
+      {centerX: seededCamera.centerX, centerY: seededCamera.centerY, zoom: seededCamera.zoom},
+      'Seeded camera routes should preserve the current camera view in the URL.',
+    );
+
+    await page.goto(url, {waitUntil: 'networkidle0'});
+    await waitForAppDatasets(page);
 
     const baselineCamera = await getCameraState(page);
 
@@ -1004,11 +1064,19 @@ try {
 } finally {
   if (page) {
     try {
-      await page.screenshot({
-        path: screenshotPath,
+      await mkdir(path.dirname(readmeScreenshotPath), {recursive: true});
+      const screenshot = await page.screenshot({
         fullPage: true,
       });
-      addBrowserLog('artifact', `Saved screenshot to ${screenshotPath}`);
+
+      await Promise.all([
+        writeFile(screenshotPath, screenshot),
+        writeFile(readmeScreenshotPath, screenshot),
+      ]);
+      addBrowserLog(
+        'artifact',
+        `Saved screenshots to ${screenshotPath} and ${readmeScreenshotPath}`,
+      );
     } catch (error) {
       addBrowserLog(
         'artifact.error',
@@ -1043,6 +1111,24 @@ async function getCameraState(page: Page): Promise<CameraState> {
     minorSpacing: Number(document.body.dataset.gridMinorSpacing ?? '0'),
     majorSpacing: Number(document.body.dataset.gridMajorSpacing ?? '0'),
   }));
+}
+
+async function getCameraQueryState(page: Page): Promise<CameraQueryState> {
+  return page.evaluate(() => {
+    const url = new URL(window.location.href);
+    const centerXValue = url.searchParams.get('cameraCenterX');
+    const centerYValue = url.searchParams.get('cameraCenterY');
+    const zoomValue = url.searchParams.get('cameraZoom');
+    const centerX = centerXValue === null ? null : Number(centerXValue);
+    const centerY = centerYValue === null ? null : Number(centerYValue);
+    const zoom = zoomValue === null ? null : Number(zoomValue);
+
+    return {
+      centerX: Number.isFinite(centerX) ? centerX : null,
+      centerY: Number.isFinite(centerY) ? centerY : null,
+      zoom: Number.isFinite(zoom) ? zoom : null,
+    };
+  });
 }
 
 async function getTextState(page: Page): Promise<TextState> {
@@ -1571,6 +1657,50 @@ function assertZoomSweepTransitions(
   assert.ok(
     hasDecrease,
     `${textStrategy} sweep should hide visible glyphs at some point while zooming.`,
+  );
+}
+
+function assertCameraStateClose(
+  actual: Pick<CameraState, 'centerX' | 'centerY' | 'zoom'>,
+  expected: Pick<CameraState, 'centerX' | 'centerY' | 'zoom'>,
+  message: string,
+): void {
+  const centerXTolerance = Math.abs(actual.centerX - expected.centerX);
+  const centerYTolerance = Math.abs(actual.centerY - expected.centerY);
+  const zoomTolerance = Math.abs(actual.zoom - expected.zoom);
+
+  assert.ok(
+    centerXTolerance <= 0.0001 &&
+      centerYTolerance <= 0.0001 &&
+      zoomTolerance <= 0.0001,
+    `${message} actual=(${actual.centerX.toFixed(4)}, ${actual.centerY.toFixed(4)}, ${actual.zoom.toFixed(4)}) expected=(${expected.centerX.toFixed(4)}, ${expected.centerY.toFixed(4)}, ${expected.zoom.toFixed(4)})`,
+  );
+}
+
+function assertCameraQueryClose(
+  actual: CameraQueryState,
+  expected: CameraQueryState,
+  message: string,
+): void {
+  assertCameraQueryValueClose(actual.centerX, expected.centerX, `${message} centerX`);
+  assertCameraQueryValueClose(actual.centerY, expected.centerY, `${message} centerY`);
+  assertCameraQueryValueClose(actual.zoom, expected.zoom, `${message} zoom`);
+}
+
+function assertCameraQueryValueClose(
+  actual: number | null,
+  expected: number | null,
+  message: string,
+): void {
+  if (expected === null) {
+    assert.equal(actual, null, message);
+    return;
+  }
+
+  assert.notEqual(actual, null, message);
+  assert.ok(
+    Math.abs((actual ?? 0) - expected) <= 0.0001,
+    `${message} actual=${actual ?? 'null'} expected=${expected.toFixed(4)}`,
   );
 }
 
