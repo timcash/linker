@@ -9,6 +9,8 @@ export const RENDERER_MODES = [
 ] as const;
 
 export type RendererMode = (typeof RENDERER_MODES)[number];
+export type TextStrategy = RendererMode;
+export const TEXT_STRATEGIES = RENDERER_MODES;
 
 export const RENDERER_MODE_OPTIONS = [
   {mode: 'baseline', label: 'Baseline'},
@@ -17,6 +19,7 @@ export const RENDERER_MODE_OPTIONS = [
   {mode: 'visible-index', label: 'Visible Index'},
   {mode: 'chunked', label: 'Chunked'},
 ] as const satisfies ReadonlyArray<{mode: RendererMode; label: string}>;
+export const TEXT_STRATEGY_OPTIONS = RENDERER_MODE_OPTIONS;
 
 export type LabelLocation = {
   x: number;

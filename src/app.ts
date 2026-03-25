@@ -3,6 +3,7 @@ import {Geometry, Model} from '@luma.gl/engine';
 import {webgpuAdapter} from '@luma.gl/webgpu';
 
 import {Camera2D, type ViewportSize} from './camera';
+import {DEMO_DATASET_ID} from './data/demo-meta';
 import {DEMO_LABELS} from './data/labels';
 import {
   DEFAULT_BENCHMARK_LABEL_COUNT,
@@ -17,6 +18,7 @@ import {
   RENDERER_MODE_OPTIONS,
   type LabelDefinition,
   type RendererMode,
+  type TextStrategy,
 } from './text/types';
 
 const SHELL_SHADER = /* wgsl */ `
@@ -65,41 +67,16 @@ const QUAD_UVS = new Float32Array([
   1, 1,
 ]);
 
-const DEFAULT_BENCHMARK_ACTION_COUNT = 33;
-const BENCHMARK_ACTION_SEQUENCE: ControlAction[] = [
-  'zoom-out',
-  'zoom-out',
+const DEFAULT_BENCHMARK_TRACE_STEP_COUNT = 8;
+const BENCHMARK_CAMERA_TRACE: ControlAction[] = [
   'zoom-out',
   'zoom-out',
   'pan-right',
   'pan-up',
   'zoom-in',
   'zoom-in',
-  'zoom-in',
-  'zoom-in',
   'pan-left',
   'pan-down',
-  'zoom-in',
-  'zoom-in',
-  'zoom-in',
-  'zoom-in',
-  'zoom-in',
-  'zoom-in',
-  'pan-right',
-  'pan-up',
-  'zoom-in',
-  'zoom-in',
-  'pan-left',
-  'pan-down',
-  'zoom-out',
-  'zoom-out',
-  'zoom-out',
-  'zoom-out',
-  'zoom-out',
-  'zoom-out',
-  'zoom-out',
-  'zoom-out',
-  'reset-camera',
 ];
 
 type AppState = 'loading' | 'ready' | 'unsupported' | 'error';
@@ -116,7 +93,7 @@ type ControlAction =
 type DatasetName = 'demo' | 'benchmark';
 
 type AppConfig = {
-  benchmarkActionCount: number;
+  benchmarkTraceStepCount: number;
   benchmarkEnabled: boolean;
   datasetPreset: string;
   datasetName: DatasetName;
@@ -146,10 +123,12 @@ type BenchmarkSummary = {
 };
 
 type ShellElements = {
+  cameraPanel: HTMLElement;
   canvas: HTMLCanvasElement;
-  controls: HTMLDivElement;
   detail: HTMLParagraphElement;
+  detailsPanel: HTMLElement;
   message: HTMLDivElement;
+  renderPanel: HTMLElement;
   shell: HTMLDivElement;
   statusPanel: HTMLElement;
   stats: HTMLParagraphElement;
@@ -182,7 +161,7 @@ class WebGPUShell {
   private text: TextRenderer | null = null;
   private readonly camera = new Camera2D();
   private readonly actionButtons: HTMLButtonElement[] = [];
-  private readonly rendererButtons: HTMLButtonElement[] = [];
+  private readonly strategyButtons: HTMLButtonElement[] = [];
   private destroyed = false;
   private rendererMode: RendererMode;
 
@@ -252,9 +231,10 @@ class WebGPUShell {
       this.text = new TextRenderer(this.device, this.config.labels, this.rendererMode);
       await this.text.ready;
       this.installInteractionHandlers();
-      this.updateRendererButtons();
+      this.updateTextStrategyButtons();
 
-      this.elements.detail.hidden = true;
+      this.elements.detail.textContent =
+        'Text strategies compare upload and submission paths. Camera input stays button-only so zoom traces and benchmarks remain deterministic.';
       this.elements.message.hidden = true;
       this.elements.canvas.hidden = false;
       this.setState('ready');
@@ -399,7 +379,7 @@ class WebGPUShell {
     }
   };
 
-  private handleRendererButtonClick = (event: MouseEvent): void => {
+  private handleStrategyButtonClick = (event: MouseEvent): void => {
     const button = event.currentTarget;
 
     if (!(button instanceof HTMLButtonElement)) {
@@ -409,11 +389,11 @@ class WebGPUShell {
     const mode = button.dataset.rendererMode;
 
     if (isRendererMode(mode)) {
-      this.setRendererMode(mode);
+      this.setTextStrategy(mode);
     }
   };
 
-  private setRendererMode(mode: RendererMode): void {
+  private setTextStrategy(mode: TextStrategy): void {
     if (!this.text || mode === this.rendererMode || document.body.dataset.benchmarkState === 'running') {
       return;
     }
@@ -424,12 +404,12 @@ class WebGPUShell {
     document.body.dataset.benchmarkError = '';
     document.body.dataset.benchmarkState = this.config.benchmarkEnabled ? 'pending' : 'disabled';
     syncRendererQueryParam(mode);
-    this.updateRendererButtons();
+    this.updateTextStrategyButtons();
     this.updateStatus();
   }
 
-  private updateRendererButtons(): void {
-    const buttons = this.elements.controls.querySelectorAll<HTMLButtonElement>('[data-renderer-mode]');
+  private updateTextStrategyButtons(): void {
+    const buttons = this.elements.renderPanel.querySelectorAll<HTMLButtonElement>('[data-renderer-mode]');
 
     for (const button of buttons) {
       const isActive = button.dataset.rendererMode === this.rendererMode;
@@ -440,18 +420,18 @@ class WebGPUShell {
 
   private installInteractionHandlers(): void {
     this.actionButtons.push(
-      ...this.elements.controls.querySelectorAll<HTMLButtonElement>('[data-control]'),
+      ...this.elements.cameraPanel.querySelectorAll<HTMLButtonElement>('[data-control]'),
     );
-    this.rendererButtons.push(
-      ...this.elements.controls.querySelectorAll<HTMLButtonElement>('[data-renderer-mode]'),
+    this.strategyButtons.push(
+      ...this.elements.renderPanel.querySelectorAll<HTMLButtonElement>('[data-renderer-mode]'),
     );
 
     for (const button of this.actionButtons) {
       button.addEventListener('click', this.handleActionButtonClick);
     }
 
-    for (const button of this.rendererButtons) {
-      button.addEventListener('click', this.handleRendererButtonClick);
+    for (const button of this.strategyButtons) {
+      button.addEventListener('click', this.handleStrategyButtonClick);
     }
   }
 
@@ -460,12 +440,12 @@ class WebGPUShell {
       button.removeEventListener('click', this.handleActionButtonClick);
     }
 
-    for (const button of this.rendererButtons) {
-      button.removeEventListener('click', this.handleRendererButtonClick);
+    for (const button of this.strategyButtons) {
+      button.removeEventListener('click', this.handleStrategyButtonClick);
     }
 
     this.actionButtons.length = 0;
-    this.rendererButtons.length = 0;
+    this.strategyButtons.length = 0;
   }
 
   private async runBenchmark(): Promise<void> {
@@ -487,9 +467,9 @@ class WebGPUShell {
       this.applyControlAction('reset-camera');
       await this.waitForAnimationFrames(2);
 
-      const actionSequence = buildBenchmarkActionSequence(this.config.benchmarkActionCount);
+      const cameraTrace = buildBenchmarkCameraTrace(this.config.benchmarkTraceStepCount);
 
-      for (const action of actionSequence) {
+      for (const action of cameraTrace) {
         this.applyControlAction(action);
         await this.waitForAnimationFrames(1);
       }
@@ -674,7 +654,7 @@ class WebGPUShell {
 
     this.elements.stats.textContent = [
       `dataset ${this.config.datasetName} (${this.config.labels.length} labels)`,
-      `renderer ${rendererLabel}`,
+      `strategy ${rendererLabel}`,
       `center ${snapshot.centerX.toFixed(2)}, ${snapshot.centerY.toFixed(2)}`,
       `zoom ${snapshot.zoom.toFixed(2)}`,
       `scale ${snapshot.pixelsPerWorldUnit.toFixed(1)} px/world`,
@@ -705,12 +685,12 @@ class WebGPUShell {
   }
 }
 
-function buildBenchmarkActionSequence(actionCount: number): ControlAction[] {
-  const safeCount = Math.max(1, actionCount);
+function buildBenchmarkCameraTrace(stepCount: number): ControlAction[] {
+  const safeCount = Math.max(1, stepCount);
   const actions: ControlAction[] = [];
 
   for (let index = 0; index < safeCount; index += 1) {
-    actions.push(BENCHMARK_ACTION_SEQUENCE[index % BENCHMARK_ACTION_SEQUENCE.length]);
+    actions.push(BENCHMARK_CAMERA_TRACE[index % BENCHMARK_CAMERA_TRACE.length]);
   }
 
   return actions;
@@ -734,61 +714,71 @@ function createShell(root: HTMLElement): ShellElements {
     <h1>Text Strategy Lab</h1>
   `;
 
-  const detail = document.createElement('p');
-  detail.textContent = 'Checking browser WebGPU support and creating the luma.gl device.';
-  statusPanel.append(detail);
-
   const stats = document.createElement('p');
   stats.className = 'status-stats';
   stats.textContent =
-    'renderer Baseline  |  center 0.00, 0.00  |  zoom 0.00  |  scale 56.0 px/world';
+    'strategy Baseline  |  center 0.00, 0.00  |  zoom 0.00  |  scale 56.0 px/world';
   statusPanel.append(stats);
 
-  const controls = document.createElement('div');
-  controls.className = 'button-panel';
-  controls.dataset.testid = 'button-panel';
-  controls.setAttribute('aria-label', 'Button panel');
-  const rendererButtons = RENDERER_MODE_OPTIONS.map(
+  const strategyButtonsMarkup = RENDERER_MODE_OPTIONS.map(
     ({mode, label}) =>
       `<button type="button" class="control-button" data-renderer-mode="${mode}" aria-pressed="false">${label}</button>`,
   ).join('');
-  controls.innerHTML = `
-    <div class="control-group">
-      <div class="control-label">Renderer</div>
-      <div class="control-row" data-testid="renderer-panel">
-        ${rendererButtons}
-      </div>
-    </div>
-    <div class="control-group">
-      <div class="control-label">Camera</div>
-      <div class="control-row">
-        <button type="button" class="control-button" data-control="zoom-in">Zoom In</button>
-        <button type="button" class="control-button" data-control="zoom-out">Zoom Out</button>
-        <button type="button" class="control-button" data-control="reset-camera">Reset</button>
-      </div>
-      <div class="control-pad" aria-label="Camera pan controls">
-        <button type="button" class="control-button" data-control="pan-up">Up</button>
-        <div class="control-row">
-          <button type="button" class="control-button" data-control="pan-left">Left</button>
-          <button type="button" class="control-button" data-control="pan-right">Right</button>
-        </div>
-        <button type="button" class="control-button" data-control="pan-down">Down</button>
-      </div>
-    </div>
-  `;
+
+  const detailsPanel = document.createElement('aside');
+  detailsPanel.className = 'details-panel';
+  detailsPanel.dataset.testid = 'details-panel';
+
+  const detailLabel = document.createElement('div');
+  detailLabel.className = 'panel-label';
+  detailLabel.textContent = 'Details';
+  detailsPanel.append(detailLabel);
 
   const message = document.createElement('div');
   message.className = 'center-message';
   message.dataset.testid = 'app-message';
   message.innerHTML = `
     <strong>Preparing WebGPU</strong>
-    <p>Initializing a luma.gl device and fullscreen canvas.</p>
+    <p>Initializing a luma-stage and fullscreen WebGPU canvas.</p>
   `;
 
-  shell.append(canvas, statusPanel, controls, message);
+  const detail = document.createElement('p');
+  detail.className = 'details-copy';
+  detail.textContent = 'Checking browser WebGPU support and creating the luma.gl device.';
+  detailsPanel.append(detail);
+
+  const renderPanel = document.createElement('aside');
+  renderPanel.className = 'render-panel';
+  renderPanel.dataset.testid = 'render-panel';
+  renderPanel.setAttribute('aria-label', 'Render panel');
+  renderPanel.innerHTML = `
+    <div class="panel-label">Text Strategy</div>
+    <div class="control-row" data-testid="renderer-panel">
+      ${strategyButtonsMarkup}
+    </div>
+  `;
+
+  const cameraPanel = document.createElement('aside');
+  cameraPanel.className = 'camera-panel';
+  cameraPanel.dataset.testid = 'camera-panel';
+  cameraPanel.setAttribute('aria-label', 'Camera panel');
+  cameraPanel.innerHTML = `
+    <div class="panel-label">Camera</div>
+    <div class="camera-grid" aria-label="Camera controls">
+      <button type="button" class="control-button" data-control="zoom-in">Zoom In</button>
+      <button type="button" class="control-button" data-control="zoom-out">Zoom Out</button>
+      <button type="button" class="control-button" data-control="reset-camera">Reset</button>
+      <button type="button" class="control-button" data-control="pan-up">Up</button>
+      <button type="button" class="control-button" data-control="pan-left">Left</button>
+      <button type="button" class="control-button" data-control="pan-down">Down</button>
+      <button type="button" class="control-button" data-control="pan-right">Right</button>
+    </div>
+  `;
+
+  shell.append(canvas, statusPanel, detailsPanel, renderPanel, cameraPanel, message);
   root.replaceChildren(shell);
 
-  return {canvas, controls, detail, message, shell, statusPanel, stats};
+  return {cameraPanel, canvas, detail, detailsPanel, message, renderPanel, shell, statusPanel, stats};
 }
 
 function escapeHtml(input: string): string {
@@ -913,14 +903,14 @@ function readAppConfig(search: string): AppConfig {
     datasetName === 'benchmark' ? getStaticBenchmarkLabels(requestedLabelCount) : DEMO_LABELS;
 
   return {
-    benchmarkActionCount: parseBoundedInteger(
+    benchmarkTraceStepCount: parseBoundedInteger(
       params.get('benchmarkFrames'),
-      DEFAULT_BENCHMARK_ACTION_COUNT,
+      DEFAULT_BENCHMARK_TRACE_STEP_COUNT,
       8,
       120,
     ),
     benchmarkEnabled: params.get('benchmark') === '1',
-    datasetPreset: datasetName === 'benchmark' ? STATIC_BENCHMARK_DATASET_ID : 'demo-v1',
+    datasetPreset: datasetName === 'benchmark' ? STATIC_BENCHMARK_DATASET_ID : DEMO_DATASET_ID,
     datasetName,
     gpuTimingEnabled: params.get('gpuTiming') === '1',
     labels,

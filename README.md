@@ -1,6 +1,44 @@
 # Linker
 
-Minimal Vite + TypeScript app for a pure `luma.gl` + WebGPU text-rendering prototype.
+Linker is a pure `luma.gl` + WebGPU text strategy lab.
+
+The system is easiest to reason about as:
+
+- one fullscreen `luma-stage`
+- one `stage-canvas`
+- one `grid-layer`
+- one `text-layer`
+- several explicit `text-strategy` paths
+- deterministic `label-set` inputs
+- deterministic `camera-trace` tests
+- measurable `frame-telemetry`
+
+`PLAN.md` is the agent-oriented workflow document for this repo. This README uses the preferred domain language from that file, even where some code still has older names like `rendererMode`.
+
+## Domain Language
+
+Use these words consistently when describing the system:
+
+- `luma-stage`
+  The fullscreen runtime surface that owns the canvas, panels, and render loop.
+- `stage-canvas`
+  The fullscreen WebGPU canvas behind the UI.
+- `text-layer`
+  The atlas-backed label rendering layer.
+- `text-strategy`
+  A selectable text rendering path such as `baseline` or `chunked`.
+- `label-set`
+  A deterministic collection of labels used by the text layer.
+- `camera-trace`
+  A deterministic zoom and pan script used by tests and benchmarks.
+- `frame-telemetry`
+  CPU, GPU, upload, visibility, and submission metrics for the current frame or benchmark run.
+
+Legacy naming that still exists in code:
+
+- the route query param is still `renderer=...`, but it selects a `text-strategy`
+- some code still uses `rendererMode`, but the preferred concept name is `text-strategy`
+- the route query param `dataset=...` maps to a `label-set`
 
 ## Quick Start
 
@@ -20,117 +58,153 @@ Open:
 
 `http://127.0.0.1:5173/`
 
-## Commands
+Useful routes:
+
+- Demo route: `/`
+- Start in a specific text strategy: `/?renderer=chunked`
+- Run a benchmark route: `/?dataset=benchmark&benchmark=1&gpuTiming=1&renderer=visible-index&labelCount=4096&benchmarkFrames=8`
+
+The default UI boots the demo label set preset `demo-csv-v1`, which is sourced from `src/data/demo-label-set.csv`.
+
+## Terminal Commands
 
 - `npm run dev -- --host 127.0.0.1`
-  Starts the Vite dev server on `127.0.0.1:5173`.
+  Starts Vite on `127.0.0.1:5173`.
 - `npm run lint`
-  Runs ESLint.
+  Runs ESLint across the repo.
 - `npm run build`
-  Runs TypeScript and builds the production bundle.
+  Runs TypeScript and produces the Vite production build.
+- `npm run preview`
+  Serves the production build locally.
 - `npm test`
-  Runs lint first, then runs the headed Chrome browser test.
+  Runs `lint` first, then launches the headed Chrome WebGPU test suite.
 
-## Required Workflow
+## UI Panels
 
-Use this workflow after every code change:
+The page uses a fullscreen CSS grid with the `stage-canvas` filling the viewport behind the UI.
 
-1. Start or reuse the dev server: `npm run dev -- --host 127.0.0.1`
-2. Make the change.
-3. Run `npm run lint`
-4. Run `npm run build`
-5. Run `npm test`
-6. Inspect `browser.log` and `browser.png`
+- `status-panel`
+  Top-left. Shows live app state, camera state, grid counts, visible label counts, upload size, and current frame telemetry.
+- `details-panel`
+  Top-right. Holds the current operator-facing explanation of what the stage is testing.
+- `render-panel`
+  Bottom-left. Contains the text strategy buttons used to switch the active text path.
+- `camera-panel`
+  Bottom-right. Contains the deterministic pan, zoom, and reset button grid.
+- `stage-canvas`
+  Fullscreen WebGPU canvas rendered behind all panels.
 
-Important notes:
+Current panel layout:
 
-- Do not stop after `lint`.
-- If `package.json` changes, restart any long-running Vite dev server so optimized deps are rebuilt.
-- `npm test` launches a headed `Google Chrome` instance.
-- `browser.log` is reset at the start of every test run.
-- A passing run intentionally includes `ERROR_PING_TEST` in `browser.log`.
+- top-left = `status-panel`
+- top-right = `details-panel`
+- bottom-left = `render-panel`
+- bottom-right = `camera-panel`
 
-## What `npm test` Does
+## Render Strategies
 
-The browser test:
+The code still uses the query param name `renderer`, but conceptually each option is a `text-strategy`.
 
-- starts its own Vite server on `127.0.0.1:4173`
-- launches headed Chrome with WebGPU enabled
-- verifies the app reaches `ready` or `unsupported`
-- verifies the button-only camera controls
-- verifies renderer-mode buttons for `baseline`, `instanced`, `packed`, `visible-index`, and `chunked`
-- verifies label visibility changes with zoom for every renderer mode
-- verifies the benchmark routes report the shared static dataset preset `static-benchmark-v2`
-- creates an intentional browser error ping and checks that it is written to `browser.log`
-- runs a large-scale 4096-label zoom sweep for every renderer mode, including hidden and visible phases
-- runs benchmark routes for every renderer mode at `1024`, `4096`, and `16384` labels
-- writes `browser.log`
-- saves `browser.png`
+- `baseline`
+  Correctness reference. CPU filters visible glyphs and expands them into full triangle-list vertex data every frame.
+- `instanced`
+  CPU still filters visible glyphs, but uploads visible glyph instances instead of expanded triangles.
+- `packed`
+  Uploads packed glyph records once and only updates camera uniforms, but still submits the full packed glyph set every frame.
+- `visible-index`
+  Uploads glyph records once, then uploads only the current visible glyph index list for drawing.
+- `chunked`
+  Uses the visible-index draw path plus a `chunk-index` to reduce CPU visibility work.
 
-Benchmark route template used by the test:
+Practical guidance:
 
-`/?dataset=benchmark&benchmark=1&gpuTiming=1&renderer=<baseline|instanced|packed|visible-index|chunked>&labelCount=<1024|4096|16384>&benchmarkFrames=40`
+- use `baseline` when checking correctness first
+- use `instanced` as the simple improvement over baseline uploads
+- use `visible-index` when comparing indexed submission behavior
+- use `chunked` when testing the current best CPU-side visibility path
+- use `packed` when isolating the cost of near-zero per-frame upload with full-set submission
 
-Representative benchmark results from the latest passing run:
+## Testing
 
-- `1024 labels`: `baseline cpuFrame=3.332ms gpu=2.646ms uploaded=886272B`, `instanced cpuFrame=2.589ms gpu=2.021ms uploaded=221584B`, `visible-index cpuFrame=1.934ms gpu=2.258ms uploaded=18496B`, `chunked cpuFrame=1.884ms gpu=2.384ms uploaded=18496B`, `packed cpuFrame=1.807ms gpu=2.251ms uploaded=32B`
-- `4096 labels`: `baseline cpuFrame=5.386ms gpu=3.066ms uploaded=1818048B`, `instanced cpuFrame=3.909ms gpu=2.250ms uploaded=454528B`, `visible-index cpuFrame=3.666ms gpu=2.767ms uploaded=37908B`, `chunked cpuFrame=1.982ms gpu=2.841ms uploaded=37908B`, `packed cpuFrame=2.975ms gpu=3.056ms uploaded=32B`
-- `16384 labels`: `baseline cpuFrame=8.639ms gpu=2.735ms uploaded=1818048B`, `instanced cpuFrame=5.793ms gpu=2.621ms uploaded=454528B`, `visible-index cpuFrame=4.668ms gpu=2.543ms uploaded=37908B`, `chunked cpuFrame=2.543ms gpu=3.030ms uploaded=37908B`, `packed cpuFrame=4.820ms gpu=5.061ms uploaded=32B`
+The repo is intentionally test-heavy for a rendering prototype. `npm test` starts its own Vite server on `127.0.0.1:4173`, launches headed Chrome with WebGPU enabled, and exercises the live stage through deterministic camera traces.
 
-## Current App State
+What the test suite checks:
 
-What exists now:
+- app boot reaches `ready` without unexpected browser errors
+- the `stage-canvas` fills the viewport
+- the four UI panels are present and positioned correctly
+- the default demo route uses the shared preset `demo-csv-v1`
+- all render-panel buttons switch strategies correctly
+- zoom-window visibility behaves correctly for every text strategy
+- each strategy survives a large-scale `4096` label zoom sweep with visible and fully hidden phases
+- benchmark routes use the shared preset `static-benchmark-v2`
+- benchmark summaries are collected for `1024`, `4096`, and `16384` labels
+- `browser.log` and `browser.png` are written on each run
 
-- pure `luma.gl` + WebGPU app
-- fullscreen canvas
-- button-only pan, zoom, and reset controls
-- button-panel renderer switching for `baseline`, `instanced`, `packed`, `visible-index`, and `chunked`
-- CPU-generated world-space grid
-- atlas-backed text labels with explicit comparison modes
-- centered static benchmark dataset `static-benchmark-v2` shared across all benchmark routes
-- visible-glyph index draw path
-- chunked visibility filtering with visible chunk metrics
-- CPU and GPU benchmark metrics exposed through browser datasets and `browser.log`
+Benchmark route template:
 
-What does not exist yet:
+```text
+/?dataset=benchmark&benchmark=1&gpuTiming=1&renderer=<baseline|instanced|packed|visible-index|chunked>&labelCount=<1024|4096|16384>&benchmarkFrames=8
+```
 
-- decluttering
-- accepted-label metrics after declutter
-- SDF/MSDF text
-- GPU-assisted visibility filtering
+The benchmark label set is deterministic. All strategies run against stable prefixes of the same centered static dataset, so the comparisons are meaningful.
 
-## Important Repo Rules
+## Text CSV File Example
 
-- Keep this repo framework-free unless a human explicitly asks otherwise.
-- Do not add `three.js`, `deck.gl`, or `MapLibre` unless explicitly requested.
-- Keep the pure `luma.gl` + WebGPU direction.
-- Do not add a WebGL fallback.
-- Keep `npm run lint`, `npm run build`, and `npm test` passing.
+The demo label set is sourced from `src/data/demo-label-set.csv`.
 
-## Key Files
+The file format is intentionally simple: one text item per line.
+
+```csv
+BUTTON PAN
+WEBGPU LABEL
+LUMA TEXT
+MID DETAIL
+CLOSE READ
+WORLD VIEW
+GRID LAYER
+TEXT LAYER
+TEXT STRATEGY
+FRAME TELEMETRY
+```
+
+Notes:
+
+- empty lines are ignored
+- wrapping single or double quotes are stripped
+- the current demo layout has a fixed number of anchor slots
+- if the CSV has fewer lines than slots, fallback text is used
+- if the CSV has more lines than slots, extra rows are ignored
+
+The parsing and placement logic lives in `src/data/labels.ts`.
+
+## luma.gl Quick Start
+
+If you are new to this repo, start with these files:
 
 - `src/app.ts`
-  App shell, UI panels, benchmark route, and render loop.
+  Boots the `luma-stage`, reads query params, builds the panels, runs the render loop, and exports dataset-based telemetry.
 - `src/camera.ts`
-  2D camera math.
+  Owns the 2D camera model and world-to-screen transforms.
 - `src/grid.ts`
-  CPU-built grid renderer.
-- `src/data/labels.ts`
-  Demo labels.
-- `src/data/static-benchmark.ts`
-  Static benchmark dataset builder with centered prefix ordering.
-- `src/text/atlas.ts`
-  Canvas 2D glyph atlas generation.
-- `src/text/layout.ts`
-  Label-to-glyph layout.
+  Implements the `grid-layer`.
 - `src/text/renderer.ts`
-  Shared atlas resources plus the `baseline`, `instanced`, `packed`, `visible-index`, and `chunked` renderer modes.
+  Implements the `text-layer`, text strategy selection, visibility analysis, and draw submission.
 - `src/perf.ts`
-  CPU and GPU frame timing support.
-- `scripts/test.ts`
-  Headed Chrome browser test.
+  Captures CPU and GPU frame telemetry.
 
-## Version Notes
+Minimal render flow:
 
-- Current verified luma set: `9.3.0-alpha.10`
-- These packages currently require `npm install --legacy-peer-deps`
+1. `startApp` creates the stage chrome and reads the route config.
+2. `luma.createDevice(...)` creates the WebGPU device and binds the `stage-canvas`.
+3. `GridRenderer` and `TextRenderer` are created from the chosen `label-set` and `text-strategy`.
+4. Each frame updates camera-dependent grid and text state.
+5. A render pass draws the background, grid layer, and text layer.
+6. The device submits the frame and `FrameProfiler` updates `frame-telemetry`.
+
+If you want to add another text strategy, the shortest path is:
+
+1. Add the mode to `src/text/types.ts`.
+2. Implement the strategy path in `src/text/renderer.ts`.
+3. Expose the new button in the render panel from `src/app.ts`.
+4. Extend `scripts/test.ts` so the new strategy participates in zoom sweeps and benchmark collection.

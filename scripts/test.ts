@@ -11,11 +11,12 @@ import puppeteer, {
 import {createServer} from 'vite';
 
 import {Camera2D, type ViewportSize} from '../src/camera';
+import {DEMO_DATASET_ID} from '../src/data/demo-meta';
 import {
   STATIC_BENCHMARK_COUNTS,
   STATIC_BENCHMARK_DATASET_ID,
 } from '../src/data/static-benchmark';
-import {RENDERER_MODES, type RendererMode} from '../src/text/types';
+import {RENDERER_MODES, type RendererMode, type TextStrategy} from '../src/text/types';
 
 type ReadyResult = {
   state: 'ready';
@@ -93,11 +94,27 @@ type LargeScaleSweepState = {
   zoom: number;
 };
 
+type CameraTraceStep = {
+  control: string;
+  name: string;
+  repeat: number;
+};
+
 const logPath = path.resolve(process.cwd(), 'browser.log');
 const screenshotPath = path.resolve(process.cwd(), 'browser.png');
 const browserLogLines: string[] = [];
 const ERROR_PING_TOKEN = 'ERROR_PING_TEST';
 const INTENTIONAL_ERROR_MARKER = '[intentional-error-ping]';
+const BROWSER_UPDATE_FRAME_COUNT = 3;
+const BENCHMARK_TRACE_FRAME_COUNT = 8;
+const LARGE_SCALE_CAMERA_TRACE: readonly CameraTraceStep[] = [
+  {name: 'zoom-out-wide', control: 'zoom-out', repeat: 2},
+  {name: 'zoom-in-mid', control: 'zoom-in', repeat: 4},
+  {name: 'zoom-in-detail', control: 'zoom-in', repeat: 5},
+  {name: 'zoom-in-close', control: 'zoom-in', repeat: 5},
+  {name: 'zoom-in-hidden', control: 'zoom-in', repeat: 5},
+  {name: 'zoom-out-recover', control: 'zoom-out', repeat: 5},
+] as const;
 
 await writeFile(logPath, '', 'utf8');
 
@@ -286,7 +303,7 @@ try {
     assert.ok(result.text.labelCount > 0, 'At least one text label should be laid out.');
     assert.ok(result.text.glyphCount > 0, 'At least one text glyph should be generated.');
     assert.equal(result.text.rendererMode, 'baseline', 'Demo route should default to the baseline renderer.');
-    assert.equal(result.text.datasetPreset, 'demo-v1', 'Demo route should report the fixed demo dataset preset.');
+    assert.equal(result.text.datasetPreset, DEMO_DATASET_ID, 'Demo route should report the fixed demo dataset preset.');
     assert.ok(result.text.visibleLabelCount > 0, 'At least one text label should be visible.');
     assert.ok(
       result.text.visibleGlyphCount > 0,
@@ -301,26 +318,40 @@ try {
 
     const readyUiState = await page.evaluate(() => {
       const message = document.querySelector('[data-testid="app-message"]');
-      const controls = document.querySelector('[data-testid="button-panel"]');
+      const cameraPanel = document.querySelector('[data-testid="camera-panel"]');
+      const detailsPanel = document.querySelector('[data-testid="details-panel"]');
+      const renderPanel = document.querySelector('[data-testid="render-panel"]');
       const rendererPanel = document.querySelector('[data-testid="renderer-panel"]');
       const statusPanel = document.querySelector('[data-testid="status-panel"]');
-      const rendererButtons = [...document.querySelectorAll<HTMLButtonElement>('button[data-renderer-mode]')];
-      const controlsRect = controls instanceof HTMLElement ? controls.getBoundingClientRect() : null;
+      const strategyButtons = [...document.querySelectorAll<HTMLButtonElement>('button[data-renderer-mode]')];
+      const cameraRect = cameraPanel instanceof HTMLElement ? cameraPanel.getBoundingClientRect() : null;
+      const detailsRect = detailsPanel instanceof HTMLElement ? detailsPanel.getBoundingClientRect() : null;
+      const renderRect = renderPanel instanceof HTMLElement ? renderPanel.getBoundingClientRect() : null;
       const statusRect = statusPanel instanceof HTMLElement ? statusPanel.getBoundingClientRect() : null;
 
       return {
         messageHiddenProperty: message instanceof HTMLElement ? message.hidden : false,
         messageDisplay: message instanceof HTMLElement ? window.getComputedStyle(message).display : '',
-        controlsVisible:
-          controls instanceof HTMLElement && window.getComputedStyle(controls).display !== 'none',
+        cameraPanelVisible:
+          cameraPanel instanceof HTMLElement &&
+          window.getComputedStyle(cameraPanel).display !== 'none',
+        detailsPanelVisible:
+          detailsPanel instanceof HTMLElement &&
+          window.getComputedStyle(detailsPanel).display !== 'none',
+        renderPanelVisible:
+          renderPanel instanceof HTMLElement && window.getComputedStyle(renderPanel).display !== 'none',
         rendererPanelVisible:
           rendererPanel instanceof HTMLElement &&
           window.getComputedStyle(rendererPanel).display !== 'none',
-        controlsRightGap: controlsRect ? Math.round(window.innerWidth - controlsRect.right) : -1,
-        controlsBottomGap: controlsRect ? Math.round(window.innerHeight - controlsRect.bottom) : -1,
-        rendererButtonModes: rendererButtons.map((button) => button.dataset.rendererMode ?? ''),
+        cameraRightGap: cameraRect ? Math.round(window.innerWidth - cameraRect.right) : -1,
+        cameraBottomGap: cameraRect ? Math.round(window.innerHeight - cameraRect.bottom) : -1,
+        detailsRightGap: detailsRect ? Math.round(window.innerWidth - detailsRect.right) : -1,
+        rendererButtonModes: strategyButtons.map((button) => button.dataset.rendererMode ?? ''),
+        renderLeftGap: renderRect ? Math.round(renderRect.left) : -1,
+        renderBottomGap: renderRect ? Math.round(window.innerHeight - renderRect.bottom) : -1,
         statusLeftGap: statusRect ? Math.round(statusRect.left) : -1,
         statusTopGap: statusRect ? Math.round(statusRect.top) : -1,
+        detailsTopGap: detailsRect ? Math.round(detailsRect.top) : -1,
       };
     });
 
@@ -334,12 +365,14 @@ try {
       'none',
       'Ready state should remove the startup message from layout.',
     );
-    assert.equal(readyUiState.controlsVisible, true, 'Button panel should be visible.');
+    assert.equal(readyUiState.cameraPanelVisible, true, 'Camera panel should be visible.');
+    assert.equal(readyUiState.detailsPanelVisible, true, 'Details panel should be visible.');
+    assert.equal(readyUiState.renderPanelVisible, true, 'Render panel should be visible.');
     assert.equal(readyUiState.rendererPanelVisible, true, 'Renderer panel should be visible.');
     assert.deepEqual(
       readyUiState.rendererButtonModes,
       [...RENDERER_MODES],
-      'Renderer panel should expose a button for every renderer strategy.',
+      'Render panel should expose a button for every text strategy.',
     );
     assert.ok(
       readyUiState.statusLeftGap >= 0 && readyUiState.statusLeftGap <= 32,
@@ -350,12 +383,28 @@ try {
       'Status panel should sit near the top edge.',
     );
     assert.ok(
-      readyUiState.controlsRightGap >= 0 && readyUiState.controlsRightGap <= 32,
-      'Button panel should sit near the right edge.',
+      readyUiState.detailsRightGap >= 0 && readyUiState.detailsRightGap <= 32,
+      'Details panel should sit near the right edge.',
     );
     assert.ok(
-      readyUiState.controlsBottomGap >= 0 && readyUiState.controlsBottomGap <= 32,
-      'Button panel should sit near the bottom edge.',
+      readyUiState.detailsTopGap >= 0 && readyUiState.detailsTopGap <= 32,
+      'Details panel should sit near the top edge.',
+    );
+    assert.ok(
+      readyUiState.renderLeftGap >= 0 && readyUiState.renderLeftGap <= 32,
+      'Render panel should sit near the left edge.',
+    );
+    assert.ok(
+      readyUiState.renderBottomGap >= 0 && readyUiState.renderBottomGap <= 32,
+      'Render panel should sit near the bottom edge.',
+    );
+    assert.ok(
+      readyUiState.cameraRightGap >= 0 && readyUiState.cameraRightGap <= 32,
+      'Camera panel should sit near the right edge.',
+    );
+    assert.ok(
+      readyUiState.cameraBottomGap >= 0 && readyUiState.cameraBottomGap <= 32,
+      'Camera panel should sit near the bottom edge.',
     );
 
     const initialCamera = result.camera;
@@ -589,61 +638,61 @@ try {
       'Pointer drag should not affect zoom when button-only controls are enabled.',
     );
 
-    const demoRendererChecks = new Map<RendererMode, TextState>();
+    const demoStrategyChecks = new Map<RendererMode, TextState>();
 
-    for (const rendererMode of getRendererModes()) {
-      addBrowserLog('test', `Verifying demo renderer mode ${rendererMode}`);
-      await switchRendererMode(page, rendererMode);
-      const demoTextState = await verifyDemoRendererVisibility(page, rendererMode);
-      demoRendererChecks.set(rendererMode, demoTextState);
+    for (const textStrategy of getTextStrategies()) {
+      addBrowserLog('test', `Verifying demo text strategy ${textStrategy}`);
+      await switchTextStrategy(page, textStrategy);
+      const demoTextState = await verifyDemoTextStrategyVisibility(page, textStrategy);
+      demoStrategyChecks.set(textStrategy, demoTextState);
     }
 
     const baselineDemo = getRequiredMapValue(
-      demoRendererChecks,
+      demoStrategyChecks,
       'baseline',
-      'Baseline demo renderer should be verified.',
+      'Baseline demo text strategy should be verified.',
     );
     const instancedDemo = getRequiredMapValue(
-      demoRendererChecks,
+      demoStrategyChecks,
       'instanced',
-      'Instanced demo renderer should be verified.',
+      'Instanced demo text strategy should be verified.',
     );
     const visibleIndexDemo = getRequiredMapValue(
-      demoRendererChecks,
+      demoStrategyChecks,
       'visible-index',
-      'Visible-index demo renderer should be verified.',
+      'Visible-index demo text strategy should be verified.',
     );
     const chunkedDemo = getRequiredMapValue(
-      demoRendererChecks,
+      demoStrategyChecks,
       'chunked',
-      'Chunked demo renderer should be verified.',
+      'Chunked demo text strategy should be verified.',
     );
     const packedDemo = getRequiredMapValue(
-      demoRendererChecks,
+      demoStrategyChecks,
       'packed',
-      'Packed demo renderer should be verified.',
+      'Packed demo text strategy should be verified.',
     );
 
-    for (const rendererMode of getRendererModes()) {
+    for (const textStrategy of getTextStrategies()) {
       const demoState = getRequiredMapValue(
-        demoRendererChecks,
-        rendererMode,
-        `Demo renderer mode ${rendererMode} should be verified.`,
+        demoStrategyChecks,
+        textStrategy,
+        `Demo text strategy ${textStrategy} should be verified.`,
       );
       assert.equal(
         demoState.datasetPreset,
-        'demo-v1',
-        `${rendererMode} demo mode should use the shared demo dataset preset.`,
+        DEMO_DATASET_ID,
+        `${textStrategy} demo mode should use the shared demo dataset preset.`,
       );
       assert.equal(
         demoState.visibleLabelCount,
         baselineDemo.visibleLabelCount,
-        `Demo visibility should match baseline for renderer ${rendererMode}.`,
+        `Demo visibility should match baseline for text strategy ${textStrategy}.`,
       );
       assert.equal(
         demoState.visibleGlyphCount,
         baselineDemo.visibleGlyphCount,
-        `Demo glyph visibility should match baseline for renderer ${rendererMode}.`,
+        `Demo glyph visibility should match baseline for text strategy ${textStrategy}.`,
       );
     }
 
@@ -667,13 +716,13 @@ try {
     const largeScaleLabelCount = STATIC_BENCHMARK_COUNTS[1];
     const largeScaleSweeps = new Map<RendererMode, LargeScaleSweepState[]>();
 
-    for (const rendererMode of getRendererModes()) {
+    for (const textStrategy of getTextStrategies()) {
       addBrowserLog(
         'test',
-        `Running large-scale visibility sweep renderer=${rendererMode} labels=${largeScaleLabelCount}`,
+        `Running large-scale visibility sweep strategy=${textStrategy} labels=${largeScaleLabelCount}`,
       );
-      const sweep = await runLargeScaleRendererSweep(page, url, rendererMode, largeScaleLabelCount);
-      largeScaleSweeps.set(rendererMode, sweep);
+      const sweep = await runLargeScaleTextStrategySweep(page, url, textStrategy, largeScaleLabelCount);
+      largeScaleSweeps.set(textStrategy, sweep);
     }
 
     const baselineSweep = getRequiredMapValue(
@@ -683,18 +732,18 @@ try {
     );
     const sweepTraceNames = baselineSweep.map((state) => state.name);
 
-    for (const rendererMode of getRendererModes()) {
+    for (const textStrategy of getTextStrategies()) {
       const sweep = getRequiredMapValue(
         largeScaleSweeps,
-        rendererMode,
-        `Missing large-scale sweep for renderer ${rendererMode}.`,
+        textStrategy,
+        `Missing large-scale sweep for text strategy ${textStrategy}.`,
       );
       assert.deepEqual(
         sweep.map((state) => state.name),
         sweepTraceNames,
-        `Sweep checkpoints should use the same zoom trace for renderer ${rendererMode}.`,
+        `Sweep checkpoints should use the same zoom trace for text strategy ${textStrategy}.`,
       );
-      assertZoomSweepTransitions(sweep, rendererMode);
+      assertZoomSweepTransitions(sweep, textStrategy);
     }
 
     for (let index = 0; index < sweepTraceNames.length; index += 1) {
@@ -736,12 +785,12 @@ try {
         assert.equal(
           checkpoint.visibleLabelCount,
           baselineCheckpoint.visibleLabelCount,
-          `${checkpointName} visible label counts should match baseline for renderer ${checkpoint.rendererMode}.`,
+          `${checkpointName} visible label counts should match baseline for text strategy ${checkpoint.rendererMode}.`,
         );
         assert.equal(
           checkpoint.visibleGlyphCount,
           baselineCheckpoint.visibleGlyphCount,
-          `${checkpointName} visible glyph counts should match baseline for renderer ${checkpoint.rendererMode}.`,
+          `${checkpointName} visible glyph counts should match baseline for text strategy ${checkpoint.rendererMode}.`,
         );
       }
 
@@ -812,9 +861,9 @@ try {
     const benchmarkLabelCounts = STATIC_BENCHMARK_COUNTS;
 
     for (const labelCount of benchmarkLabelCounts) {
-      for (const rendererMode of getRendererModes()) {
-        const benchmark = await runBenchmarkRoute(page, url, rendererMode, labelCount, pageErrors);
-        benchmarkResults.set(getBenchmarkKey(rendererMode, labelCount), benchmark);
+      for (const textStrategy of getTextStrategies()) {
+        const benchmark = await runBenchmarkRoute(page, url, textStrategy, labelCount, pageErrors);
+        benchmarkResults.set(getBenchmarkKey(textStrategy, labelCount), benchmark);
       }
 
       const baselineBenchmark = getRequiredMapValue(
@@ -843,26 +892,26 @@ try {
         `Missing packed benchmark for labelCount=${labelCount}.`,
       );
 
-      for (const rendererMode of getRendererModes()) {
+      for (const textStrategy of getTextStrategies()) {
         const benchmark = getRequiredMapValue(
           benchmarkResults,
-          getBenchmarkKey(rendererMode, labelCount),
-          `Missing benchmark for renderer=${rendererMode} labelCount=${labelCount}.`,
+          getBenchmarkKey(textStrategy, labelCount),
+          `Missing benchmark for strategy=${textStrategy} labelCount=${labelCount}.`,
         );
         assert.equal(
           benchmark.datasetPreset,
           STATIC_BENCHMARK_DATASET_ID,
-          `Benchmark should use the static dataset for renderer=${rendererMode} labelCount=${labelCount}.`,
+          `Benchmark should use the static dataset for strategy=${textStrategy} labelCount=${labelCount}.`,
         );
         assert.equal(
           benchmark.visibleLabelCount,
           baselineBenchmark.visibleLabelCount,
-          `Visible label counts should match baseline for renderer=${rendererMode} at ${labelCount} labels.`,
+          `Visible label counts should match baseline for strategy=${textStrategy} at ${labelCount} labels.`,
         );
         assert.equal(
           benchmark.visibleGlyphCount,
           baselineBenchmark.visibleGlyphCount,
-          `Visible glyph counts should match baseline for renderer=${rendererMode} at ${labelCount} labels.`,
+          `Visible glyph counts should match baseline for strategy=${textStrategy} at ${labelCount} labels.`,
         );
       }
 
@@ -938,7 +987,7 @@ try {
     assert.match(
       benchmarkLogContents,
       /Benchmark summary renderer=/,
-      'browser.log should contain benchmark summary lines for renderer runs.',
+      'browser.log should contain benchmark summary lines for strategy runs.',
     );
 
   } else {
@@ -1061,27 +1110,28 @@ async function clickControl(page: Page, control: string): Promise<void> {
 async function clickControlRepeatedly(page: Page, control: string, times: number): Promise<void> {
   for (let index = 0; index < times; index += 1) {
     await clickControl(page, control);
-    await waitForBrowserUpdate(page);
   }
+
+  await waitForBrowserUpdate(page);
 }
 
-function getRendererModes(): RendererMode[] {
+function getTextStrategies(): TextStrategy[] {
   return [...RENDERER_MODES];
 }
 
-async function switchRendererMode(page: Page, rendererMode: RendererMode): Promise<void> {
+async function switchTextStrategy(page: Page, textStrategy: TextStrategy): Promise<void> {
   const currentMode = await page.evaluate(
     () => (document.body.dataset.rendererMode ?? 'baseline') as RendererMode,
   );
 
-  if (currentMode !== rendererMode) {
-    const selector = `button[data-renderer-mode="${rendererMode}"]`;
+  if (currentMode !== textStrategy) {
+    const selector = `button[data-renderer-mode="${textStrategy}"]`;
     await page.waitForSelector(selector);
     await page.evaluate((buttonSelector) => {
       const button = document.querySelector<HTMLButtonElement>(buttonSelector);
 
       if (!button) {
-        throw new Error(`Missing renderer button ${buttonSelector}`);
+        throw new Error(`Missing text strategy button ${buttonSelector}`);
       }
 
       button.click();
@@ -1091,7 +1141,7 @@ async function switchRendererMode(page: Page, rendererMode: RendererMode): Promi
   await page.waitForFunction(
     (expectedMode) => document.body.dataset.rendererMode === expectedMode,
     {},
-    rendererMode,
+    textStrategy,
   );
   await page.waitForFunction(
     (expectedMode) => {
@@ -1099,18 +1149,18 @@ async function switchRendererMode(page: Page, rendererMode: RendererMode): Promi
       return button?.getAttribute('aria-pressed') === 'true';
     },
     {},
-    rendererMode,
+    textStrategy,
   );
   await waitForBrowserUpdate(page);
 }
 
-async function verifyDemoRendererVisibility(
+async function verifyDemoTextStrategyVisibility(
   page: Page,
-  rendererMode: RendererMode,
+  textStrategy: TextStrategy,
 ): Promise<TextState> {
   const rendererState = await getTextState(page);
 
-  assert.equal(rendererState.rendererMode, rendererMode, `${rendererMode} mode should be active.`);
+  assert.equal(rendererState.rendererMode, textStrategy, `${textStrategy} mode should be active.`);
 
   await clickControl(page, 'reset-camera');
   await page.waitForFunction(
@@ -1123,24 +1173,24 @@ async function verifyDemoRendererVisibility(
   const initialText = await getTextState(page);
   assert.equal(
     initialText.datasetPreset,
-    'demo-v1',
-    `${rendererMode} mode should continue using the demo dataset preset.`,
+    DEMO_DATASET_ID,
+    `${textStrategy} mode should continue using the demo dataset preset.`,
   );
   assert.match(
     initialText.visibleLabels,
     /BUTTON PAN/,
-    `${rendererMode} mode should show BUTTON PAN at the default zoom.`,
+    `${textStrategy} mode should show BUTTON PAN at the default zoom.`,
   );
   assert.doesNotMatch(
     initialText.visibleLabels,
     /LUMA TEXT/,
-    `${rendererMode} mode should hide LUMA TEXT at the default zoom.`,
+    `${textStrategy} mode should hide LUMA TEXT at the default zoom.`,
   );
   assert.ok(
     initialText.bytesUploadedPerFrame > 0,
-    `${rendererMode} mode should report positive per-frame upload cost while drawing.`,
+    `${textStrategy} mode should report positive per-frame upload cost while drawing.`,
   );
-  if (rendererMode === 'chunked') {
+  if (textStrategy === 'chunked') {
     assert.ok(
       initialText.visibleChunkCount > 0,
       'Chunked demo mode should report visible chunks.',
@@ -1159,12 +1209,12 @@ async function verifyDemoRendererVisibility(
   assert.doesNotMatch(
     afterZoomIn.visibleLabels,
     /BUTTON PAN/,
-    `${rendererMode} mode should hide BUTTON PAN after zooming in.`,
+    `${textStrategy} mode should hide BUTTON PAN after zooming in.`,
   );
   assert.match(
     afterZoomIn.visibleLabels,
     /LUMA TEXT/,
-    `${rendererMode} mode should show LUMA TEXT after zooming in.`,
+    `${textStrategy} mode should show LUMA TEXT after zooming in.`,
   );
 
   await clickControl(page, 'zoom-out');
@@ -1181,9 +1231,9 @@ async function verifyDemoRendererVisibility(
   assert.match(
     afterZoomOut.visibleLabels,
     /WORLD VIEW/,
-    `${rendererMode} mode should show WORLD VIEW after zooming out.`,
+    `${textStrategy} mode should show WORLD VIEW after zooming out.`,
   );
-  if (rendererMode === 'chunked') {
+  if (textStrategy === 'chunked') {
     assert.ok(
       afterZoomOut.visibleChunkCount > 0,
       'Chunked demo mode should keep reporting visible chunks after zooming out.',
@@ -1201,16 +1251,16 @@ async function verifyDemoRendererVisibility(
   return getTextState(page);
 }
 
-async function runLargeScaleRendererSweep(
+async function runLargeScaleTextStrategySweep(
   page: Page,
   baseUrl: string,
-  rendererMode: RendererMode,
+  textStrategy: TextStrategy,
   labelCount: number,
 ): Promise<LargeScaleSweepState[]> {
   const sweepUrl = new URL(baseUrl);
   sweepUrl.searchParams.set('dataset', 'benchmark');
   sweepUrl.searchParams.set('labelCount', String(labelCount));
-  sweepUrl.searchParams.set('renderer', rendererMode);
+  sweepUrl.searchParams.set('renderer', textStrategy);
   sweepUrl.searchParams.delete('benchmark');
   sweepUrl.searchParams.delete('gpuTiming');
   sweepUrl.searchParams.delete('benchmarkFrames');
@@ -1219,21 +1269,21 @@ async function runLargeScaleRendererSweep(
   await waitForAppDatasets(page);
 
   const appState = await page.evaluate(() => document.body.dataset.appState ?? 'missing');
-  assert.equal(appState, 'ready', `Large-scale sweep should reach ready state for ${rendererMode}.`);
+  assert.equal(appState, 'ready', `Large-scale sweep should reach ready state for ${textStrategy}.`);
   assert.equal(
     await page.evaluate(() => document.body.dataset.rendererMode ?? 'missing'),
-    rendererMode,
-    `Large-scale sweep should activate ${rendererMode}.`,
+    textStrategy,
+    `Large-scale sweep should activate ${textStrategy}.`,
   );
   assert.equal(
     await page.evaluate(() => document.body.dataset.datasetPreset ?? 'missing'),
     STATIC_BENCHMARK_DATASET_ID,
-    `Large-scale sweep should use the static benchmark dataset for ${rendererMode}.`,
+    `Large-scale sweep should use the static benchmark dataset for ${textStrategy}.`,
   );
   assert.equal(
     await page.evaluate(() => Number(document.body.dataset.datasetLabelCount ?? '0')),
     labelCount,
-    `Large-scale sweep should use ${labelCount} labels for ${rendererMode}.`,
+    `Large-scale sweep should use ${labelCount} labels for ${textStrategy}.`,
   );
 
   const checkpoints: LargeScaleSweepState[] = [];
@@ -1247,35 +1297,28 @@ async function runLargeScaleRendererSweep(
   );
   checkpoints.push(await captureLargeScaleSweepState(page, 'reset'));
 
-  for (let step = 1; step <= 4; step += 1) {
-    await clickControl(page, 'zoom-out');
-    await waitForBrowserUpdate(page);
-    checkpoints.push(await captureLargeScaleSweepState(page, `zoom-out-${step}`));
-  }
-
-  for (let step = 1; step <= 24; step += 1) {
-    await clickControl(page, 'zoom-in');
-    await waitForBrowserUpdate(page);
-    checkpoints.push(await captureLargeScaleSweepState(page, `zoom-in-${step}`));
+  for (const step of LARGE_SCALE_CAMERA_TRACE) {
+    await clickControlRepeatedly(page, step.control, step.repeat);
+    checkpoints.push(await captureLargeScaleSweepState(page, step.name));
   }
 
   for (const checkpoint of checkpoints) {
     assert.equal(
       checkpoint.rendererMode,
-      rendererMode,
-      `${rendererMode} sweep checkpoint ${checkpoint.name} should report the active renderer mode.`,
+      textStrategy,
+      `${textStrategy} sweep checkpoint ${checkpoint.name} should report the active text strategy.`,
     );
     assert.ok(
       checkpoint.visibleLabelCount >= 0,
-      `${rendererMode} sweep checkpoint ${checkpoint.name} should report a non-negative visible label count.`,
+      `${textStrategy} sweep checkpoint ${checkpoint.name} should report a non-negative visible label count.`,
     );
     assert.ok(
       checkpoint.visibleGlyphCount >= 0,
-      `${rendererMode} sweep checkpoint ${checkpoint.name} should report a non-negative visible glyph count.`,
+      `${textStrategy} sweep checkpoint ${checkpoint.name} should report a non-negative visible glyph count.`,
     );
     addBrowserLog(
       'test',
-      `Sweep summary renderer=${rendererMode} checkpoint=${checkpoint.name} zoom=${checkpoint.zoom.toFixed(2)} visibleLabels=${checkpoint.visibleLabelCount} visibleGlyphs=${checkpoint.visibleGlyphCount} visibleChunks=${checkpoint.visibleChunkCount} bytes=${checkpoint.bytesUploadedPerFrame} vertices=${checkpoint.submittedVertexCount} datasetPreset=${checkpoint.datasetPreset}`,
+      `Sweep summary renderer=${textStrategy} checkpoint=${checkpoint.name} zoom=${checkpoint.zoom.toFixed(2)} visibleLabels=${checkpoint.visibleLabelCount} visibleGlyphs=${checkpoint.visibleGlyphCount} visibleChunks=${checkpoint.visibleChunkCount} bytes=${checkpoint.bytesUploadedPerFrame} vertices=${checkpoint.submittedVertexCount} datasetPreset=${checkpoint.datasetPreset}`,
     );
   }
 
@@ -1304,7 +1347,7 @@ async function captureLargeScaleSweepState(
 async function runBenchmarkRoute(
   page: Page,
   baseUrl: string,
-  rendererMode: RendererMode,
+  textStrategy: TextStrategy,
   labelCount: number,
   pageErrors: string[],
 ): Promise<BenchmarkState> {
@@ -1312,9 +1355,9 @@ async function runBenchmarkRoute(
   benchmarkUrl.searchParams.set('dataset', 'benchmark');
   benchmarkUrl.searchParams.set('benchmark', '1');
   benchmarkUrl.searchParams.set('gpuTiming', '1');
-  benchmarkUrl.searchParams.set('renderer', rendererMode);
+  benchmarkUrl.searchParams.set('renderer', textStrategy);
   benchmarkUrl.searchParams.set('labelCount', String(labelCount));
-  benchmarkUrl.searchParams.set('benchmarkFrames', '40');
+  benchmarkUrl.searchParams.set('benchmarkFrames', String(BENCHMARK_TRACE_FRAME_COUNT));
 
   addBrowserLog('test', `Starting benchmark route ${benchmarkUrl.toString()}`);
   const benchmarkPageErrorCount = pageErrors.length;
@@ -1326,13 +1369,13 @@ async function runBenchmarkRoute(
   assert.notEqual(
     benchmarkAppState,
     'error',
-    `Benchmark route should not enter error state for renderer=${rendererMode} labelCount=${labelCount}.`,
+    `Benchmark route should not enter error state for strategy=${textStrategy} labelCount=${labelCount}.`,
   );
 
   if (benchmarkAppState !== 'ready') {
     addBrowserLog(
       'test',
-      `Benchmark route reached ${benchmarkAppState} for renderer=${rendererMode} labelCount=${labelCount}`,
+      `Benchmark route reached ${benchmarkAppState} for strategy=${textStrategy} labelCount=${labelCount}`,
     );
     assert.equal(
       benchmarkAppState,
@@ -1355,7 +1398,7 @@ async function runBenchmarkRoute(
       gpuTimingEnabled: false,
       labelCount,
       requestedLabelCount: labelCount,
-      rendererMode,
+      rendererMode: textStrategy,
       state: benchmarkAppState,
       submittedGlyphCount: 0,
       submittedVertexCount: 0,
@@ -1375,7 +1418,7 @@ async function runBenchmarkRoute(
   assert.equal(
     benchmark.state,
     'complete',
-    `Benchmark should complete successfully for renderer=${rendererMode} labelCount=${labelCount}. ${benchmark.error || 'No benchmark error was reported.'}`,
+    `Benchmark should complete successfully for strategy=${textStrategy} labelCount=${labelCount}. ${benchmark.error || 'No benchmark error was reported.'}`,
   );
   assert.equal(benchmark.datasetName, 'benchmark', 'Benchmark route should load the benchmark dataset.');
   assert.equal(
@@ -1395,15 +1438,15 @@ async function runBenchmarkRoute(
   );
   assert.equal(
     benchmark.rendererMode,
-    rendererMode,
-    `Benchmark dataset should report renderer=${rendererMode}.`,
+    textStrategy,
+    `Benchmark dataset should report strategy=${textStrategy}.`,
   );
   assert.ok(
     benchmark.glyphCount > benchmark.labelCount,
     'Benchmark should include multiple glyphs per label.',
   );
   assert.ok(
-    benchmark.cpuFrameSamples >= 12,
+    benchmark.cpuFrameSamples >= BENCHMARK_TRACE_FRAME_COUNT,
     'Benchmark should capture a useful number of CPU frame samples.',
   );
   assert.ok(benchmark.cpuFrameAvgMs > 0, 'Benchmark should record average CPU frame time.');
@@ -1532,11 +1575,13 @@ function assertZoomSweepTransitions(
 }
 
 async function waitForBrowserUpdate(page: Page): Promise<void> {
-  await page.evaluate(async () => {
-    await new Promise<void>((resolve) => {
-      window.setTimeout(resolve, 100);
-    });
-  });
+  await page.evaluate(async (frameCount: number) => {
+    for (let index = 0; index < frameCount; index += 1) {
+      await new Promise<void>((resolve) => {
+        requestAnimationFrame(() => resolve());
+      });
+    }
+  }, BROWSER_UPDATE_FRAME_COUNT);
 }
 
 async function flushBrowserLog(): Promise<void> {

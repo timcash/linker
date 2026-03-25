@@ -1,277 +1,331 @@
 # PLAN
 
-## Goal
+## Mission
 
-Turn this repo into a good place to test and compare more efficient text-rendering strategies in pure `luma.gl` + WebGPU.
+This repo is a text strategy lab for pure `luma.gl` + WebGPU.
 
-The point is no longer just “render some text.” The point is:
+The system should stay easy for another LLM agent to reason about:
 
-- keep one correct baseline renderer
-- add better renderers behind explicit modes
-- measure CPU and GPU cost in a repeatable way
-- make `npm test` catch regressions
+- one fullscreen stage
+- one grid layer
+- one text layer
+- several explicit text strategies
+- deterministic camera traces
+- deterministic benchmark label sets
+- measurable frame telemetry
 
-## Current Baseline
+The goal is not just “render text.”
+The goal is:
 
-Verified on March 24, 2026 with:
+- keep one correctness reference
+- compare strategies on the same label set
+- expose enough telemetry to explain wins and regressions
+- keep the language of the code simple and stable
 
-- headed Chrome
-- `luma.gl 9.3.0-alpha.10`
-- `npm test`
+## Preferred Domain Language
 
-Current benchmark route template:
+Use these terms consistently when reading, editing, or renaming the system.
 
-`/?dataset=benchmark&benchmark=1&gpuTiming=1&renderer=<baseline|instanced|packed|visible-index|chunked>&labelCount=<1024|4096|16384>&benchmarkFrames=40`
+- `luma-stage`
+  The fullscreen runtime surface that owns the canvas, panels, and render loop.
+- `stage-canvas`
+  The WebGPU canvas that fills the viewport behind the UI.
+- `launch-banner`
+  The centered loading, unsupported, or error overlay.
+- `status-panel`
+  Top-left operator panel with live state and telemetry summary.
+- `details-panel`
+  Top-right operator panel with explanatory copy.
+- `render-panel`
+  Bottom-left operator panel for text strategy selection.
+- `camera-panel`
+  Bottom-right operator panel for deterministic camera controls.
+- `grid-layer`
+  The world grid visual layer.
+- `text-layer`
+  The atlas-backed label rendering layer.
+- `text-strategy`
+  A selectable implementation of text submission and visibility work.
+- `label-set`
+  A deterministic collection of labels used by the text layer.
+- `demo-label-set`
+  Small correctness-oriented label set for manual and test visibility checks.
+- `benchmark-label-set`
+  Static repeatable label set for performance comparison.
+- `camera-trace`
+  A deterministic zoom and pan script used during benchmark runs.
+- `frame-telemetry`
+  CPU, GPU, upload, visibility, and submission metrics for the current frame or run.
+- `glyph-atlas`
+  Texture and metrics for raster glyphs.
+- `glyph-layout`
+  Label-to-glyph placement output.
+- `glyph-record-table`
+  Packed per-glyph GPU records uploaded once.
+- `visible-glyph-set`
+  Per-frame visible glyph ids used for draw submission.
+- `chunk-index`
+  Spatial partition used to narrow visibility work.
 
-Latest comparison snapshots from `browser.log`:
+## Current System Model
 
-- `1024 labels`
-  `baseline cpuFrame=3.332ms gpu=2.646ms uploaded=886272B`
-  `instanced cpuFrame=2.589ms gpu=2.021ms uploaded=221584B`
-  `visible-index cpuFrame=1.934ms gpu=2.258ms uploaded=18496B`
-  `chunked cpuFrame=1.884ms gpu=2.384ms uploaded=18496B`
-  `packed cpuFrame=1.807ms gpu=2.251ms uploaded=32B`
-- `4096 labels`
-  `baseline cpuFrame=5.386ms gpu=3.066ms uploaded=1818048B`
-  `instanced cpuFrame=3.909ms gpu=2.250ms uploaded=454528B`
-  `visible-index cpuFrame=3.666ms gpu=2.767ms uploaded=37908B`
-  `chunked cpuFrame=1.982ms gpu=2.841ms uploaded=37908B`
-  `packed cpuFrame=2.975ms gpu=3.056ms uploaded=32B`
-- `16384 labels`
-  `baseline cpuFrame=8.639ms gpu=2.735ms uploaded=1818048B`
-  `instanced cpuFrame=5.793ms gpu=2.621ms uploaded=454528B`
-  `visible-index cpuFrame=4.668ms gpu=2.543ms uploaded=37908B`
-  `chunked cpuFrame=2.543ms gpu=3.030ms uploaded=37908B`
-  `packed cpuFrame=4.820ms gpu=5.061ms uploaded=32B`
+Think about the repo as five subsystems:
 
-Large-scale sweep evidence at `labelCount=4096` now exists in `browser.log` for all five modes, using the fixed dataset `static-benchmark-v2`. The trace starts with `600` visible labels / `8901` visible glyphs at zoom `0.00` and reaches a fully hidden state at zoom `4.08+`. `chunked` reports `16` visible chunks at reset and `2` chunks near zoom `3.84` before dropping to `0`.
+1. `luma-stage`
+   Owns startup, canvas, panels, query params, render loop, and benchmark execution.
+2. `camera-model`
+   Owns world/screen transforms and visible world bounds.
+3. `grid-layer`
+   Builds and draws the visual reference grid.
+4. `text-layer`
+   Builds atlas resources once, chooses a text strategy, updates per frame, and draws labels.
+5. `frame-telemetry`
+   Measures CPU and GPU work and exposes metrics through `document.body.dataset`.
 
-The baseline remains the correctness reference. `visible-index` is the current direct replacement for packed full-draw submission, and `chunked` is the current best CPU path on the benchmark routes.
+If a future task does not clearly belong to one of those five areas, name the area before editing code.
 
-## What Exists Now
+## Current Text Strategies
+
+These are the current `text-strategy` values:
+
+- `baseline`
+  CPU expands visible glyphs into full triangle-list vertex data every frame.
+- `instanced`
+  CPU still filters visible glyphs, but uploads visible glyph instances instead of expanded triangles.
+- `packed`
+  Uploads glyph records once and only updates camera uniforms, but still submits the full glyph set every frame.
+- `visible-index`
+  Uploads glyph records once and then uploads only the current visible glyph index list.
+- `chunked`
+  Uses the visible-index draw path and a chunk index to reduce CPU visibility work.
+
+The baseline remains the correctness reference.
+
+## Current Deterministic Assets
+
+- `demo-label-set`
+  Lives in `src/data/labels.ts`.
+- `benchmark-label-set`
+  Lives in `src/data/static-benchmark.ts`.
+- benchmark preset id
+  `static-benchmark-v2`
+- benchmark sizes
+  `1024`, `4096`, `16384`
+- benchmark route template
+  `/?dataset=benchmark&benchmark=1&gpuTiming=1&renderer=<baseline|instanced|packed|visible-index|chunked>&labelCount=<1024|4096|16384>&benchmarkFrames=8`
+
+Never replace the benchmark label set with random or unstable generation.
+
+## Central Files
 
 - `src/app.ts`
-  Owns the shell, dataset selection, benchmark route, status panel, and render loop.
-- `src/perf.ts`
-  Owns rolling CPU timings plus WebGPU timestamp-query timing.
-- `src/data/labels.ts`
-  Owns the demo labels.
-- `src/data/static-benchmark.ts`
-  Owns the centered static benchmark dataset `static-benchmark-v2`.
+  Stage bootstrap, UI panels, config parsing, render loop, benchmark run, and dataset telemetry export.
+- `src/camera.ts`
+  Camera model and world/screen conversion.
+- `src/grid.ts`
+  Grid layer mesh generation and drawing.
 - `src/text/atlas.ts`
-  Builds the bitmap glyph atlas with Canvas 2D.
+  Glyph atlas build step.
 - `src/text/layout.ts`
-  Converts labels into glyph placements.
+  Glyph layout build step.
 - `src/text/renderer.ts`
-  Shared text resources plus explicit `baseline`, `instanced`, `packed`, `visible-index`, and `chunked` renderer modes.
+  Text layer resources, strategy selection, visibility analysis, and draw submission.
+- `src/perf.ts`
+  Frame telemetry and GPU timestamp support.
+- `src/data/labels.ts`
+  Demo label set.
+- `src/data/static-benchmark.ts`
+  Benchmark label set.
+- `scripts/test.ts`
+  Browser-based system verification and benchmark collection.
 
-Important facts about the current renderers:
+## Central Functions And Methods
 
-- `baseline`
-  expands visible glyph quads on the CPU every frame and uploads full position/uv/color vertex data
-- `instanced`
-  still filters visible glyphs on the CPU, but uploads one visible-glyph instance record instead of six expanded vertices
-- `packed`
-  uploads packed glyph records once and only updates camera uniforms per frame, but currently draws the full packed glyph set every frame
-- `visible-index`
-  uploads packed glyph records once, then uploads only the per-frame visible glyph index list
-- `chunked`
-  uses the visible-index draw path, but limits CPU visibility work to chunk candidates and exposes visible chunk counts
+These are the most important entry points in the system as it exists today.
 
-## Hard Constraints
+### Stage control
 
-- Use `luma.gl`
-- Use pure WebGPU
-- Do not add `three.js`
-- Do not add `deck.gl`
-- Do not add `MapLibre`
-- Keep the app framework-free
-- Keep the unsupported-browser state explicit
+- `startApp`
+  Main stage bootstrap.
+- `createShell`
+  Builds the visible operator surface and canvas.
+- `readAppConfig`
+  Converts query params into stage config.
+- `buildBenchmarkCameraTrace`
+  Produces the deterministic camera trace for a benchmark run.
+- `WebGPUShell.start`
+  Creates the device, grid layer, text layer, and telemetry pipeline.
+- `WebGPUShell.render`
+  Main frame loop for grid update, text update, draw, submit, and status export.
+- `WebGPUShell.runBenchmark`
+  Executes the benchmark camera trace and records a benchmark summary.
+- `WebGPUShell.updateStatus`
+  Pushes live stage telemetry into `document.body.dataset`.
+- `WebGPUShell.setTextStrategy`
+  Switches the active text strategy.
 
-## Main Testing Rule
+### Camera model
 
-Every optimization should be added in a way that can be compared against the current baseline.
+- `Camera2D.panByPixels`
+  Moves the camera in response to operator commands.
+- `Camera2D.zoomAtScreenPoint`
+  Deterministic zoom around a screen anchor.
+- `Camera2D.worldToScreen`
+  Core transform for visibility and placement logic.
+- `Camera2D.getVisibleWorldBounds`
+  Used to reduce work for grid and chunk visibility logic.
 
-That means:
+### Grid layer
 
-- do not delete the baseline renderer until a better renderer is proven
-- add candidate renderers behind an explicit mode or query param
-- run the same dataset and benchmark flow for each renderer
-- keep output metrics in `document.body.dataset`
+- `GridRenderer.update`
+  Rebuilds the grid mesh for the current camera state.
+- `buildGridMesh`
+  Generates line geometry from visible bounds and spacing.
+- `niceStep`
+  Chooses stable grid spacing values.
+
+### Text layer
+
+- `TextRenderer.createStrategy`
+  Selects the active text strategy.
+- `TextRenderer.update`
+  Delegates per-frame text work to the active strategy.
+- `TextRenderer.draw`
+  Delegates draw submission to the active strategy.
+- `buildGlyphAtlas`
+  Builds the glyph atlas texture and metrics once.
+- `layoutLabels`
+  Converts labels into glyph placements once.
+- `analyzeGlyphVisibility`
+  Core per-frame visibility pass.
+- `inspectGlyph`
+  Tests one glyph against zoom and screen bounds.
+- `buildGlyphChunkIndex`
+  Creates the chunk index used by the chunked strategy.
+- `buildGlyphRecordData`
+  Packs glyph data for GPU-side indexed drawing.
+- `buildTextMesh`
+  Builds the baseline expanded triangle mesh.
+- `buildVisibleGlyphInstances`
+  Builds per-frame instance payloads for the instanced strategy.
+- `buildPackedGlyphInstances`
+  Builds static packed instance payloads for the packed strategy.
+
+### Frame telemetry
+
+- `FrameProfiler.getRenderPassTimingProps`
+  Enables GPU timestamp capture for a render pass.
+- `FrameProfiler.recordCpuGrid`
+  Records CPU grid update time.
+- `FrameProfiler.recordCpuText`
+  Records CPU text update time.
+- `FrameProfiler.recordCpuDraw`
+  Records CPU draw and submit time.
+- `FrameProfiler.recordCpuFrame`
+  Records total CPU frame time.
+- `FrameProfiler.getSnapshot`
+  Returns the current frame telemetry summary.
+
+## Recommended Language Cleanup
+
+These are the most useful future renames if the next agent wants to align code names with the preferred domain language.
+
+- `WebGPUShell`
+  Better term: `LumaStageController`
+- `createShell`
+  Better term: `createStageChrome`
+- `SHELL_SHADER`
+  Better term: `STAGE_SHADER`
+- `.app-shell`
+  Better term: `.luma-stage`
+- `.app-canvas`
+  Better term: `.stage-canvas`
+- `.center-message`
+  Better term: `.launch-banner`
+- `rendererMode`
+  Better term: `textStrategy`
+- `RendererMode`
+  Better term: `TextStrategy`
+- `DatasetName`
+  Better term: `LabelSetKind`
+- `datasetPreset`
+  Better term: `labelSetPreset`
+- `requestedLabelCount`
+  Better term: `labelTargetCount`
+- `TextRenderer`
+  Better term: `TextLayer`
+- `GridRenderer`
+  Better term: `GridLayer`
+- `FrameProfiler`
+  Better term: `FrameTelemetry`
+- `VisibilityAnalysis`
+  Better term: `GlyphVisibilityResult`
+
+Do not perform a broad rename pass casually.
+Only rename if the system is already behaviorally stable and the rename is done as a coherent sweep with tests.
+
+## Execution Workflow For Another LLM Agent
+
+Use this workflow for any non-trivial task.
+
+1. Name the task in domain terms.
+   Example: “change the camera-panel layout” or “add a new text-strategy to the text-layer.”
+2. Identify which subsystem owns the change.
+   Use only one primary owner when possible: stage, camera model, grid layer, text layer, or frame telemetry.
+3. Trace the control path before editing.
+   For text work, follow:
+   `readAppConfig -> WebGPUShell.start -> TextRenderer.createStrategy -> TextRenderer.update -> TextRenderer.draw -> WebGPUShell.updateStatus`.
+4. Preserve the correctness reference.
+   Do not remove or weaken the `baseline` strategy while testing a candidate strategy.
+5. Keep deterministic assets deterministic.
+   Do not randomize the benchmark label set or benchmark camera trace.
+6. Export any new metric through `document.body.dataset`.
+   If a new concept matters for tests or comparison, it should be readable from the page.
+7. Update browser coverage with structural assertions.
+   Prefer “strategy A uploads fewer bytes than strategy B” over fragile absolute thresholds.
+8. Keep the operator surface coherent.
+   Panel names should stay semantic: `status-panel`, `details-panel`, `render-panel`, `camera-panel`.
+9. Run verification after code changes.
+   Run `npm run lint`, `npm run build`, and `npm test`.
+10. Update `README.md` if the user-facing strategy set, benchmark route, or workflow changes.
+
+## System Invariants
+
+- use pure `luma.gl` + WebGPU
+- keep the app framework-free
+- do not add a WebGL fallback
+- keep unsupported-browser handling explicit
+- keep the benchmark label set static and repeatable
+- keep benchmark comparison across the same label set and camera trace
+- keep the baseline strategy available
+- keep metrics visible in `document.body.dataset`
 - keep benchmark summaries in `browser.log`
 
-## Renderer Comparison Plan
+## Current Quality Gate
 
-The repo should support renderer modes like:
+Before handing work back, the repo should be green on:
 
-- `baseline`
-  Current CPU-expanded visible quad path.
-- `instanced`
-  Visible-glyph instancing with per-frame instance uploads.
-- `packed`
-  Static packed glyph records with camera-uniform updates only.
-- `visible-index`
-  Static packed glyph records plus per-frame visible glyph index uploads.
-- `chunked`
-  Visible-index renderer plus chunk visibility filtering.
-- `decluttered`
-  Packed renderer plus chunking plus label overlap rejection.
+- `npm run lint`
+- `npm run build`
+- `npm test`
 
-Recommended query param:
+If one of those steps is intentionally skipped, say so explicitly and explain why.
 
-- `?renderer=baseline`
-- `?renderer=instanced`
-- `?renderer=packed`
-- `?renderer=visible-index`
-- `?renderer=chunked`
-- `?renderer=decluttered`
+## Next High-Value Work
 
-The default still stays on `baseline`.
+- add `decluttered` as a new text strategy
+- add accepted-label and overlap telemetry
+- make tests assert declutter correctness against the non-decluttered strategies
+- consider a full naming cleanup toward the domain language above once behavior is stable
 
-## Metrics We Need
+## Short Mental Model
 
-Keep the current metrics and add a few more.
+If the next agent needs the fastest possible summary, use this:
 
-Already present:
-
-- CPU frame average
-- CPU text-update average
-- CPU draw average
-- GPU frame average
-- visible label count
-- visible glyph count
-- renderer mode
-- benchmark label count
-- total glyph count
-- bytes uploaded to GPU per frame
-- vertex count submitted per frame
-- submitted glyph count
-- visible chunk count
-
-Add next:
-
-- accepted labels after declutter
-
-These should be exposed through `document.body.dataset` so Puppeteer can read them directly.
-
-## Benchmark Matrix
-
-Do not judge a renderer from one dataset size only.
-
-At minimum, compare these cases:
-
-1. `labelCount=1024`
-2. `labelCount=4096`
-3. `labelCount=16384`
-
-For each case, record:
-
-- CPU frame average
-- CPU text average
-- CPU draw average
-- GPU frame average
-- visible label count
-- visible glyph count
-- bytes uploaded per frame
-
-If a renderer only wins at 1024 labels and falls apart at 4096+, it is not the right next architecture.
-
-## Test Strategy
-
-The browser test should evolve from “does it render” to “does the better renderer actually reduce work.”
-
-### Current coverage
-
-The browser test now does all of this:
-
-- app reaches `ready` or `unsupported`
-- button-only camera controls work
-- demo zoom-window label visibility works
-- renderer buttons switch between `baseline`, `instanced`, `packed`, `visible-index`, and `chunked`
-- the `4096` label sweep zooms out and then in for each renderer mode, proving both visible and hidden text states on `static-benchmark-v2`
-- benchmark routes run for all five current renderer modes
-- benchmark routes run at `1024`, `4096`, and `16384`
-- benchmark routes verify the shared static dataset preset
-- upload bytes and submitted vertices are compared structurally across modes
-- visible chunk counts are checked for `chunked`
-- intentional error ping appears in `browser.log`
-
-### Next coverage
-
-Next additions should focus on declutter:
-
-- `decluttered` at `1024`, `4096`, and `16384`
-- declutter-specific accepted-label assertions
-- overlap rejection correctness checks against the non-decluttered modes
-
-The test should prefer structural assertions over brittle absolute thresholds.
-
-Good example:
-
-- packed path uploads fewer bytes per frame than baseline
-
-Bad example:
-
-- CPU frame must be under `1.4ms` on every machine forever
-
-## Immediate Next Work
-
-### 1. Add declutter as another explicit mode
-
-Goal:
-
-- compare correctness and accepted-label counts against non-decluttered paths
-- keep it benchmarkable behind `?renderer=decluttered`
-
-### 2. Add accepted-label and overlap metrics
-
-Goal:
-
-- expose accepted-label counts through `document.body.dataset`
-- make `npm test` assert that declutter is dropping overlaps instead of silently hiding too much or too little
-
-### 3. Explore whether chunked draw submission should stay CPU-driven
-
-Current tradeoff:
-
-- `chunked` materially reduces CPU text-update cost
-- `chunked` still has a small GPU cost increase versus `visible-index` because the chunk optimization only changes CPU search work
-
-Goal:
-
-- keep `chunked` as the fast CPU path
-- evaluate whether chunk metadata or GPU-assisted filtering can reduce the remaining draw-path overhead without regressing correctness
-
-## Implementation Direction
-
-The current efficient renderer direction now looks like this:
-
-- atlas built once
-- glyph layout built once
-- packed glyph records uploaded once
-- per-frame work limited to:
-  camera uniforms
-  visible glyph index list
-  chunk candidate filtering
-  optional declutter results
-
-Do not jump to compute shaders first.
-
-The correct order is:
-
-1. packed glyph records
-2. visible index list
-3. chunk filtering
-4. declutter
-5. optional GPU-assisted filtering
-
-## Handoff Notes
-
-If work stops here, the next agent should know:
-
-- the current repo is green on `npm run lint`, `npm run build`, and `npm test`
-- `npm test` uses headed Chrome and records real GPU timestamp samples
-- `README.md` is now simplified and up to date
-- `luma.gl 9.3.0-alpha.10` is working here, but the install used `npm install --legacy-peer-deps`
-- the benchmark dataset is now a fixed centered prefix set in `src/data/static-benchmark.ts`
-- the most important missing capability is now declutter plus accepted-label metrics, not another basic renderer split
+- the app is a `luma-stage`
+- it draws a `grid-layer` and a `text-layer`
+- the `text-layer` supports multiple `text-strategy` values
+- the operator uses `status-panel`, `details-panel`, `render-panel`, and `camera-panel`
+- the system compares strategies on a deterministic `benchmark-label-set`
+- the benchmark is driven by a deterministic `camera-trace`
+- the page exports `frame-telemetry` through `document.body.dataset`
