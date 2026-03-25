@@ -743,6 +743,16 @@ try {
       'packed',
       'Packed demo text strategy should be verified.',
     );
+    const sdfInstancedDemo = getRequiredMapValue(
+      demoStrategyChecks,
+      'sdf-instanced',
+      'SDF instanced demo text strategy should be verified.',
+    );
+    const sdfVisibleIndexDemo = getRequiredMapValue(
+      demoStrategyChecks,
+      'sdf-visible-index',
+      'SDF visible-index demo text strategy should be verified.',
+    );
 
     for (const textStrategy of getTextStrategies()) {
       const demoState = getRequiredMapValue(
@@ -779,10 +789,25 @@ try {
         textStrategy,
         `Demo canvas signature should be captured for text strategy ${textStrategy}.`,
       );
-      assert.deepEqual(
-        demoSignature,
-        baselineDemoSignature,
-        `Demo canvas pixels should match baseline for text strategy ${textStrategy}.`,
+
+      if (preservesBaselinePixels(textStrategy)) {
+        assert.deepEqual(
+          demoSignature,
+          baselineDemoSignature,
+          `Demo canvas pixels should match baseline for text strategy ${textStrategy}.`,
+        );
+        continue;
+      }
+
+      assert.equal(
+        demoSignature.width,
+        baselineDemoSignature.width,
+        `${textStrategy} demo signature should keep the canvas width stable.`,
+      );
+      assert.equal(
+        demoSignature.height,
+        baselineDemoSignature.height,
+        `${textStrategy} demo signature should keep the canvas height stable.`,
       );
     }
 
@@ -801,6 +826,32 @@ try {
     assert.ok(
       packedDemo.bytesUploadedPerFrame < visibleIndexDemo.bytesUploadedPerFrame,
       'Packed demo mode should upload fewer per-frame bytes than visible-index.',
+    );
+    assert.ok(
+      sdfInstancedDemo.bytesUploadedPerFrame < baselineDemo.bytesUploadedPerFrame,
+      'SDF instanced demo mode should upload fewer per-frame bytes than baseline.',
+    );
+    assert.ok(
+      sdfInstancedDemo.bytesUploadedPerFrame >= instancedDemo.bytesUploadedPerFrame,
+      'SDF instanced demo mode should upload at least as much as bitmap instanced because it adds SDF uniforms.',
+    );
+    assert.equal(
+      sdfInstancedDemo.submittedVertexCount,
+      sdfInstancedDemo.visibleGlyphCount * 4,
+      'SDF instanced demo mode should submit four vertices per visible glyph.',
+    );
+    assert.ok(
+      sdfVisibleIndexDemo.bytesUploadedPerFrame < sdfInstancedDemo.bytesUploadedPerFrame,
+      'SDF visible-index demo mode should upload fewer per-frame bytes than SDF instanced.',
+    );
+    assert.ok(
+      sdfVisibleIndexDemo.bytesUploadedPerFrame >= visibleIndexDemo.bytesUploadedPerFrame,
+      'SDF visible-index demo mode should upload at least as much as bitmap visible-index because it adds SDF uniforms.',
+    );
+    assert.equal(
+      sdfVisibleIndexDemo.submittedVertexCount,
+      sdfVisibleIndexDemo.visibleGlyphCount * 4,
+      'SDF visible-index demo mode should submit four vertices per visible glyph.',
     );
 
     const largeScaleLabelCount = STATIC_BENCHMARK_COUNTS[1];
@@ -854,6 +905,16 @@ try {
         'chunked',
         'Chunked sweep should be recorded.',
       )[index];
+      const sdfInstancedCheckpoint = getRequiredMapValue(
+        largeScaleSweeps,
+        'sdf-instanced',
+        'SDF instanced sweep should be recorded.',
+      )[index];
+      const sdfVisibleIndexCheckpoint = getRequiredMapValue(
+        largeScaleSweeps,
+        'sdf-visible-index',
+        'SDF visible-index sweep should be recorded.',
+      )[index];
       const packedCheckpoint = getRequiredMapValue(
         largeScaleSweeps,
         'packed',
@@ -865,6 +926,8 @@ try {
         instancedCheckpoint,
         visibleIndexCheckpoint,
         chunkedCheckpoint,
+        sdfInstancedCheckpoint,
+        sdfVisibleIndexCheckpoint,
         packedCheckpoint,
       ]) {
         assert.equal(
@@ -890,6 +953,8 @@ try {
           instancedCheckpoint,
           visibleIndexCheckpoint,
           chunkedCheckpoint,
+          sdfInstancedCheckpoint,
+          sdfVisibleIndexCheckpoint,
           packedCheckpoint,
         ]) {
           assert.equal(
@@ -924,8 +989,29 @@ try {
         `${checkpointName} chunked sweep should upload no more than visible-index.`,
       );
       assert.ok(
+        sdfInstancedCheckpoint.bytesUploadedPerFrame < baselineCheckpoint.bytesUploadedPerFrame,
+        `${checkpointName} SDF instanced sweep should upload fewer bytes than baseline.`,
+      );
+      assert.ok(
+        sdfInstancedCheckpoint.bytesUploadedPerFrame >= instancedCheckpoint.bytesUploadedPerFrame,
+        `${checkpointName} SDF instanced sweep should upload at least as much as bitmap instanced.`,
+      );
+      assert.ok(
+        sdfVisibleIndexCheckpoint.bytesUploadedPerFrame < sdfInstancedCheckpoint.bytesUploadedPerFrame,
+        `${checkpointName} SDF visible-index sweep should upload fewer bytes than SDF instanced.`,
+      );
+      assert.ok(
+        sdfVisibleIndexCheckpoint.bytesUploadedPerFrame >= visibleIndexCheckpoint.bytesUploadedPerFrame,
+        `${checkpointName} SDF visible-index sweep should upload at least as much as bitmap visible-index.`,
+      );
+      assert.ok(
         packedCheckpoint.bytesUploadedPerFrame < visibleIndexCheckpoint.bytesUploadedPerFrame,
         `${checkpointName} packed sweep should upload fewer bytes than visible-index.`,
+      );
+      assert.equal(
+        sdfInstancedCheckpoint.submittedVertexCount,
+        sdfInstancedCheckpoint.visibleGlyphCount * 4,
+        `${checkpointName} SDF instanced sweep should submit four vertices per visible glyph.`,
       );
       assert.equal(
         visibleIndexCheckpoint.submittedVertexCount,
@@ -936,6 +1022,11 @@ try {
         chunkedCheckpoint.submittedVertexCount,
         chunkedCheckpoint.visibleGlyphCount * 4,
         `${checkpointName} chunked sweep should submit four vertices per visible glyph.`,
+      );
+      assert.equal(
+        sdfVisibleIndexCheckpoint.submittedVertexCount,
+        sdfVisibleIndexCheckpoint.visibleGlyphCount * 4,
+        `${checkpointName} SDF visible-index sweep should submit four vertices per visible glyph.`,
       );
       assert.ok(
         packedCheckpoint.submittedVertexCount > visibleIndexCheckpoint.submittedVertexCount,
@@ -975,6 +1066,16 @@ try {
         benchmarkResults,
         getBenchmarkKey('chunked', labelCount),
         `Missing chunked benchmark for labelCount=${labelCount}.`,
+      );
+      const sdfInstancedBenchmark = getRequiredMapValue(
+        benchmarkResults,
+        getBenchmarkKey('sdf-instanced', labelCount),
+        `Missing SDF instanced benchmark for labelCount=${labelCount}.`,
+      );
+      const sdfVisibleIndexBenchmark = getRequiredMapValue(
+        benchmarkResults,
+        getBenchmarkKey('sdf-visible-index', labelCount),
+        `Missing SDF visible-index benchmark for labelCount=${labelCount}.`,
       );
       const packedBenchmark = getRequiredMapValue(
         benchmarkResults,
@@ -1018,6 +1119,22 @@ try {
         `Chunked benchmark should upload no more than visible-index at ${labelCount} labels.`,
       );
       assert.ok(
+        sdfInstancedBenchmark.bytesUploadedPerFrame < baselineBenchmark.bytesUploadedPerFrame,
+        `SDF instanced benchmark should upload fewer bytes than baseline at ${labelCount} labels.`,
+      );
+      assert.ok(
+        sdfInstancedBenchmark.bytesUploadedPerFrame >= instancedBenchmark.bytesUploadedPerFrame,
+        `SDF instanced benchmark should upload at least as much as bitmap instanced at ${labelCount} labels.`,
+      );
+      assert.ok(
+        sdfVisibleIndexBenchmark.bytesUploadedPerFrame < sdfInstancedBenchmark.bytesUploadedPerFrame,
+        `SDF visible-index benchmark should upload fewer bytes than SDF instanced at ${labelCount} labels.`,
+      );
+      assert.ok(
+        sdfVisibleIndexBenchmark.bytesUploadedPerFrame >= visibleIndexBenchmark.bytesUploadedPerFrame,
+        `SDF visible-index benchmark should upload at least as much as bitmap visible-index at ${labelCount} labels.`,
+      );
+      assert.ok(
         packedBenchmark.bytesUploadedPerFrame < visibleIndexBenchmark.bytesUploadedPerFrame,
         `Packed benchmark should upload fewer bytes than visible-index at ${labelCount} labels.`,
       );
@@ -1031,9 +1148,19 @@ try {
         `Visible-index benchmark should submit four vertices per visible glyph at ${labelCount} labels.`,
       );
       assert.equal(
+        sdfInstancedBenchmark.submittedVertexCount,
+        sdfInstancedBenchmark.visibleGlyphCount * 4,
+        `SDF instanced benchmark should submit four vertices per visible glyph at ${labelCount} labels.`,
+      );
+      assert.equal(
         chunkedBenchmark.submittedVertexCount,
         chunkedBenchmark.visibleGlyphCount * 4,
         `Chunked benchmark should submit four vertices per visible glyph at ${labelCount} labels.`,
+      );
+      assert.equal(
+        sdfVisibleIndexBenchmark.submittedVertexCount,
+        sdfVisibleIndexBenchmark.visibleGlyphCount * 4,
+        `SDF visible-index benchmark should submit four vertices per visible glyph at ${labelCount} labels.`,
       );
       assert.ok(
         packedBenchmark.submittedVertexCount > visibleIndexBenchmark.submittedVertexCount,
@@ -1296,6 +1423,14 @@ async function clickControlRepeatedly(page: Page, control: string, times: number
 
 function getTextStrategies(): TextStrategy[] {
   return [...TEXT_STRATEGIES];
+}
+
+function isSdfTextStrategy(textStrategy: TextStrategy): boolean {
+  return textStrategy === 'sdf-instanced' || textStrategy === 'sdf-visible-index';
+}
+
+function preservesBaselinePixels(textStrategy: TextStrategy): boolean {
+  return !isSdfTextStrategy(textStrategy);
 }
 
 async function switchTextStrategy(page: Page, textStrategy: TextStrategy): Promise<void> {

@@ -64,7 +64,7 @@ Useful routes:
 - Demo route: `/`
 - Start in a specific text strategy: `/?textStrategy=chunked`
 - Start at a specific camera view: `/?cameraCenterX=1.25&cameraCenterY=-2.5&cameraZoom=0.75`
-- Run a benchmark route: `/?labelSet=benchmark&benchmark=1&gpuTiming=1&textStrategy=visible-index&labelCount=4096&benchmarkFrames=8`
+- Run a benchmark route: `/?labelSet=benchmark&benchmark=1&gpuTiming=1&textStrategy=sdf-visible-index&labelCount=4096&benchmarkFrames=8`
 
 The default UI boots the demo label-set preset `demo-label-set-v1`, which is sourced from `src/data/demo-label-set.csv`.
 
@@ -79,7 +79,7 @@ The default UI boots the demo label-set preset `demo-label-set-v1`, which is sou
 - Benchmark route template:
 
 ```text
-/?labelSet=benchmark&benchmark=1&gpuTiming=1&textStrategy=<baseline|instanced|packed|visible-index|chunked>&labelCount=<1024|4096|16384>&benchmarkFrames=8
+/?labelSet=benchmark&benchmark=1&gpuTiming=1&textStrategy=<baseline|instanced|packed|visible-index|chunked|sdf-instanced|sdf-visible-index>&labelCount=<1024|4096|16384>&benchmarkFrames=8
 ```
 
 Never replace the benchmark label set with random or unstable generation.
@@ -131,6 +131,10 @@ Current panel layout:
   Uploads glyph records once, then uploads only the current visible glyph index list for drawing.
 - `chunked`
   Uses the visible-index draw path plus a `chunk-index` to reduce CPU visibility work.
+- `sdf-instanced`
+  Reuses the instanced quad path, but samples an SDF atlas for smoother text edges inspired by `deck.gl` and `MapLibre`.
+- `sdf-visible-index`
+  Combines the indexed visible-glyph submission path with the SDF atlas for the current best smooth-text indexed path.
 
 Practical guidance:
 
@@ -138,6 +142,8 @@ Practical guidance:
 - use `instanced` as the simple improvement over baseline uploads
 - use `visible-index` when comparing indexed submission behavior
 - use `chunked` when testing the current best CPU-side visibility path
+- use `sdf-instanced` when you want the instanced path with smoother SDF text shading
+- use `sdf-visible-index` when you want indexed submission plus smoother SDF text shading
 - use `packed` when isolating the cost of near-zero per-frame upload with full-set submission
 
 ## Testing
@@ -160,7 +166,7 @@ What the test suite checks:
 Benchmark route template:
 
 ```text
-/?labelSet=benchmark&benchmark=1&gpuTiming=1&textStrategy=<baseline|instanced|packed|visible-index|chunked>&labelCount=<1024|4096|16384>&benchmarkFrames=8
+/?labelSet=benchmark&benchmark=1&gpuTiming=1&textStrategy=<baseline|instanced|packed|visible-index|chunked|sdf-instanced|sdf-visible-index>&labelCount=<1024|4096|16384>&benchmarkFrames=8
 ```
 
 The benchmark label set is deterministic. All strategies run against stable prefixes of the same centered static label set, so the comparisons are meaningful.

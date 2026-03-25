@@ -6,6 +6,7 @@ import {buildGlyphAtlas} from './atlas';
 import {getCharacterSetFromLabels} from './charset';
 import {layoutLabels} from './layout';
 import type {
+  GlyphAtlas,
   GlyphPlacement,
   LabelDefinition,
   TextLayerStats,
@@ -97,6 +98,69 @@ fn vertexMain(inputs: VertexInputs) -> FragmentInputs {
 fn fragmentMain(inputs: FragmentInputs) -> @location(0) vec4<f32> {
   let texel = textureSample(glyphAtlas, glyphAtlasSampler, inputs.uv);
   let alpha = texel.a * inputs.color.a;
+
+  if (alpha < 0.01) {
+    discard;
+  }
+
+  return vec4<f32>(inputs.color.rgb, alpha);
+}
+`;
+
+const SDF_INSTANCED_TEXT_SHADER = /* wgsl */ `
+@group(0) @binding(0) var glyphAtlas: texture_2d<f32>;
+@group(0) @binding(1) var glyphAtlasSampler: sampler;
+
+struct FrameUniforms {
+  viewportSize: vec2<f32>,
+  padding: vec2<f32>,
+}
+
+struct SdfUniforms {
+  cutoff: f32,
+  smoothing: f32,
+  padding: vec2<f32>,
+}
+
+@group(0) @binding(2) var<uniform> frame: FrameUniforms;
+@group(0) @binding(3) var<uniform> sdf: SdfUniforms;
+
+struct VertexInputs {
+  @location(0) unitPosition: vec2<f32>,
+  @location(1) unitUv: vec2<f32>,
+  @location(2) instanceRect: vec4<f32>,
+  @location(3) instanceUvRect: vec4<f32>,
+  @location(4) instanceColor: vec4<f32>
+}
+
+struct FragmentInputs {
+  @builtin(position) clipPosition: vec4<f32>,
+  @location(0) uv: vec2<f32>,
+  @location(1) color: vec4<f32>
+}
+
+fn screenToClip(position: vec2<f32>) -> vec2<f32> {
+  return vec2<f32>(
+    (position.x / frame.viewportSize.x) * 2.0 - 1.0,
+    1.0 - (position.y / frame.viewportSize.y) * 2.0,
+  );
+}
+
+@vertex
+fn vertexMain(inputs: VertexInputs) -> FragmentInputs {
+  var outputs: FragmentInputs;
+  let screenPosition = inputs.instanceRect.xy + inputs.unitPosition * inputs.instanceRect.zw;
+  outputs.clipPosition = vec4<f32>(screenToClip(screenPosition), 0.0, 1.0);
+  outputs.uv = inputs.instanceUvRect.xy + inputs.unitUv * (inputs.instanceUvRect.zw - inputs.instanceUvRect.xy);
+  outputs.color = inputs.instanceColor;
+  return outputs;
+}
+
+@fragment
+fn fragmentMain(inputs: FragmentInputs) -> @location(0) vec4<f32> {
+  let distance = textureSample(glyphAtlas, glyphAtlasSampler, inputs.uv).a;
+  let edgeWidth = sdf.smoothing;
+  let alpha = smoothstep(sdf.cutoff - edgeWidth, sdf.cutoff + edgeWidth, distance) * inputs.color.a;
 
   if (alpha < 0.01) {
     discard;
@@ -263,6 +327,91 @@ fn fragmentMain(inputs: FragmentInputs) -> @location(0) vec4<f32> {
 }
 `;
 
+const SDF_INDEXED_TEXT_SHADER = /* wgsl */ `
+@group(0) @binding(0) var glyphAtlas: texture_2d<f32>;
+@group(0) @binding(1) var glyphAtlasSampler: sampler;
+
+struct CameraUniforms {
+  center: vec2<f32>,
+  viewportSize: vec2<f32>,
+  scale: f32,
+  zoom: f32,
+  padding: vec2<f32>,
+}
+
+struct SdfUniforms {
+  cutoff: f32,
+  smoothing: f32,
+  padding: vec2<f32>,
+}
+
+struct GlyphRecord {
+  anchorAndOffset: vec4<f32>,
+  sizeAndUv0: vec4<f32>,
+  uv1AndZoom: vec4<f32>,
+  color: vec4<f32>,
+}
+
+@group(0) @binding(2) var<uniform> camera: CameraUniforms;
+@group(0) @binding(3) var<uniform> sdf: SdfUniforms;
+@group(0) @binding(4) var<storage, read> glyphRecords: array<GlyphRecord>;
+@group(0) @binding(5) var<storage, read> visibleGlyphIndices: array<u32>;
+
+struct VertexInputs {
+  @location(0) unitPosition: vec2<f32>,
+  @location(1) unitUv: vec2<f32>,
+  @builtin(instance_index) instanceIndex: u32,
+}
+
+struct FragmentInputs {
+  @builtin(position) clipPosition: vec4<f32>,
+  @location(0) uv: vec2<f32>,
+  @location(1) color: vec4<f32>
+}
+
+fn screenToClip(position: vec2<f32>) -> vec2<f32> {
+  return vec2<f32>(
+    (position.x / camera.viewportSize.x) * 2.0 - 1.0,
+    1.0 - (position.y / camera.viewportSize.y) * 2.0,
+  );
+}
+
+@vertex
+fn vertexMain(inputs: VertexInputs) -> FragmentInputs {
+  var outputs: FragmentInputs;
+  let glyphIndex = visibleGlyphIndices[inputs.instanceIndex];
+  let glyph = glyphRecords[glyphIndex];
+  let anchor = glyph.anchorAndOffset.xy;
+  let offset = glyph.anchorAndOffset.zw;
+  let size = glyph.sizeAndUv0.xy;
+  let uv0 = glyph.sizeAndUv0.zw;
+  let uv1 = glyph.uv1AndZoom.xy;
+  let anchorScreen = vec2<f32>(
+    (anchor.x - camera.center.x) * camera.scale + camera.viewportSize.x * 0.5,
+    (camera.center.y - anchor.y) * camera.scale + camera.viewportSize.y * 0.5,
+  );
+  let screenPosition = anchorScreen + offset + inputs.unitPosition * size;
+
+  outputs.clipPosition = vec4<f32>(screenToClip(screenPosition), 0.0, 1.0);
+  outputs.uv = uv0 + inputs.unitUv * (uv1 - uv0);
+  outputs.color = glyph.color;
+  return outputs;
+}
+
+@fragment
+fn fragmentMain(inputs: FragmentInputs) -> @location(0) vec4<f32> {
+  let distance = textureSample(glyphAtlas, glyphAtlasSampler, inputs.uv).a;
+  let edgeWidth = sdf.smoothing;
+  let alpha = smoothstep(sdf.cutoff - edgeWidth, sdf.cutoff + edgeWidth, distance) * inputs.color.a;
+
+  if (alpha < 0.01) {
+    discard;
+  }
+
+  return vec4<f32>(inputs.color.rgb, alpha);
+}
+`;
+
 const TEXT_BLEND_PARAMETERS = {
   depthWriteEnabled: false,
   blend: true,
@@ -293,14 +442,21 @@ const MAX_VISIBLE_LABEL_SAMPLE = 24;
 const VIEWPORT_BOUNDS_PADDING = 8;
 const VIEWPORT_UNIFORM_BYTES = 4 * Float32Array.BYTES_PER_ELEMENT;
 const CAMERA_UNIFORM_BYTES = 8 * Float32Array.BYTES_PER_ELEMENT;
+const SDF_UNIFORM_BYTES = 4 * Float32Array.BYTES_PER_ELEMENT;
 
 type PreparedTextResources = {
+  atlas: GlyphAtlas;
   chunkIndex: GlyphChunkIndex;
   glyphRecordData: Float32Array;
   layout: TextLayout;
   maxScreenExtentX: number;
   maxScreenExtentY: number;
   texture: DynamicTexture;
+};
+
+type PreparedTextResourceSet = {
+  bitmap: PreparedTextResources;
+  sdf: PreparedTextResources;
 };
 
 type GlyphChunk = {
@@ -363,7 +519,7 @@ type TextLayerStrategy = {
 };
 
 export class TextLayer {
-  private readonly resources: PreparedTextResources;
+  private readonly resources: PreparedTextResourceSet;
   private mode: TextStrategy;
   private strategy: TextLayerStrategy;
 
@@ -372,40 +528,35 @@ export class TextLayer {
     labels: LabelDefinition[],
     mode: TextStrategy = 'baseline',
   ) {
-    const atlas = buildGlyphAtlas(getCharacterSetFromLabels(labels));
-    const layout = layoutLabels(labels, atlas);
+    const characterSet = getCharacterSetFromLabels(labels);
 
     this.resources = {
-      chunkIndex: buildGlyphChunkIndex(layout.glyphs),
-      glyphRecordData: buildGlyphRecordData(layout.glyphs),
-      layout,
-      maxScreenExtentX: getMaxScreenExtent(layout.glyphs, 'x'),
-      maxScreenExtentY: getMaxScreenExtent(layout.glyphs, 'y'),
-      texture: new DynamicTexture(device, {
-        id: 'text-atlas',
-        data: {
-          data: atlas.imageData,
-          width: atlas.width,
-          height: atlas.height,
-          format: 'rgba8unorm',
-        },
-        format: 'rgba8unorm',
-        height: atlas.height,
-        mipmaps: false,
-        width: atlas.width,
-      }),
+      bitmap: createPreparedTextResources(
+        device,
+        labels,
+        buildGlyphAtlas(characterSet, {mode: 'bitmap'}),
+      ),
+      sdf: createPreparedTextResources(
+        device,
+        labels,
+        buildGlyphAtlas(characterSet, {mode: 'sdf'}),
+      ),
     };
     this.mode = mode;
     this.strategy = this.createStrategy(mode);
   }
 
   get ready(): Promise<void> {
-    return this.resources.texture.ready.then(() => undefined);
+    return Promise.all([
+      this.resources.bitmap.texture.ready,
+      this.resources.sdf.texture.ready,
+    ]).then(() => undefined);
   }
 
   destroy(): void {
     this.strategy.destroy();
-    this.resources.texture.destroy();
+    this.resources.bitmap.texture.destroy();
+    this.resources.sdf.texture.destroy();
   }
 
   draw(renderPass: Parameters<Model['draw']>[0]): void {
@@ -433,16 +584,38 @@ export class TextLayer {
   private createStrategy(mode: TextStrategy): TextLayerStrategy {
     switch (mode) {
       case 'instanced':
-        return new InstancedTextStrategy(this.device, this.resources);
+        return new InstancedTextStrategy(this.device, this.resources.bitmap, 'instanced');
+      case 'sdf-instanced':
+        return new InstancedTextStrategy(this.device, this.resources.sdf, 'sdf-instanced');
       case 'packed':
-        return new PackedTextStrategy(this.device, this.resources);
+        return new PackedTextStrategy(this.device, this.resources.bitmap);
       case 'visible-index':
-        return new VisibleIndexTextStrategy(this.device, this.resources, 'visible-index', false);
+        return new VisibleIndexTextStrategy(
+          this.device,
+          this.resources.bitmap,
+          'visible-index',
+          false,
+          false,
+        );
       case 'chunked':
-        return new VisibleIndexTextStrategy(this.device, this.resources, 'chunked', true);
+        return new VisibleIndexTextStrategy(
+          this.device,
+          this.resources.bitmap,
+          'chunked',
+          true,
+          false,
+        );
+      case 'sdf-visible-index':
+        return new VisibleIndexTextStrategy(
+          this.device,
+          this.resources.sdf,
+          'sdf-visible-index',
+          false,
+          true,
+        );
       case 'baseline':
       default:
-        return new BaselineTextStrategy(this.device, this.resources);
+        return new BaselineTextStrategy(this.device, this.resources.bitmap);
     }
   }
 }
@@ -582,7 +755,9 @@ class InstancedTextStrategy implements TextLayerStrategy {
   private readonly unitPositionBuffer;
   private readonly unitUvBuffer;
   private readonly viewportBuffer;
+  private readonly sdfBuffer;
   private readonly model: Model;
+  private readonly mode: 'instanced' | 'sdf-instanced';
   private rectBuffer;
   private uvRectBuffer;
   private colorBuffer;
@@ -592,42 +767,59 @@ class InstancedTextStrategy implements TextLayerStrategy {
   constructor(
     private readonly device: Device,
     private readonly resources: PreparedTextResources,
+    mode: 'instanced' | 'sdf-instanced',
   ) {
-    this.unitPositionBuffer = createStaticVertexBuffer(device, 'text-unit-positions', UNIT_QUAD_POSITIONS);
-    this.unitUvBuffer = createStaticVertexBuffer(device, 'text-unit-uvs', UNIT_QUAD_UVS);
+    this.mode = mode;
+    const usesSdf = mode === 'sdf-instanced';
+
+    this.unitPositionBuffer = createStaticVertexBuffer(device, `text-${mode}-unit-positions`, UNIT_QUAD_POSITIONS);
+    this.unitUvBuffer = createStaticVertexBuffer(device, `text-${mode}-unit-uvs`, UNIT_QUAD_UVS);
     this.viewportBuffer = device.createBuffer({
-      id: 'text-instanced-frame',
+      id: `text-${mode}-frame`,
       usage: Buffer.UNIFORM | Buffer.COPY_DST,
       byteLength: VIEWPORT_UNIFORM_BYTES,
     });
+    this.sdfBuffer = usesSdf
+      ? device.createBuffer({
+          id: `text-${mode}-sdf`,
+          usage: Buffer.UNIFORM | Buffer.COPY_DST,
+          byteLength: SDF_UNIFORM_BYTES,
+        })
+      : undefined;
     this.rectBuffer = device.createBuffer({
-      id: 'text-instanced-rects',
+      id: `text-${mode}-rects`,
       usage: Buffer.VERTEX | Buffer.COPY_DST,
       byteLength: this.capacity * 4 * Float32Array.BYTES_PER_ELEMENT,
     });
     this.uvRectBuffer = device.createBuffer({
-      id: 'text-instanced-uv-rects',
+      id: `text-${mode}-uv-rects`,
       usage: Buffer.VERTEX | Buffer.COPY_DST,
       byteLength: this.capacity * 4 * Float32Array.BYTES_PER_ELEMENT,
     });
     this.colorBuffer = device.createBuffer({
-      id: 'text-instanced-colors',
+      id: `text-${mode}-colors`,
       usage: Buffer.VERTEX | Buffer.COPY_DST,
       byteLength: this.capacity * 4 * Float32Array.BYTES_PER_ELEMENT,
     });
+    const bindings: Record<string, DynamicTexture | Buffer> = {
+      glyphAtlas: this.resources.texture,
+      frame: this.viewportBuffer,
+    };
+
+    if (this.sdfBuffer) {
+      bindings.sdf = this.sdfBuffer;
+    }
+
     this.model = new Model(device, {
-      id: 'atlas-text-instanced',
-      source: INSTANCED_TEXT_SHADER,
+      id: `atlas-text-${mode}`,
+      source: usesSdf ? SDF_INSTANCED_TEXT_SHADER : INSTANCED_TEXT_SHADER,
       geometry: this.createGeometry(),
-      bindings: {
-        glyphAtlas: this.resources.texture,
-        frame: this.viewportBuffer,
-      },
+      bindings,
       vertexCount: 4,
       instanceCount: 0,
       parameters: TEXT_BLEND_PARAMETERS,
     });
-    this.stats = createEmptyTextLayerStats(this.resources.layout, 'instanced');
+    this.stats = createEmptyTextLayerStats(this.resources.layout, mode);
   }
 
   destroy(): void {
@@ -635,6 +827,7 @@ class InstancedTextStrategy implements TextLayerStrategy {
     this.unitPositionBuffer.destroy();
     this.unitUvBuffer.destroy();
     this.viewportBuffer.destroy();
+    this.sdfBuffer?.destroy();
     this.rectBuffer.destroy();
     this.uvRectBuffer.destroy();
     this.colorBuffer.destroy();
@@ -667,17 +860,17 @@ class InstancedTextStrategy implements TextLayerStrategy {
       this.colorBuffer.destroy();
 
       this.rectBuffer = this.device.createBuffer({
-        id: 'text-instanced-rects',
+        id: `text-${this.mode}-rects`,
         usage: Buffer.VERTEX | Buffer.COPY_DST,
         byteLength: this.capacity * 4 * Float32Array.BYTES_PER_ELEMENT,
       });
       this.uvRectBuffer = this.device.createBuffer({
-        id: 'text-instanced-uv-rects',
+        id: `text-${this.mode}-uv-rects`,
         usage: Buffer.VERTEX | Buffer.COPY_DST,
         byteLength: this.capacity * 4 * Float32Array.BYTES_PER_ELEMENT,
       });
       this.colorBuffer = this.device.createBuffer({
-        id: 'text-instanced-colors',
+        id: `text-${this.mode}-colors`,
         usage: Buffer.VERTEX | Buffer.COPY_DST,
         byteLength: this.capacity * 4 * Float32Array.BYTES_PER_ELEMENT,
       });
@@ -692,11 +885,12 @@ class InstancedTextStrategy implements TextLayerStrategy {
 
     if (instances.instanceCount === 0) {
       this.model.setInstanceCount(0);
-      this.stats = createTextLayerStats(this.resources.layout, 'instanced', visibility, 0, 0, 0);
+      this.stats = createTextLayerStats(this.resources.layout, this.mode, visibility, 0, 0, 0);
       return;
     }
 
     this.viewportBuffer.write(new Float32Array([viewport.width, viewport.height, 0, 0]));
+    this.sdfBuffer?.write(buildSdfUniformData(this.resources.atlas));
     this.rectBuffer.write(instances.rects);
     this.uvRectBuffer.write(instances.uvRects);
     this.colorBuffer.write(instances.colors);
@@ -704,9 +898,10 @@ class InstancedTextStrategy implements TextLayerStrategy {
 
     this.stats = createTextLayerStats(
       this.resources.layout,
-      'instanced',
+      this.mode,
       visibility,
       VIEWPORT_UNIFORM_BYTES +
+        (this.sdfBuffer ? SDF_UNIFORM_BYTES : 0) +
         instances.rects.byteLength +
         instances.uvRects.byteLength +
         instances.colors.byteLength,
@@ -867,6 +1062,7 @@ class PackedTextStrategy implements TextLayerStrategy {
 
 class VisibleIndexTextStrategy implements TextLayerStrategy {
   private readonly cameraBuffer;
+  private readonly sdfBuffer;
   private readonly glyphRecordBuffer;
   private readonly model: Model;
   private readonly unitPositionBuffer;
@@ -878,8 +1074,9 @@ class VisibleIndexTextStrategy implements TextLayerStrategy {
   constructor(
     private readonly device: Device,
     private readonly resources: PreparedTextResources,
-    private readonly mode: 'visible-index' | 'chunked',
+    private readonly mode: 'visible-index' | 'chunked' | 'sdf-visible-index',
     private readonly useChunkedSearch: boolean,
+    useSdf: boolean,
   ) {
     this.unitPositionBuffer = createStaticVertexBuffer(device, `text-${mode}-unit-positions`, UNIT_QUAD_POSITIONS);
     this.unitUvBuffer = createStaticVertexBuffer(device, `text-${mode}-unit-uvs`, UNIT_QUAD_UVS);
@@ -888,6 +1085,13 @@ class VisibleIndexTextStrategy implements TextLayerStrategy {
       usage: Buffer.UNIFORM | Buffer.COPY_DST,
       byteLength: CAMERA_UNIFORM_BYTES,
     });
+    this.sdfBuffer = useSdf
+      ? device.createBuffer({
+          id: `text-${mode}-sdf`,
+          usage: Buffer.UNIFORM | Buffer.COPY_DST,
+          byteLength: SDF_UNIFORM_BYTES,
+        })
+      : undefined;
     this.glyphRecordBuffer = device.createBuffer({
       id: `text-${mode}-glyph-records`,
       usage: Buffer.STORAGE,
@@ -900,14 +1104,9 @@ class VisibleIndexTextStrategy implements TextLayerStrategy {
     });
     this.model = new Model(device, {
       id: `atlas-text-${mode}`,
-      source: INDEXED_TEXT_SHADER,
+      source: useSdf ? SDF_INDEXED_TEXT_SHADER : INDEXED_TEXT_SHADER,
       geometry: this.createGeometry(),
-      bindings: {
-        glyphAtlas: this.resources.texture,
-        camera: this.cameraBuffer,
-        glyphRecords: this.glyphRecordBuffer,
-        visibleGlyphIndices: this.visibleIndexBuffer,
-      },
+      bindings: this.createBindings(),
       vertexCount: 4,
       instanceCount: 0,
       parameters: TEXT_BLEND_PARAMETERS,
@@ -920,6 +1119,7 @@ class VisibleIndexTextStrategy implements TextLayerStrategy {
     this.unitPositionBuffer.destroy();
     this.unitUvBuffer.destroy();
     this.cameraBuffer.destroy();
+    this.sdfBuffer?.destroy();
     this.glyphRecordBuffer.destroy();
     this.visibleIndexBuffer.destroy();
   }
@@ -952,12 +1152,7 @@ class VisibleIndexTextStrategy implements TextLayerStrategy {
         usage: Buffer.STORAGE | Buffer.COPY_DST,
         byteLength: this.capacity * Uint32Array.BYTES_PER_ELEMENT,
       });
-      this.model.setBindings({
-        glyphAtlas: this.resources.texture,
-        camera: this.cameraBuffer,
-        glyphRecords: this.glyphRecordBuffer,
-        visibleGlyphIndices: this.visibleIndexBuffer,
-      });
+      this.model.setBindings(this.createBindings());
     }
 
     if (visibleIndices.length === 0) {
@@ -976,6 +1171,7 @@ class VisibleIndexTextStrategy implements TextLayerStrategy {
       0,
       0,
     ]));
+    this.sdfBuffer?.write(buildSdfUniformData(this.resources.atlas));
     this.visibleIndexBuffer.write(visibleIndices);
     this.model.setInstanceCount(visibleIndices.length);
 
@@ -983,10 +1179,25 @@ class VisibleIndexTextStrategy implements TextLayerStrategy {
       this.resources.layout,
       this.mode,
       visibility,
-      CAMERA_UNIFORM_BYTES + visibleIndices.byteLength,
+      CAMERA_UNIFORM_BYTES + (this.sdfBuffer ? SDF_UNIFORM_BYTES : 0) + visibleIndices.byteLength,
       visibleIndices.length * 4,
       visibleIndices.length,
     );
+  }
+
+  private createBindings(): Record<string, DynamicTexture | Buffer> {
+    const bindings: Record<string, DynamicTexture | Buffer> = {
+      glyphAtlas: this.resources.texture,
+      camera: this.cameraBuffer,
+      glyphRecords: this.glyphRecordBuffer,
+      visibleGlyphIndices: this.visibleIndexBuffer,
+    };
+
+    if (this.sdfBuffer) {
+      bindings.sdf = this.sdfBuffer;
+    }
+
+    return bindings;
   }
 
   private createGeometry(): GPUGeometry {
@@ -1010,6 +1221,36 @@ type VisibilityOptions = {
   collectVisibleGlyphs: boolean;
   useChunkedSearch: boolean;
 };
+
+function createPreparedTextResources(
+  device: Device,
+  labels: LabelDefinition[],
+  atlas: GlyphAtlas,
+): PreparedTextResources {
+  const layout = layoutLabels(labels, atlas);
+
+  return {
+    atlas,
+    chunkIndex: buildGlyphChunkIndex(layout.glyphs),
+    glyphRecordData: buildGlyphRecordData(layout.glyphs),
+    layout,
+    maxScreenExtentX: getMaxScreenExtent(layout.glyphs, 'x'),
+    maxScreenExtentY: getMaxScreenExtent(layout.glyphs, 'y'),
+    texture: new DynamicTexture(device, {
+      id: `text-atlas-${atlas.mode}`,
+      data: {
+        data: atlas.imageData,
+        width: atlas.width,
+        height: atlas.height,
+        format: 'rgba8unorm',
+      },
+      format: 'rgba8unorm',
+      height: atlas.height,
+      mipmaps: false,
+      width: atlas.width,
+    }),
+  };
+}
 
 function analyzeGlyphVisibility(
   resources: PreparedTextResources,
@@ -1276,6 +1517,15 @@ function createStaticVertexBuffer(
     usage: Buffer.VERTEX,
     data,
   });
+}
+
+function buildSdfUniformData(atlas: GlyphAtlas): Float32Array {
+  return new Float32Array([
+    atlas.cutoff ?? 0.5,
+    atlas.smoothing ?? 0.08,
+    0,
+    0,
+  ]);
 }
 
 function createTextLayerStats(

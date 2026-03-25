@@ -6,6 +6,8 @@ export const TEXT_STRATEGIES = [
   'packed',
   'visible-index',
   'chunked',
+  'sdf-instanced',
+  'sdf-visible-index',
 ] as const;
 
 export type TextStrategy = (typeof TEXT_STRATEGIES)[number];
@@ -16,7 +18,11 @@ export const TEXT_STRATEGY_OPTIONS = [
   {mode: 'packed', label: 'Packed'},
   {mode: 'visible-index', label: 'Visible Index'},
   {mode: 'chunked', label: 'Chunked'},
+  {mode: 'sdf-instanced', label: 'SDF Instanced'},
+  {mode: 'sdf-visible-index', label: 'SDF Visible Index'},
 ] as const satisfies ReadonlyArray<{mode: TextStrategy; label: string}>;
+
+export type AtlasMode = 'bitmap' | 'sdf';
 
 export type LabelLocation = {
   x: number;
@@ -47,10 +53,14 @@ export type GlyphAtlas = {
   canvas: HTMLCanvasElement;
   height: number;
   imageData: Uint8ClampedArray;
+  mode: AtlasMode;
   ascent: number;
+  cutoff?: number;
   descent: number;
   lineHeight: number;
   padding: number;
+  radius?: number;
+  smoothing?: number;
   metrics: Map<string, GlyphMetric>;
   width: number;
 };
