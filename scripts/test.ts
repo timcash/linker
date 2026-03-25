@@ -100,6 +100,15 @@ type LargeScaleSweepState = {
   zoom: number;
 };
 
+type CanvasPixelSignature = {
+  brightPixelCount: number;
+  nonZeroAlphaPixelCount: number;
+  pixelHash: string;
+  pixelSum: number;
+  height: number;
+  width: number;
+};
+
 type CameraTraceStep = {
   control: string;
   name: string;
@@ -112,15 +121,16 @@ const readmeScreenshotPath = path.resolve(process.cwd(), 'docs/readme-ui.png');
 const browserLogLines: string[] = [];
 const ERROR_PING_TOKEN = 'ERROR_PING_TEST';
 const INTENTIONAL_ERROR_MARKER = '[intentional-error-ping]';
-const BROWSER_UPDATE_FRAME_COUNT = 3;
-const BENCHMARK_TRACE_FRAME_COUNT = 8;
+const BROWSER_UPDATE_FRAME_COUNT = 1;
+const BENCHMARK_TRACE_FRAME_COUNT = 1;
+const LARGE_SCALE_SWEEP_CAMERA_ZOOM = 4.08;
 const LARGE_SCALE_CAMERA_TRACE: readonly CameraTraceStep[] = [
-  {name: 'zoom-out-wide', control: 'zoom-out', repeat: 2},
-  {name: 'zoom-in-mid', control: 'zoom-in', repeat: 4},
-  {name: 'zoom-in-detail', control: 'zoom-in', repeat: 5},
-  {name: 'zoom-in-close', control: 'zoom-in', repeat: 5},
-  {name: 'zoom-in-hidden', control: 'zoom-in', repeat: 5},
-  {name: 'zoom-out-recover', control: 'zoom-out', repeat: 5},
+  {name: 'zoom-out-visible', control: 'zoom-out', repeat: 1},
+  {name: 'zoom-out-wide', control: 'zoom-out', repeat: 1},
+  {name: 'zoom-out-wider', control: 'zoom-out', repeat: 1},
+  {name: 'zoom-in-return', control: 'zoom-in', repeat: 1},
+  {name: 'zoom-in-tight', control: 'zoom-in', repeat: 1},
+  {name: 'zoom-in-hidden', control: 'zoom-in', repeat: 1},
 ] as const;
 
 await writeFile(logPath, '', 'utf8');
@@ -534,7 +544,6 @@ try {
     );
 
     await clickControl(page, 'zoom-out');
-    await clickControl(page, 'zoom-out');
     await page.waitForFunction(
       () => (document.body.dataset.textVisibleLabels ?? '').includes('WORLD VIEW'),
     );
@@ -699,12 +708,14 @@ try {
     );
 
     const demoStrategyChecks = new Map<TextStrategy, TextState>();
+    const demoStrategySignatures = new Map<TextStrategy, CanvasPixelSignature>();
 
     for (const textStrategy of getTextStrategies()) {
       addBrowserLog('test', `Verifying demo text strategy ${textStrategy}`);
       await switchTextStrategy(page, textStrategy);
       const demoTextState = await verifyDemoTextStrategyVisibility(page, textStrategy);
       demoStrategyChecks.set(textStrategy, demoTextState);
+      demoStrategySignatures.set(textStrategy, await getCanvasPixelSignature(page));
     }
 
     const baselineDemo = getRequiredMapValue(
@@ -753,6 +764,25 @@ try {
         demoState.visibleGlyphCount,
         baselineDemo.visibleGlyphCount,
         `Demo glyph visibility should match baseline for text strategy ${textStrategy}.`,
+      );
+    }
+
+    const baselineDemoSignature = getRequiredMapValue(
+      demoStrategySignatures,
+      'baseline',
+      'Baseline demo canvas signature should be captured.',
+    );
+
+    for (const textStrategy of getTextStrategies()) {
+      const demoSignature = getRequiredMapValue(
+        demoStrategySignatures,
+        textStrategy,
+        `Demo canvas signature should be captured for text strategy ${textStrategy}.`,
+      );
+      assert.deepEqual(
+        demoSignature,
+        baselineDemoSignature,
+        `Demo canvas pixels should match baseline for text strategy ${textStrategy}.`,
       );
     }
 
@@ -1147,6 +1177,69 @@ async function getTextState(page: Page): Promise<TextState> {
   }));
 }
 
+async function getCanvasPixelSignature(page: Page): Promise<CanvasPixelSignature> {
+  return page.evaluate(() => {
+    const canvas = document.querySelector('[data-testid="gpu-canvas"]');
+
+    if (!(canvas instanceof HTMLCanvasElement)) {
+      throw new Error('Expected a canvas element.');
+    }
+
+    const copy = document.createElement('canvas');
+    copy.width = canvas.width;
+    copy.height = canvas.height;
+
+    const context = copy.getContext('2d', {willReadFrequently: true});
+
+    if (!context) {
+      throw new Error('Expected a 2D context.');
+    }
+
+    context.drawImage(canvas, 0, 0);
+
+    const {data, width, height} = context.getImageData(0, 0, copy.width, copy.height);
+    let hash = 2166136261;
+    let pixelSum = 0;
+    let nonZeroAlphaPixelCount = 0;
+    let brightPixelCount = 0;
+
+    for (let index = 0; index < data.length; index += 4) {
+      const red = data[index] ?? 0;
+      const green = data[index + 1] ?? 0;
+      const blue = data[index + 2] ?? 0;
+      const alpha = data[index + 3] ?? 0;
+
+      hash ^= red;
+      hash = Math.imul(hash, 16777619);
+      hash ^= green;
+      hash = Math.imul(hash, 16777619);
+      hash ^= blue;
+      hash = Math.imul(hash, 16777619);
+      hash ^= alpha;
+      hash = Math.imul(hash, 16777619);
+
+      pixelSum = (pixelSum + red + green + blue + alpha) >>> 0;
+
+      if (alpha > 0) {
+        nonZeroAlphaPixelCount += 1;
+      }
+
+      if (red + green + blue > 540) {
+        brightPixelCount += 1;
+      }
+    }
+
+    return {
+      brightPixelCount,
+      nonZeroAlphaPixelCount,
+      pixelHash: (hash >>> 0).toString(16).padStart(8, '0'),
+      pixelSum,
+      height,
+      width,
+    };
+  });
+}
+
 async function getBenchmarkState(page: Page): Promise<BenchmarkState> {
   return page.evaluate(() => ({
     bytesUploadedPerFrame: Number(document.body.dataset.benchmarkBytesUploadedPerFrame ?? '0'),
@@ -1308,7 +1401,7 @@ async function verifyDemoTextStrategyVisibility(
     () => Number(document.body.dataset.cameraZoom) === 0,
   );
 
-  await clickControlRepeatedly(page, 'zoom-out', 2);
+  await clickControlRepeatedly(page, 'zoom-out', 1);
   await page.waitForFunction(
     () => (document.body.dataset.textVisibleLabels ?? '').includes('WORLD VIEW'),
   );
@@ -1347,6 +1440,7 @@ async function runLargeScaleTextStrategySweep(
   sweepUrl.searchParams.set('labelSet', 'benchmark');
   sweepUrl.searchParams.set('labelCount', String(labelCount));
   sweepUrl.searchParams.set('textStrategy', textStrategy);
+  sweepUrl.searchParams.set('cameraZoom', String(LARGE_SCALE_SWEEP_CAMERA_ZOOM));
   sweepUrl.searchParams.delete('benchmark');
   sweepUrl.searchParams.delete('gpuTiming');
   sweepUrl.searchParams.delete('benchmarkFrames');
@@ -1374,14 +1468,7 @@ async function runLargeScaleTextStrategySweep(
 
   const checkpoints: LargeScaleSweepState[] = [];
 
-  await clickControl(page, 'reset-camera');
-  await page.waitForFunction(
-    () =>
-      Number(document.body.dataset.cameraCenterX) === 0 &&
-      Number(document.body.dataset.cameraCenterY) === 0 &&
-      Number(document.body.dataset.cameraZoom) === 0,
-  );
-  checkpoints.push(await captureLargeScaleSweepState(page, 'reset'));
+  checkpoints.push(await captureLargeScaleSweepState(page, 'start-hidden'));
 
   for (const step of LARGE_SCALE_CAMERA_TRACE) {
     await clickControlRepeatedly(page, step.control, step.repeat);

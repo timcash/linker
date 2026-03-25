@@ -681,8 +681,13 @@ class InstancedTextStrategy implements TextLayerStrategy {
         usage: Buffer.VERTEX | Buffer.COPY_DST,
         byteLength: this.capacity * 4 * Float32Array.BYTES_PER_ELEMENT,
       });
-
-      this.model.setGeometry(this.createGeometry());
+      // Swap only the resized instance buffers. Rebuilding the geometry would destroy
+      // the shared unit quad buffers that this strategy keeps for its full lifetime.
+      this.model.setAttributes({
+        instanceColor: this.colorBuffer,
+        instanceRect: this.rectBuffer,
+        instanceUvRect: this.uvRectBuffer,
+      });
     }
 
     if (instances.instanceCount === 0) {

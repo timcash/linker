@@ -72,6 +72,8 @@ The default UI boots the demo label-set preset `demo-label-set-v1`, which is sou
 
 - Demo label-set id: `demo-label-set-v1`
 - Demo label-set source: `src/data/demo-label-set.csv`
+- Demo label-set layout: `12` left-to-right columns with `1..12` top-level roots
+- Demo hierarchy depth: every top-level root generates `2` nested zoom-in levels
 - Benchmark label-set id: `static-benchmark-label-set-v2`
 - Benchmark label counts: `1024`, `4096`, `16384`
 - Benchmark route template:
@@ -190,25 +192,29 @@ The demo label set is sourced from `src/data/demo-label-set.csv`.
 The file format is intentionally simple: one text item per line.
 
 ```csv
-BUTTON PAN
-WEBGPU LABEL
-LUMA TEXT
-MID DETAIL
-CLOSE READ
 WORLD VIEW
+BUTTON PAN
+STATUS PANEL
+DETAILS PANEL
+RENDER PANEL
+CAMERA PANEL
+STAGE CANVAS
 GRID LAYER
 TEXT LAYER
-TEXT STRATEGY
 FRAME TELEMETRY
+GPU SAMPLE
+CPU SAMPLE
 ```
 
 Notes:
 
 - empty lines are ignored
 - wrapping single or double quotes are stripped
-- the current demo layout has a fixed number of anchor slots
-- if the CSV has fewer lines than slots, fallback text is used
-- if the CSV has more lines than slots, extra rows are ignored
+- each CSV row becomes a top-level root label in the demo hierarchy
+- the demo layout fills `12` left-to-right columns with `1..12` roots per column
+- every top-level root automatically gets `2` nested zoom-in labels
+- if the CSV has fewer than `78` root rows, fallback labels are used
+- if the CSV has more than `78` root rows, extra rows are ignored
 
 The parsing and placement logic lives in `src/data/labels.ts`.
 
