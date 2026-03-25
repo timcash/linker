@@ -1,9 +1,20 @@
 import {Buffer, type Device, type QuerySet, type RenderPassProps} from '@luma.gl/core';
 
 const MAX_SAMPLES = 120;
-const GPU_QUERY_COUNT = 2;
+const GPU_PASS_QUERY_COUNT = 2;
+const GPU_QUERY_COUNT = GPU_PASS_QUERY_COUNT * 2;
 const GPU_QUERY_RESULT_BYTES = GPU_QUERY_COUNT * BigUint64Array.BYTES_PER_ELEMENT;
 const GPU_TIMER_SLOT_COUNT = 3;
+
+const GPU_FRAME_QUERY_RANGE = {
+  beginIndex: 0,
+  endIndex: 1,
+} as const;
+
+const GPU_TEXT_QUERY_RANGE = {
+  beginIndex: 2,
+  endIndex: 3,
+} as const;
 
 type RollingMetricSummary = {
   averageMs: number;
@@ -23,6 +34,8 @@ export type FrameTelemetrySnapshot = {
   gpuFrameAvgMs: number | null;
   gpuFrameMaxMs: number | null;
   gpuFrameSamples: number;
+  gpuTextAvgMs: number | null;
+  gpuTextMaxMs: number | null;
   gpuSupported: boolean;
 };
 
@@ -103,6 +116,7 @@ export class FrameTelemetry {
   private readonly cpuGrid = new RollingMetric();
   private readonly cpuText = new RollingMetric();
   private readonly gpuFrame = new RollingMetric();
+  private readonly gpuText = new RollingMetric();
   private readonly gpuSupported: boolean;
   private readonly gpuSlots: GpuTimerSlot[] = [];
   private activeGpuSlot: GpuTimerSlot | null = null;
@@ -168,8 +182,23 @@ export class FrameTelemetry {
 
     return {
       timestampQuerySet: slot.querySet,
-      beginTimestampIndex: 0,
-      endTimestampIndex: 1,
+      beginTimestampIndex: GPU_FRAME_QUERY_RANGE.beginIndex,
+      endTimestampIndex: GPU_FRAME_QUERY_RANGE.endIndex,
+    };
+  }
+
+  getTextRenderPassTimingProps(): Pick<
+    Partial<RenderPassProps>,
+    'beginTimestampIndex' | 'endTimestampIndex' | 'timestampQuerySet'
+  > {
+    if (!this.gpuSupported || !this.activeGpuSlot) {
+      return {};
+    }
+
+    return {
+      timestampQuerySet: this.activeGpuSlot.querySet,
+      beginTimestampIndex: GPU_TEXT_QUERY_RANGE.beginIndex,
+      endTimestampIndex: GPU_TEXT_QUERY_RANGE.endIndex,
     };
   }
 
@@ -179,6 +208,7 @@ export class FrameTelemetry {
     const cpuText = this.cpuText.getSummary();
     const cpuDraw = this.cpuDraw.getSummary();
     const gpuFrame = this.gpuFrame.getSummary();
+    const gpuText = this.gpuText.getSummary();
 
     return {
       cpuDrawAvgMs: cpuDraw.averageMs,
@@ -191,6 +221,8 @@ export class FrameTelemetry {
       gpuFrameAvgMs: gpuFrame.sampleCount > 0 ? gpuFrame.averageMs : null,
       gpuFrameMaxMs: gpuFrame.sampleCount > 0 ? gpuFrame.maxMs : null,
       gpuFrameSamples: gpuFrame.sampleCount,
+      gpuTextAvgMs: gpuText.sampleCount > 0 ? gpuText.averageMs : null,
+      gpuTextMaxMs: gpuText.sampleCount > 0 ? gpuText.maxMs : null,
       gpuSupported: this.gpuSupported,
     };
   }
@@ -217,6 +249,7 @@ export class FrameTelemetry {
     this.cpuGrid.reset();
     this.cpuText.reset();
     this.gpuFrame.reset();
+    this.gpuText.reset();
     this.gpuError = null;
   }
 
@@ -248,11 +281,25 @@ export class FrameTelemetry {
         }
 
         const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
-        const start = view.getBigUint64(0, true);
-        const end = view.getBigUint64(BigUint64Array.BYTES_PER_ELEMENT, true);
+        const mainPassDurationMs = getGpuQueryDurationMs(
+          view,
+          GPU_FRAME_QUERY_RANGE.beginIndex,
+          GPU_FRAME_QUERY_RANGE.endIndex,
+        );
+        const textDurationMs = getGpuQueryDurationMs(view, GPU_TEXT_QUERY_RANGE.beginIndex, GPU_TEXT_QUERY_RANGE.endIndex);
+        const frameDurationMs =
+          mainPassDurationMs === null
+            ? textDurationMs
+            : textDurationMs === null
+            ? mainPassDurationMs
+            : mainPassDurationMs + textDurationMs;
 
-        if (end > start) {
-          this.gpuFrame.push(Number(end - start) / 1_000_000);
+        if (frameDurationMs !== null) {
+          this.gpuFrame.push(frameDurationMs);
+        }
+
+        if (textDurationMs !== null) {
+          this.gpuText.push(textDurationMs);
         }
       })
       .catch((error: unknown) => {
@@ -262,4 +309,19 @@ export class FrameTelemetry {
         slot.pendingRead = null;
       });
   }
+}
+
+function getGpuQueryDurationMs(
+  view: DataView,
+  beginIndex: number,
+  endIndex: number,
+): number | null {
+  const start = view.getBigUint64(beginIndex * BigUint64Array.BYTES_PER_ELEMENT, true);
+  const end = view.getBigUint64(endIndex * BigUint64Array.BYTES_PER_ELEMENT, true);
+
+  if (end <= start) {
+    return null;
+  }
+
+  return Number(end - start) / 1_000_000;
 }

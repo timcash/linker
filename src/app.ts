@@ -114,6 +114,7 @@ type StageBenchmarkSummary = {
   glyphCount: number;
   gpuFrameAvgMs: number | null;
   gpuFrameSamples: number;
+  gpuTextAvgMs: number | null;
   gpuSupported: boolean;
   labelCount: number;
   textStrategy: TextStrategy;
@@ -301,18 +302,37 @@ class LumaStageController {
       const framebuffer = this.device
         .getDefaultCanvasContext()
         .getCurrentFramebuffer({depthStencilFormat: false});
+      const frameTimingProps = this.frameTelemetry?.getRenderPassTimingProps() ?? {};
+      const splitTextGpuPass = frameTimingProps.timestampQuerySet !== undefined;
 
       const renderPass = this.device.beginRenderPass({
         id: 'luma-stage-pass',
         framebuffer,
         clearColor: [0.01, 0.02, 0.04, 1],
-        ...this.frameTelemetry?.getRenderPassTimingProps(),
+        ...frameTimingProps,
       });
 
       this.backgroundModel.draw(renderPass);
       this.gridLayer.draw(renderPass);
-      this.textLayer.draw(renderPass);
+
+      if (!splitTextGpuPass) {
+        this.textLayer.draw(renderPass);
+      }
+
       renderPass.end();
+
+      if (splitTextGpuPass) {
+        const textRenderPass = this.device.beginRenderPass({
+          id: 'luma-stage-text-pass',
+          framebuffer,
+          clearColor: false,
+          ...this.frameTelemetry?.getTextRenderPassTimingProps(),
+        });
+
+        this.textLayer.draw(textRenderPass);
+        textRenderPass.end();
+      }
+
       this.frameTelemetry?.resolveGpuPass();
       this.device.submit();
       this.frameTelemetry?.submitGpuPass();
@@ -501,6 +521,7 @@ class LumaStageController {
         glyphCount: textStats.glyphCount,
         gpuFrameAvgMs: perf.gpuFrameAvgMs,
         gpuFrameSamples: perf.gpuFrameSamples,
+        gpuTextAvgMs: perf.gpuTextAvgMs,
         gpuSupported: perf.gpuSupported,
         labelCount: textStats.labelCount,
         textStrategy: this.textStrategy,
@@ -540,6 +561,7 @@ class LumaStageController {
       document.body.dataset.benchmarkCpuTextAvgMs = '0.000';
       document.body.dataset.benchmarkGlyphCount = '0';
       document.body.dataset.benchmarkGpuFrameAvgMs = this.config.gpuTimingEnabled ? 'pending' : 'disabled';
+      document.body.dataset.benchmarkGpuTextAvgMs = this.config.gpuTimingEnabled ? 'pending' : 'disabled';
       document.body.dataset.benchmarkGpuFrameSamples = '0';
       document.body.dataset.benchmarkGpuSupported = 'false';
       document.body.dataset.benchmarkSubmittedGlyphCount = '0';
@@ -563,6 +585,12 @@ class LumaStageController {
         : this.benchmarkSummary.gpuFrameAvgMs === null
         ? 'unsupported'
         : this.benchmarkSummary.gpuFrameAvgMs.toFixed(3);
+    document.body.dataset.benchmarkGpuTextAvgMs =
+      !this.config.gpuTimingEnabled
+        ? 'disabled'
+        : this.benchmarkSummary.gpuTextAvgMs === null
+        ? 'unsupported'
+        : this.benchmarkSummary.gpuTextAvgMs.toFixed(3);
     document.body.dataset.benchmarkGpuFrameSamples = String(this.benchmarkSummary.gpuFrameSamples);
     document.body.dataset.benchmarkGpuSupported = String(this.benchmarkSummary.gpuSupported);
     document.body.dataset.benchmarkSubmittedGlyphCount = String(this.benchmarkSummary.submittedGlyphCount);
@@ -661,6 +689,12 @@ class LumaStageController {
         : perf?.gpuFrameAvgMs === null || perf?.gpuFrameAvgMs === undefined
         ? 'unsupported'
         : perf.gpuFrameAvgMs.toFixed(3);
+    document.body.dataset.perfGpuTextAvgMs =
+      !this.config.gpuTimingEnabled
+        ? 'disabled'
+        : perf?.gpuTextAvgMs === null || perf?.gpuTextAvgMs === undefined
+        ? 'unsupported'
+        : perf.gpuTextAvgMs.toFixed(3);
     document.body.dataset.perfGpuFrameSamples = String(perf?.gpuFrameSamples ?? 0);
     document.body.dataset.perfGpuSupported = String(perf?.gpuSupported ?? false);
 
@@ -807,10 +841,14 @@ function escapeHtml(input: string): string {
 function formatPerfSummary(perf: FrameTelemetrySnapshot): string {
   const cpuFrame = formatMs(perf.cpuFrameAvgMs);
   const cpuText = formatMs(perf.cpuTextAvgMs);
-  const gpuFrame =
-    perf.gpuFrameAvgMs === null ? 'gpu unsupported' : `gpu ${formatMs(perf.gpuFrameAvgMs)}`;
+  const gpuSummary =
+    perf.gpuFrameAvgMs === null
+      ? 'gpu unsupported'
+      : perf.gpuTextAvgMs === null
+      ? `gpu ${formatMs(perf.gpuFrameAvgMs)} frame`
+      : `gpu ${formatMs(perf.gpuFrameAvgMs)} frame / ${formatMs(perf.gpuTextAvgMs)} text`;
 
-  return `perf cpu ${cpuFrame} frame / ${cpuText} text / ${gpuFrame}`;
+  return `perf cpu ${cpuFrame} frame / ${cpuText} text / ${gpuSummary}`;
 }
 
 function formatMs(value: number): string {

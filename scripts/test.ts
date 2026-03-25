@@ -77,6 +77,7 @@ type BenchmarkState = {
   gpuFrameAvgMs: number | null;
   gpuFrameSamples: number;
   gpuSupported: boolean;
+  gpuTextAvgMs: number | null;
   gpuTimingEnabled: boolean;
   labelCount: number;
   textStrategy: TextStrategy;
@@ -118,11 +119,14 @@ type CameraTraceStep = {
 const logPath = path.resolve(process.cwd(), 'browser.log');
 const screenshotPath = path.resolve(process.cwd(), 'browser.png');
 const readmeScreenshotPath = path.resolve(process.cwd(), 'docs/readme-ui.png');
+const readmePath = path.resolve(process.cwd(), 'README.md');
 const browserLogLines: string[] = [];
+const benchmarkHistory: BenchmarkState[] = [];
 const ERROR_PING_TOKEN = 'ERROR_PING_TEST';
 const INTENTIONAL_ERROR_MARKER = '[intentional-error-ping]';
 const BROWSER_UPDATE_FRAME_COUNT = 1;
 const BENCHMARK_TRACE_FRAME_COUNT = 1;
+const README_PERFORMANCE_HISTORY_HEADING = '## Performance History';
 const LARGE_SCALE_SWEEP_CAMERA_ZOOM = 4.08;
 const LARGE_SCALE_CAMERA_TRACE: readonly CameraTraceStep[] = [
   {name: 'zoom-out-visible', control: 'zoom-out', repeat: 1},
@@ -1243,6 +1247,20 @@ try {
   }
 
   try {
+    await appendReadmePerformanceHistory(benchmarkHistory);
+    if (benchmarkHistory.length > 0) {
+      addBrowserLog(
+        'artifact',
+        `Appended ${benchmarkHistory.length} benchmark summaries to ${readmePath}`,
+      );
+    }
+  } catch (error) {
+    console.error(
+      `Failed to append README performance history: ${error instanceof Error ? error.message : String(error)}`,
+    );
+  }
+
+  try {
     await flushBrowserLog();
   } catch (error) {
     console.error(
@@ -1387,6 +1405,12 @@ async function getBenchmarkState(page: Page): Promise<BenchmarkState> {
         : Number(document.body.dataset.benchmarkGpuFrameAvgMs ?? '0'),
     gpuFrameSamples: Number(document.body.dataset.benchmarkGpuFrameSamples ?? '0'),
     gpuSupported: document.body.dataset.benchmarkGpuSupported === 'true',
+    gpuTextAvgMs:
+      document.body.dataset.benchmarkGpuTextAvgMs === 'unsupported' ||
+      document.body.dataset.benchmarkGpuTextAvgMs === 'disabled' ||
+      document.body.dataset.benchmarkGpuTextAvgMs === 'pending'
+        ? null
+        : Number(document.body.dataset.benchmarkGpuTextAvgMs ?? '0'),
     gpuTimingEnabled: document.body.dataset.benchmarkGpuTimingEnabled === 'true',
     labelCount: Number(document.body.dataset.benchmarkLabelCount ?? '0'),
     textStrategy: (document.body.dataset.benchmarkTextStrategy ?? 'baseline') as TextStrategy,
@@ -1704,6 +1728,7 @@ async function runBenchmarkRoute(
       gpuFrameAvgMs: null,
       gpuFrameSamples: 0,
       gpuSupported: false,
+      gpuTextAvgMs: null,
       gpuTimingEnabled: false,
       labelCount,
       textStrategy,
@@ -1792,34 +1817,26 @@ async function runBenchmarkRoute(
       benchmark.gpuFrameAvgMs !== null && benchmark.gpuFrameAvgMs > 0,
       'GPU benchmark samples should produce a positive average frame time.',
     );
+    assert.ok(
+      benchmark.gpuTextAvgMs !== null && benchmark.gpuTextAvgMs >= 0,
+      'GPU benchmark samples should produce a non-negative average text-pass time.',
+    );
+    assert.ok(
+      benchmark.gpuFrameAvgMs !== null &&
+        benchmark.gpuTextAvgMs !== null &&
+        benchmark.gpuFrameAvgMs >= benchmark.gpuTextAvgMs,
+      'Whole-frame GPU time should be at least as large as the text-only GPU pass time.',
+    );
   } else {
     addBrowserLog(
       'test',
       'Benchmark GPU timestamps were requested, but this browser/device did not expose timestamp-query.',
     );
-  }
-
-  const benchmarkSummary = [
-    `strategy=${benchmark.textStrategy}`,
-    `labels=${benchmark.labelCount}`,
-    `glyphs=${benchmark.glyphCount}`,
-    `cpuFrame=${benchmark.cpuFrameAvgMs.toFixed(3)}ms`,
-    `cpuText=${benchmark.cpuTextAvgMs.toFixed(3)}ms`,
-    `cpuDraw=${benchmark.cpuDrawAvgMs.toFixed(3)}ms`,
-    !benchmark.gpuTimingEnabled
-      ? 'gpu=disabled'
-      : benchmark.gpuFrameAvgMs === null
-      ? 'gpu=unsupported'
-      : `gpu=${benchmark.gpuFrameAvgMs.toFixed(3)}ms`,
-    `uploaded=${benchmark.bytesUploadedPerFrame}B`,
-    `submittedGlyphs=${benchmark.submittedGlyphCount}`,
-    `submittedVertices=${benchmark.submittedVertexCount}`,
-    `visibleChunks=${benchmark.visibleChunkCount}`,
-    `visibleLabels=${benchmark.visibleLabelCount}`,
-    `visibleGlyphs=${benchmark.visibleGlyphCount}`,
-    `labelSetPreset=${benchmark.labelSetPreset}`,
-  ].join(' ');
+	  }
+	
+  const benchmarkSummary = formatBenchmarkSummary(benchmark);
   addBrowserLog('test', `Benchmark summary ${benchmarkSummary}`);
+  benchmarkHistory.push(benchmark);
 
   const newUnexpectedBenchmarkErrors = pageErrors
     .slice(benchmarkPageErrorCount)
@@ -1831,6 +1848,70 @@ async function runBenchmarkRoute(
   );
 
   return benchmark;
+}
+
+function formatBenchmarkSummary(benchmark: BenchmarkState): string {
+  const visibleVertexCount = getVisibleVertexCount(benchmark);
+
+  return [
+    `strategy=${benchmark.textStrategy}`,
+    `labels=${benchmark.labelCount}`,
+    `glyphs=${benchmark.glyphCount}`,
+    `cpuFrame=${benchmark.cpuFrameAvgMs.toFixed(3)}ms`,
+    `cpuSamples=${benchmark.cpuFrameSamples}`,
+    `cpuText=${benchmark.cpuTextAvgMs.toFixed(3)}ms`,
+    `cpuDraw=${benchmark.cpuDrawAvgMs.toFixed(3)}ms`,
+    !benchmark.gpuTimingEnabled
+      ? 'gpu=disabled'
+      : benchmark.gpuFrameAvgMs === null
+      ? 'gpu=unsupported'
+      : `gpu=${benchmark.gpuFrameAvgMs.toFixed(3)}ms`,
+    `gpuSamples=${benchmark.gpuFrameSamples}`,
+    !benchmark.gpuTimingEnabled
+      ? 'gpuText=disabled'
+      : benchmark.gpuTextAvgMs === null
+      ? 'gpuText=unsupported'
+      : `gpuText=${benchmark.gpuTextAvgMs.toFixed(3)}ms`,
+    `uploaded=${benchmark.bytesUploadedPerFrame}B`,
+    `visibleLabels=${benchmark.visibleLabelCount}`,
+    `visibleGlyphs=${benchmark.visibleGlyphCount}`,
+    `visibleVertices=${visibleVertexCount}`,
+    `submittedGlyphs=${benchmark.submittedGlyphCount}`,
+    `submittedVertices=${benchmark.submittedVertexCount}`,
+    `visibleChunks=${benchmark.visibleChunkCount}`,
+    `labelSetPreset=${benchmark.labelSetPreset}`,
+  ].join(' ');
+}
+
+async function appendReadmePerformanceHistory(benchmarks: BenchmarkState[]): Promise<void> {
+  if (benchmarks.length === 0) {
+    return;
+  }
+
+  const existingReadme = await readFile(readmePath, 'utf8');
+  const timestamp = new Date().toISOString();
+  const benchmarkLines = benchmarks.map((benchmark) => formatBenchmarkSummary(benchmark)).join('\n');
+  const historyEntry = [
+    `### ${timestamp}`,
+    '',
+    '```text',
+    benchmarkLines,
+    '```',
+  ].join('\n');
+  const nextReadme = existingReadme.includes(README_PERFORMANCE_HISTORY_HEADING)
+    ? `${existingReadme.trimEnd()}\n\n${historyEntry}\n`
+    : `${existingReadme.trimEnd()}\n\n${README_PERFORMANCE_HISTORY_HEADING}\n\n${historyEntry}\n`;
+
+  await writeFile(readmePath, nextReadme, 'utf8');
+}
+
+function getVisibleVertexCount(benchmark: BenchmarkState): number {
+  switch (benchmark.textStrategy) {
+    case 'baseline':
+      return benchmark.visibleGlyphCount * 6;
+    default:
+      return benchmark.visibleGlyphCount * 4;
+  }
 }
 
 function getBenchmarkKey(textStrategy: TextStrategy, labelCount: number): string {
