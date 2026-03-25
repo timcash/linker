@@ -11,12 +11,12 @@ import puppeteer, {
 import {createServer} from 'vite';
 
 import {Camera2D, type ViewportSize} from '../src/camera';
-import {DEMO_DATASET_ID} from '../src/data/demo-meta';
+import {DEMO_LABEL_SET_ID} from '../src/data/demo-meta';
 import {
   STATIC_BENCHMARK_COUNTS,
-  STATIC_BENCHMARK_DATASET_ID,
+  STATIC_BENCHMARK_LABEL_SET_ID,
 } from '../src/data/static-benchmark';
-import {RENDERER_MODES, type RendererMode, type TextStrategy} from '../src/text/types';
+import {TEXT_STRATEGIES, type TextStrategy} from '../src/text/types';
 
 type ReadyResult = {
   state: 'ready';
@@ -45,10 +45,10 @@ type CameraState = {
 
 type TextState = {
   bytesUploadedPerFrame: number;
-  datasetPreset: string;
+  labelSetPreset: string;
   labelCount: number;
   glyphCount: number;
-  rendererMode: RendererMode;
+  textStrategy: TextStrategy;
   submittedGlyphCount: number;
   submittedVertexCount: number;
   visibleChunkCount: number;
@@ -63,8 +63,9 @@ type BenchmarkState = {
   cpuFrameAvgMs: number;
   cpuFrameSamples: number;
   cpuTextAvgMs: number;
-  datasetPreset: string;
-  datasetName: string;
+  labelSetKind: string;
+  labelSetPreset: string;
+  labelTargetCount: number;
   error: string;
   glyphCount: number;
   gpuFrameAvgMs: number | null;
@@ -72,8 +73,7 @@ type BenchmarkState = {
   gpuSupported: boolean;
   gpuTimingEnabled: boolean;
   labelCount: number;
-  requestedLabelCount: number;
-  rendererMode: RendererMode;
+  textStrategy: TextStrategy;
   state: string;
   submittedGlyphCount: number;
   submittedVertexCount: number;
@@ -84,9 +84,9 @@ type BenchmarkState = {
 
 type LargeScaleSweepState = {
   bytesUploadedPerFrame: number;
-  datasetPreset: string;
+  labelSetPreset: string;
   name: string;
-  rendererMode: RendererMode;
+  textStrategy: TextStrategy;
   submittedVertexCount: number;
   visibleChunkCount: number;
   visibleGlyphCount: number;
@@ -232,10 +232,10 @@ try {
         },
         text: {
           bytesUploadedPerFrame: Number(document.body.dataset.textBytesUploadedPerFrame ?? '0'),
-          datasetPreset: document.body.dataset.datasetPreset ?? '',
+          labelSetPreset: document.body.dataset.labelSetPreset ?? '',
           labelCount: Number(document.body.dataset.textLabelCount ?? '0'),
           glyphCount: Number(document.body.dataset.textGlyphCount ?? '0'),
-          rendererMode: (document.body.dataset.rendererMode ?? 'baseline') as RendererMode,
+          textStrategy: (document.body.dataset.textStrategy ?? 'baseline') as TextStrategy,
           submittedGlyphCount: Number(document.body.dataset.textSubmittedGlyphCount ?? '0'),
           submittedVertexCount: Number(document.body.dataset.textSubmittedVertexCount ?? '0'),
           visibleChunkCount: Number(document.body.dataset.textVisibleChunkCount ?? '0'),
@@ -302,8 +302,8 @@ try {
     );
     assert.ok(result.text.labelCount > 0, 'At least one text label should be laid out.');
     assert.ok(result.text.glyphCount > 0, 'At least one text glyph should be generated.');
-    assert.equal(result.text.rendererMode, 'baseline', 'Demo route should default to the baseline renderer.');
-    assert.equal(result.text.datasetPreset, DEMO_DATASET_ID, 'Demo route should report the fixed demo dataset preset.');
+    assert.equal(result.text.textStrategy, 'baseline', 'Demo route should default to the baseline text strategy.');
+    assert.equal(result.text.labelSetPreset, DEMO_LABEL_SET_ID, 'Demo route should report the fixed demo label-set preset.');
     assert.ok(result.text.visibleLabelCount > 0, 'At least one text label should be visible.');
     assert.ok(
       result.text.visibleGlyphCount > 0,
@@ -321,9 +321,9 @@ try {
       const cameraPanel = document.querySelector('[data-testid="camera-panel"]');
       const detailsPanel = document.querySelector('[data-testid="details-panel"]');
       const renderPanel = document.querySelector('[data-testid="render-panel"]');
-      const rendererPanel = document.querySelector('[data-testid="renderer-panel"]');
+      const textStrategyPanel = document.querySelector('[data-testid="text-strategy-panel"]');
       const statusPanel = document.querySelector('[data-testid="status-panel"]');
-      const strategyButtons = [...document.querySelectorAll<HTMLButtonElement>('button[data-renderer-mode]')];
+      const strategyButtons = [...document.querySelectorAll<HTMLButtonElement>('button[data-text-strategy]')];
       const cameraRect = cameraPanel instanceof HTMLElement ? cameraPanel.getBoundingClientRect() : null;
       const detailsRect = detailsPanel instanceof HTMLElement ? detailsPanel.getBoundingClientRect() : null;
       const renderRect = renderPanel instanceof HTMLElement ? renderPanel.getBoundingClientRect() : null;
@@ -340,13 +340,13 @@ try {
           window.getComputedStyle(detailsPanel).display !== 'none',
         renderPanelVisible:
           renderPanel instanceof HTMLElement && window.getComputedStyle(renderPanel).display !== 'none',
-        rendererPanelVisible:
-          rendererPanel instanceof HTMLElement &&
-          window.getComputedStyle(rendererPanel).display !== 'none',
+        textStrategyPanelVisible:
+          textStrategyPanel instanceof HTMLElement &&
+          window.getComputedStyle(textStrategyPanel).display !== 'none',
         cameraRightGap: cameraRect ? Math.round(window.innerWidth - cameraRect.right) : -1,
         cameraBottomGap: cameraRect ? Math.round(window.innerHeight - cameraRect.bottom) : -1,
         detailsRightGap: detailsRect ? Math.round(window.innerWidth - detailsRect.right) : -1,
-        rendererButtonModes: strategyButtons.map((button) => button.dataset.rendererMode ?? ''),
+        textStrategyButtonModes: strategyButtons.map((button) => button.dataset.textStrategy ?? ''),
         renderLeftGap: renderRect ? Math.round(renderRect.left) : -1,
         renderBottomGap: renderRect ? Math.round(window.innerHeight - renderRect.bottom) : -1,
         statusLeftGap: statusRect ? Math.round(statusRect.left) : -1,
@@ -368,11 +368,11 @@ try {
     assert.equal(readyUiState.cameraPanelVisible, true, 'Camera panel should be visible.');
     assert.equal(readyUiState.detailsPanelVisible, true, 'Details panel should be visible.');
     assert.equal(readyUiState.renderPanelVisible, true, 'Render panel should be visible.');
-    assert.equal(readyUiState.rendererPanelVisible, true, 'Renderer panel should be visible.');
+    assert.equal(readyUiState.textStrategyPanelVisible, true, 'Text strategy panel should be visible.');
     assert.deepEqual(
-      readyUiState.rendererButtonModes,
-      [...RENDERER_MODES],
-      'Render panel should expose a button for every text strategy.',
+      readyUiState.textStrategyButtonModes,
+      [...TEXT_STRATEGIES],
+      'Text strategy panel should expose a button for every text strategy.',
     );
     assert.ok(
       readyUiState.statusLeftGap >= 0 && readyUiState.statusLeftGap <= 32,
@@ -638,7 +638,7 @@ try {
       'Pointer drag should not affect zoom when button-only controls are enabled.',
     );
 
-    const demoStrategyChecks = new Map<RendererMode, TextState>();
+    const demoStrategyChecks = new Map<TextStrategy, TextState>();
 
     for (const textStrategy of getTextStrategies()) {
       addBrowserLog('test', `Verifying demo text strategy ${textStrategy}`);
@@ -680,9 +680,9 @@ try {
         `Demo text strategy ${textStrategy} should be verified.`,
       );
       assert.equal(
-        demoState.datasetPreset,
-        DEMO_DATASET_ID,
-        `${textStrategy} demo mode should use the shared demo dataset preset.`,
+        demoState.labelSetPreset,
+        DEMO_LABEL_SET_ID,
+        `${textStrategy} demo mode should use the shared demo label-set preset.`,
       );
       assert.equal(
         demoState.visibleLabelCount,
@@ -714,7 +714,7 @@ try {
     );
 
     const largeScaleLabelCount = STATIC_BENCHMARK_COUNTS[1];
-    const largeScaleSweeps = new Map<RendererMode, LargeScaleSweepState[]>();
+    const largeScaleSweeps = new Map<TextStrategy, LargeScaleSweepState[]>();
 
     for (const textStrategy of getTextStrategies()) {
       addBrowserLog(
@@ -778,19 +778,19 @@ try {
         packedCheckpoint,
       ]) {
         assert.equal(
-          checkpoint.datasetPreset,
-          STATIC_BENCHMARK_DATASET_ID,
-          `${checkpoint.rendererMode} sweep checkpoint ${checkpoint.name} should use the static benchmark dataset.`,
+          checkpoint.labelSetPreset,
+          STATIC_BENCHMARK_LABEL_SET_ID,
+          `${checkpoint.textStrategy} sweep checkpoint ${checkpoint.name} should use the static benchmark label set.`,
         );
         assert.equal(
           checkpoint.visibleLabelCount,
           baselineCheckpoint.visibleLabelCount,
-          `${checkpointName} visible label counts should match baseline for text strategy ${checkpoint.rendererMode}.`,
+          `${checkpointName} visible label counts should match baseline for text strategy ${checkpoint.textStrategy}.`,
         );
         assert.equal(
           checkpoint.visibleGlyphCount,
           baselineCheckpoint.visibleGlyphCount,
-          `${checkpointName} visible glyph counts should match baseline for text strategy ${checkpoint.rendererMode}.`,
+          `${checkpointName} visible glyph counts should match baseline for text strategy ${checkpoint.textStrategy}.`,
         );
       }
 
@@ -805,12 +805,12 @@ try {
           assert.equal(
             checkpoint.bytesUploadedPerFrame,
             0,
-            `${checkpointName} ${checkpoint.rendererMode} sweep should upload nothing when no glyphs are visible.`,
+            `${checkpointName} ${checkpoint.textStrategy} sweep should upload nothing when no glyphs are visible.`,
           );
           assert.equal(
             checkpoint.submittedVertexCount,
             0,
-            `${checkpointName} ${checkpoint.rendererMode} sweep should submit no vertices when no glyphs are visible.`,
+            `${checkpointName} ${checkpoint.textStrategy} sweep should submit no vertices when no glyphs are visible.`,
           );
         }
         assert.equal(
@@ -899,9 +899,9 @@ try {
           `Missing benchmark for strategy=${textStrategy} labelCount=${labelCount}.`,
         );
         assert.equal(
-          benchmark.datasetPreset,
-          STATIC_BENCHMARK_DATASET_ID,
-          `Benchmark should use the static dataset for strategy=${textStrategy} labelCount=${labelCount}.`,
+          benchmark.labelSetPreset,
+          STATIC_BENCHMARK_LABEL_SET_ID,
+          `Benchmark should use the static benchmark label set for strategy=${textStrategy} labelCount=${labelCount}.`,
         );
         assert.equal(
           benchmark.visibleLabelCount,
@@ -974,7 +974,7 @@ try {
     assert.ok(
       packed1024.bytesUploadedPerFrame === packed4096.bytesUploadedPerFrame &&
         packed4096.bytesUploadedPerFrame === packed16384.bytesUploadedPerFrame,
-      'Packed benchmark uploads should stay constant across dataset sizes.',
+      'Packed benchmark uploads should stay constant across benchmark label counts.',
     );
 
     await flushBrowserLog();
@@ -986,7 +986,7 @@ try {
     );
     assert.match(
       benchmarkLogContents,
-      /Benchmark summary renderer=/,
+      /Benchmark summary strategy=/,
       'browser.log should contain benchmark summary lines for strategy runs.',
     );
 
@@ -1048,10 +1048,10 @@ async function getCameraState(page: Page): Promise<CameraState> {
 async function getTextState(page: Page): Promise<TextState> {
   return page.evaluate(() => ({
     bytesUploadedPerFrame: Number(document.body.dataset.textBytesUploadedPerFrame ?? '0'),
-    datasetPreset: document.body.dataset.datasetPreset ?? '',
+    labelSetPreset: document.body.dataset.labelSetPreset ?? '',
     labelCount: Number(document.body.dataset.textLabelCount ?? '0'),
     glyphCount: Number(document.body.dataset.textGlyphCount ?? '0'),
-    rendererMode: (document.body.dataset.rendererMode ?? 'baseline') as RendererMode,
+    textStrategy: (document.body.dataset.textStrategy ?? 'baseline') as TextStrategy,
     submittedGlyphCount: Number(document.body.dataset.textSubmittedGlyphCount ?? '0'),
     submittedVertexCount: Number(document.body.dataset.textSubmittedVertexCount ?? '0'),
     visibleChunkCount: Number(document.body.dataset.textVisibleChunkCount ?? '0'),
@@ -1068,8 +1068,9 @@ async function getBenchmarkState(page: Page): Promise<BenchmarkState> {
     cpuFrameAvgMs: Number(document.body.dataset.benchmarkCpuFrameAvgMs ?? '0'),
     cpuFrameSamples: Number(document.body.dataset.benchmarkCpuFrameSamples ?? '0'),
     cpuTextAvgMs: Number(document.body.dataset.benchmarkCpuTextAvgMs ?? '0'),
-    datasetPreset: document.body.dataset.benchmarkDatasetPreset ?? '',
-    datasetName: document.body.dataset.datasetName ?? '',
+    labelSetKind: document.body.dataset.benchmarkLabelSetKind ?? '',
+    labelSetPreset: document.body.dataset.benchmarkLabelSetPreset ?? '',
+    labelTargetCount: Number(document.body.dataset.benchmarkLabelTargetCount ?? '0'),
     error: document.body.dataset.benchmarkError ?? '',
     glyphCount: Number(document.body.dataset.benchmarkGlyphCount ?? '0'),
     gpuFrameAvgMs:
@@ -1082,8 +1083,7 @@ async function getBenchmarkState(page: Page): Promise<BenchmarkState> {
     gpuSupported: document.body.dataset.benchmarkGpuSupported === 'true',
     gpuTimingEnabled: document.body.dataset.benchmarkGpuTimingEnabled === 'true',
     labelCount: Number(document.body.dataset.benchmarkLabelCount ?? '0'),
-    requestedLabelCount: Number(document.body.dataset.benchmarkRequestedLabelCount ?? '0'),
-    rendererMode: (document.body.dataset.benchmarkRendererMode ?? 'baseline') as RendererMode,
+    textStrategy: (document.body.dataset.benchmarkTextStrategy ?? 'baseline') as TextStrategy,
     state: document.body.dataset.benchmarkState ?? 'missing',
     submittedGlyphCount: Number(document.body.dataset.benchmarkSubmittedGlyphCount ?? '0'),
     submittedVertexCount: Number(document.body.dataset.benchmarkSubmittedVertexCount ?? '0'),
@@ -1116,16 +1116,16 @@ async function clickControlRepeatedly(page: Page, control: string, times: number
 }
 
 function getTextStrategies(): TextStrategy[] {
-  return [...RENDERER_MODES];
+  return [...TEXT_STRATEGIES];
 }
 
 async function switchTextStrategy(page: Page, textStrategy: TextStrategy): Promise<void> {
   const currentMode = await page.evaluate(
-    () => (document.body.dataset.rendererMode ?? 'baseline') as RendererMode,
+    () => (document.body.dataset.textStrategy ?? 'baseline') as TextStrategy,
   );
 
   if (currentMode !== textStrategy) {
-    const selector = `button[data-renderer-mode="${textStrategy}"]`;
+    const selector = `button[data-text-strategy="${textStrategy}"]`;
     await page.waitForSelector(selector);
     await page.evaluate((buttonSelector) => {
       const button = document.querySelector<HTMLButtonElement>(buttonSelector);
@@ -1139,13 +1139,13 @@ async function switchTextStrategy(page: Page, textStrategy: TextStrategy): Promi
   }
 
   await page.waitForFunction(
-    (expectedMode) => document.body.dataset.rendererMode === expectedMode,
+    (expectedMode) => document.body.dataset.textStrategy === expectedMode,
     {},
     textStrategy,
   );
   await page.waitForFunction(
     (expectedMode) => {
-      const button = document.querySelector(`button[data-renderer-mode="${expectedMode}"]`);
+      const button = document.querySelector(`button[data-text-strategy="${expectedMode}"]`);
       return button?.getAttribute('aria-pressed') === 'true';
     },
     {},
@@ -1158,9 +1158,9 @@ async function verifyDemoTextStrategyVisibility(
   page: Page,
   textStrategy: TextStrategy,
 ): Promise<TextState> {
-  const rendererState = await getTextState(page);
+  const textState = await getTextState(page);
 
-  assert.equal(rendererState.rendererMode, textStrategy, `${textStrategy} mode should be active.`);
+  assert.equal(textState.textStrategy, textStrategy, `${textStrategy} mode should be active.`);
 
   await clickControl(page, 'reset-camera');
   await page.waitForFunction(
@@ -1172,9 +1172,9 @@ async function verifyDemoTextStrategyVisibility(
 
   const initialText = await getTextState(page);
   assert.equal(
-    initialText.datasetPreset,
-    DEMO_DATASET_ID,
-    `${textStrategy} mode should continue using the demo dataset preset.`,
+    initialText.labelSetPreset,
+    DEMO_LABEL_SET_ID,
+    `${textStrategy} mode should continue using the demo label-set preset.`,
   );
   assert.match(
     initialText.visibleLabels,
@@ -1258,9 +1258,9 @@ async function runLargeScaleTextStrategySweep(
   labelCount: number,
 ): Promise<LargeScaleSweepState[]> {
   const sweepUrl = new URL(baseUrl);
-  sweepUrl.searchParams.set('dataset', 'benchmark');
+  sweepUrl.searchParams.set('labelSet', 'benchmark');
   sweepUrl.searchParams.set('labelCount', String(labelCount));
-  sweepUrl.searchParams.set('renderer', textStrategy);
+  sweepUrl.searchParams.set('textStrategy', textStrategy);
   sweepUrl.searchParams.delete('benchmark');
   sweepUrl.searchParams.delete('gpuTiming');
   sweepUrl.searchParams.delete('benchmarkFrames');
@@ -1271,19 +1271,19 @@ async function runLargeScaleTextStrategySweep(
   const appState = await page.evaluate(() => document.body.dataset.appState ?? 'missing');
   assert.equal(appState, 'ready', `Large-scale sweep should reach ready state for ${textStrategy}.`);
   assert.equal(
-    await page.evaluate(() => document.body.dataset.rendererMode ?? 'missing'),
+    await page.evaluate(() => document.body.dataset.textStrategy ?? 'missing'),
     textStrategy,
     `Large-scale sweep should activate ${textStrategy}.`,
   );
   assert.equal(
-    await page.evaluate(() => document.body.dataset.datasetPreset ?? 'missing'),
-    STATIC_BENCHMARK_DATASET_ID,
-    `Large-scale sweep should use the static benchmark dataset for ${textStrategy}.`,
+    await page.evaluate(() => document.body.dataset.labelSetPreset ?? 'missing'),
+    STATIC_BENCHMARK_LABEL_SET_ID,
+    `Large-scale sweep should use the static benchmark label set for ${textStrategy}.`,
   );
   assert.equal(
-    await page.evaluate(() => Number(document.body.dataset.datasetLabelCount ?? '0')),
+    await page.evaluate(() => Number(document.body.dataset.labelSetCount ?? '0')),
     labelCount,
-    `Large-scale sweep should use ${labelCount} labels for ${textStrategy}.`,
+    `Large-scale sweep should use ${labelCount} labels from the benchmark label set for ${textStrategy}.`,
   );
 
   const checkpoints: LargeScaleSweepState[] = [];
@@ -1304,7 +1304,7 @@ async function runLargeScaleTextStrategySweep(
 
   for (const checkpoint of checkpoints) {
     assert.equal(
-      checkpoint.rendererMode,
+      checkpoint.textStrategy,
       textStrategy,
       `${textStrategy} sweep checkpoint ${checkpoint.name} should report the active text strategy.`,
     );
@@ -1318,7 +1318,7 @@ async function runLargeScaleTextStrategySweep(
     );
     addBrowserLog(
       'test',
-      `Sweep summary renderer=${textStrategy} checkpoint=${checkpoint.name} zoom=${checkpoint.zoom.toFixed(2)} visibleLabels=${checkpoint.visibleLabelCount} visibleGlyphs=${checkpoint.visibleGlyphCount} visibleChunks=${checkpoint.visibleChunkCount} bytes=${checkpoint.bytesUploadedPerFrame} vertices=${checkpoint.submittedVertexCount} datasetPreset=${checkpoint.datasetPreset}`,
+      `Sweep summary strategy=${textStrategy} checkpoint=${checkpoint.name} zoom=${checkpoint.zoom.toFixed(2)} visibleLabels=${checkpoint.visibleLabelCount} visibleGlyphs=${checkpoint.visibleGlyphCount} visibleChunks=${checkpoint.visibleChunkCount} bytes=${checkpoint.bytesUploadedPerFrame} vertices=${checkpoint.submittedVertexCount} labelSetPreset=${checkpoint.labelSetPreset}`,
     );
   }
 
@@ -1333,9 +1333,9 @@ async function captureLargeScaleSweepState(
 
   return {
     bytesUploadedPerFrame: text.bytesUploadedPerFrame,
-    datasetPreset: text.datasetPreset,
+    labelSetPreset: text.labelSetPreset,
     name,
-    rendererMode: text.rendererMode,
+    textStrategy: text.textStrategy,
     submittedVertexCount: text.submittedVertexCount,
     visibleChunkCount: text.visibleChunkCount,
     visibleGlyphCount: text.visibleGlyphCount,
@@ -1352,10 +1352,10 @@ async function runBenchmarkRoute(
   pageErrors: string[],
 ): Promise<BenchmarkState> {
   const benchmarkUrl = new URL(baseUrl);
-  benchmarkUrl.searchParams.set('dataset', 'benchmark');
+  benchmarkUrl.searchParams.set('labelSet', 'benchmark');
   benchmarkUrl.searchParams.set('benchmark', '1');
   benchmarkUrl.searchParams.set('gpuTiming', '1');
-  benchmarkUrl.searchParams.set('renderer', textStrategy);
+  benchmarkUrl.searchParams.set('textStrategy', textStrategy);
   benchmarkUrl.searchParams.set('labelCount', String(labelCount));
   benchmarkUrl.searchParams.set('benchmarkFrames', String(BENCHMARK_TRACE_FRAME_COUNT));
 
@@ -1388,8 +1388,9 @@ async function runBenchmarkRoute(
       cpuFrameAvgMs: 0,
       cpuFrameSamples: 0,
       cpuTextAvgMs: 0,
-      datasetPreset: STATIC_BENCHMARK_DATASET_ID,
-      datasetName: 'benchmark',
+      labelSetKind: 'benchmark',
+      labelSetPreset: STATIC_BENCHMARK_LABEL_SET_ID,
+      labelTargetCount: labelCount,
       error: '',
       glyphCount: 0,
       gpuFrameAvgMs: null,
@@ -1397,8 +1398,7 @@ async function runBenchmarkRoute(
       gpuSupported: false,
       gpuTimingEnabled: false,
       labelCount,
-      requestedLabelCount: labelCount,
-      rendererMode: textStrategy,
+      textStrategy,
       state: benchmarkAppState,
       submittedGlyphCount: 0,
       submittedVertexCount: 0,
@@ -1420,26 +1420,26 @@ async function runBenchmarkRoute(
     'complete',
     `Benchmark should complete successfully for strategy=${textStrategy} labelCount=${labelCount}. ${benchmark.error || 'No benchmark error was reported.'}`,
   );
-  assert.equal(benchmark.datasetName, 'benchmark', 'Benchmark route should load the benchmark dataset.');
+  assert.equal(benchmark.labelSetKind, 'benchmark', 'Benchmark route should load the benchmark label set.');
   assert.equal(
-    benchmark.datasetPreset,
-    STATIC_BENCHMARK_DATASET_ID,
-    'Benchmark route should report the static benchmark dataset preset.',
+    benchmark.labelSetPreset,
+    STATIC_BENCHMARK_LABEL_SET_ID,
+    'Benchmark route should report the static benchmark label-set preset.',
   );
   assert.equal(
-    benchmark.requestedLabelCount,
+    benchmark.labelTargetCount,
     labelCount,
-    'Benchmark route should request the expected dataset size.',
+    'Benchmark route should request the expected label count.',
   );
   assert.equal(
     benchmark.labelCount,
     labelCount,
-    'Benchmark dataset should create the requested label count.',
+    'Benchmark label set should create the requested label count.',
   );
   assert.equal(
-    benchmark.rendererMode,
+    benchmark.textStrategy,
     textStrategy,
-    `Benchmark dataset should report strategy=${textStrategy}.`,
+    `Benchmark label set should report strategy=${textStrategy}.`,
   );
   assert.ok(
     benchmark.glyphCount > benchmark.labelCount,
@@ -1466,11 +1466,11 @@ async function runBenchmarkRoute(
   );
   assert.ok(
     benchmark.visibleLabelCount > 0,
-    'Benchmark dataset should produce visible labels.',
+    'Benchmark label set should produce visible labels.',
   );
   assert.ok(
     benchmark.visibleGlyphCount > 0,
-    'Benchmark dataset should produce visible glyphs.',
+    'Benchmark label set should produce visible glyphs.',
   );
 
   if (!benchmark.gpuTimingEnabled) {
@@ -1492,7 +1492,7 @@ async function runBenchmarkRoute(
   }
 
   const benchmarkSummary = [
-    `renderer=${benchmark.rendererMode}`,
+    `strategy=${benchmark.textStrategy}`,
     `labels=${benchmark.labelCount}`,
     `glyphs=${benchmark.glyphCount}`,
     `cpuFrame=${benchmark.cpuFrameAvgMs.toFixed(3)}ms`,
@@ -1509,7 +1509,7 @@ async function runBenchmarkRoute(
     `visibleChunks=${benchmark.visibleChunkCount}`,
     `visibleLabels=${benchmark.visibleLabelCount}`,
     `visibleGlyphs=${benchmark.visibleGlyphCount}`,
-    `datasetPreset=${benchmark.datasetPreset}`,
+    `labelSetPreset=${benchmark.labelSetPreset}`,
   ].join(' ');
   addBrowserLog('test', `Benchmark summary ${benchmarkSummary}`);
 
@@ -1525,8 +1525,8 @@ async function runBenchmarkRoute(
   return benchmark;
 }
 
-function getBenchmarkKey(rendererMode: RendererMode, labelCount: number): string {
-  return `${rendererMode}:${labelCount}`;
+function getBenchmarkKey(textStrategy: TextStrategy, labelCount: number): string {
+  return `${textStrategy}:${labelCount}`;
 }
 
 function getRequiredMapValue<K, V>(
@@ -1542,7 +1542,7 @@ function getRequiredMapValue<K, V>(
 
 function assertZoomSweepTransitions(
   checkpoints: LargeScaleSweepState[],
-  rendererMode: RendererMode,
+  textStrategy: TextStrategy,
 ): void {
   const glyphCounts = checkpoints.map((checkpoint) => checkpoint.visibleGlyphCount);
   const uniqueGlyphCounts = new Set(glyphCounts);
@@ -1554,23 +1554,23 @@ function assertZoomSweepTransitions(
 
   assert.ok(
     uniqueGlyphCounts.size >= 2,
-    `${rendererMode} sweep should change visible glyph counts while zooming.`,
+    `${textStrategy} sweep should change visible glyph counts while zooming.`,
   );
   assert.ok(
     hasVisibleState,
-    `${rendererMode} sweep should enter a visible text state during the zoom trace.`,
+    `${textStrategy} sweep should enter a visible text state during the zoom trace.`,
   );
   assert.ok(
     hasHiddenState,
-    `${rendererMode} sweep should enter a hidden text state during the zoom trace.`,
+    `${textStrategy} sweep should enter a hidden text state during the zoom trace.`,
   );
   assert.ok(
     hasIncrease,
-    `${rendererMode} sweep should reveal more visible glyphs at some point while zooming.`,
+    `${textStrategy} sweep should reveal more visible glyphs at some point while zooming.`,
   );
   assert.ok(
     hasDecrease,
-    `${rendererMode} sweep should hide visible glyphs at some point while zooming.`,
+    `${textStrategy} sweep should hide visible glyphs at some point while zooming.`,
   );
 }
 
@@ -1604,7 +1604,7 @@ async function waitForAppDatasets(page: Page): Promise<void> {
         document.body.dataset.cameraCenterY &&
         document.body.dataset.cameraZoom &&
         document.body.dataset.gridLineCount &&
-        document.body.dataset.rendererMode &&
+        document.body.dataset.textStrategy &&
         document.body.dataset.textLabelCount &&
         document.body.dataset.textGlyphCount &&
         document.body.dataset.textVisibleLabelCount &&

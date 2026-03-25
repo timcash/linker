@@ -1,1 +1,1 @@
-export const DEMO_DATASET_ID = 'demo-csv-v1';
+export const DEMO_LABEL_SET_ID = 'demo-label-set-v1';

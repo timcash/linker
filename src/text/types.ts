@@ -1,6 +1,6 @@
 export type RgbaColor = [number, number, number, number];
 
-export const RENDERER_MODES = [
+export const TEXT_STRATEGIES = [
   'baseline',
   'instanced',
   'packed',
@@ -8,18 +8,15 @@ export const RENDERER_MODES = [
   'chunked',
 ] as const;
 
-export type RendererMode = (typeof RENDERER_MODES)[number];
-export type TextStrategy = RendererMode;
-export const TEXT_STRATEGIES = RENDERER_MODES;
+export type TextStrategy = (typeof TEXT_STRATEGIES)[number];
 
-export const RENDERER_MODE_OPTIONS = [
+export const TEXT_STRATEGY_OPTIONS = [
   {mode: 'baseline', label: 'Baseline'},
   {mode: 'instanced', label: 'Instanced'},
   {mode: 'packed', label: 'Packed'},
   {mode: 'visible-index', label: 'Visible Index'},
   {mode: 'chunked', label: 'Chunked'},
-] as const satisfies ReadonlyArray<{mode: RendererMode; label: string}>;
-export const TEXT_STRATEGY_OPTIONS = RENDERER_MODE_OPTIONS;
+] as const satisfies ReadonlyArray<{mode: TextStrategy; label: string}>;
 
 export type LabelLocation = {
   x: number;
@@ -82,11 +79,11 @@ export type TextLayout = {
   glyphs: GlyphPlacement[];
 };
 
-export type TextRendererStats = {
+export type TextLayerStats = {
   bytesUploadedPerFrame: number;
   labelCount: number;
   glyphCount: number;
-  rendererMode: RendererMode;
+  textStrategy: TextStrategy;
   submittedGlyphCount: number;
   submittedVertexCount: number;
   visibleChunkCount: number;

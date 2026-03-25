@@ -41,12 +41,12 @@ body {
 }
 
 #app,
-.app-shell {
+.luma-stage {
   width: 100vw;
   height: 100vh;
 }
 
-.app-shell {
+.luma-stage {
   position: relative;
   display: grid;
   width: 100vw;
@@ -64,7 +64,7 @@ body {
     radial-gradient(circle at 80% 15%, rgb(125 211 252 / 10%), transparent 30%);
 }
 
-.app-canvas {
+.stage-canvas {
   grid-column: 1 / -1;
   grid-row: 1 / -1;
   z-index: 0;
@@ -265,7 +265,7 @@ body {
   word-break: break-word;
 }
 
-.center-message {
+.launch-banner {
   grid-column: 1 / -1;
   grid-row: 1 / -1;
   z-index: 1;
@@ -276,13 +276,13 @@ body {
   color: var(--ink);
 }
 
-.center-message strong {
+.launch-banner strong {
   display: block;
   margin-bottom: 10px;
   font-size: clamp(1.3rem, 2vw, 2rem);
 }
 
-.center-message p {
+.launch-banner p {
   margin: 0;
   max-width: 40rem;
   color: var(--muted);
@@ -290,7 +290,7 @@ body {
 }
 
 @media (max-width: 920px) {
-  .app-shell {
+  .luma-stage {
     gap: 16px;
     grid-template-columns: minmax(0, 1fr);
     grid-template-rows: auto auto 1fr auto auto;

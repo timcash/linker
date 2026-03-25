@@ -3,25 +3,24 @@ import {Geometry, Model} from '@luma.gl/engine';
 import {webgpuAdapter} from '@luma.gl/webgpu';
 
 import {Camera2D, type ViewportSize} from './camera';
-import {DEMO_DATASET_ID} from './data/demo-meta';
+import {DEMO_LABEL_SET_ID} from './data/demo-meta';
 import {DEMO_LABELS} from './data/labels';
 import {
   DEFAULT_BENCHMARK_LABEL_COUNT,
-  STATIC_BENCHMARK_DATASET_ID,
+  STATIC_BENCHMARK_LABEL_SET_ID,
   getStaticBenchmarkLabels,
 } from './data/static-benchmark';
-import {GridRenderer} from './grid';
-import {FrameProfiler, type PerfSnapshot} from './perf';
-import {TextRenderer} from './text/renderer';
+import {GridLayer} from './grid';
+import {FrameTelemetry, type FrameTelemetrySnapshot} from './perf';
+import {TextLayer} from './text/layer';
 import {
-  RENDERER_MODES,
-  RENDERER_MODE_OPTIONS,
+  TEXT_STRATEGIES,
+  TEXT_STRATEGY_OPTIONS,
   type LabelDefinition,
-  type RendererMode,
   type TextStrategy,
 } from './text/types';
 
-const SHELL_SHADER = /* wgsl */ `
+const STAGE_SHADER = /* wgsl */ `
 struct VertexInputs {
   @location(0) position: vec2<f32>,
   @location(1) uv: vec2<f32>
@@ -90,20 +89,20 @@ type ControlAction =
   | 'zoom-out'
   | 'reset-camera';
 
-type DatasetName = 'demo' | 'benchmark';
+type LabelSetKind = 'demo' | 'benchmark';
 
-type AppConfig = {
+type StageConfig = {
   benchmarkTraceStepCount: number;
   benchmarkEnabled: boolean;
-  datasetPreset: string;
-  datasetName: DatasetName;
   gpuTimingEnabled: boolean;
+  labelSetKind: LabelSetKind;
+  labelSetPreset: string;
+  labelTargetCount: number;
   labels: LabelDefinition[];
-  requestedLabelCount: number;
-  rendererMode: RendererMode;
+  textStrategy: TextStrategy;
 };
 
-type BenchmarkSummary = {
+type StageBenchmarkSummary = {
   bytesUploadedPerFrame: number;
   cpuDrawAvgMs: number;
   cpuFrameAvgMs: number;
@@ -114,7 +113,7 @@ type BenchmarkSummary = {
   gpuFrameSamples: number;
   gpuSupported: boolean;
   labelCount: number;
-  rendererMode: RendererMode;
+  textStrategy: TextStrategy;
   submittedGlyphCount: number;
   submittedVertexCount: number;
   visibleChunkCount: number;
@@ -122,14 +121,14 @@ type BenchmarkSummary = {
   visibleLabelCount: number;
 };
 
-type ShellElements = {
+type StageChromeElements = {
   cameraPanel: HTMLElement;
   canvas: HTMLCanvasElement;
   detail: HTMLParagraphElement;
   detailsPanel: HTMLElement;
-  message: HTMLDivElement;
+  launchBanner: HTMLDivElement;
   renderPanel: HTMLElement;
-  shell: HTMLDivElement;
+  stage: HTMLDivElement;
   statusPanel: HTMLElement;
   stats: HTMLParagraphElement;
 };
@@ -139,37 +138,37 @@ export type AppHandle = {
 };
 
 export async function startApp(root: HTMLElement): Promise<AppHandle> {
-  const elements = createShell(root);
-  const config = readAppConfig(window.location.search);
-  const shell = new WebGPUShell(elements, config);
+  const stageChrome = createStageChrome(root);
+  const config = readStageConfig(window.location.search);
+  const stageController = new LumaStageController(stageChrome, config);
 
-  await shell.start();
+  await stageController.start();
 
   return {
-    destroy: () => shell.destroy(),
+    destroy: () => stageController.destroy(),
   };
 }
 
-class WebGPUShell {
+class LumaStageController {
   private device: Device | null = null;
   private frameId = 0;
   private backgroundModel: Model | null = null;
   private benchmarkStarted = false;
-  private benchmarkSummary: BenchmarkSummary | null = null;
-  private grid: GridRenderer | null = null;
-  private profiler: FrameProfiler | null = null;
-  private text: TextRenderer | null = null;
+  private benchmarkSummary: StageBenchmarkSummary | null = null;
+  private frameTelemetry: FrameTelemetry | null = null;
+  private gridLayer: GridLayer | null = null;
+  private textLayer: TextLayer | null = null;
   private readonly camera = new Camera2D();
   private readonly actionButtons: HTMLButtonElement[] = [];
   private readonly strategyButtons: HTMLButtonElement[] = [];
   private destroyed = false;
-  private rendererMode: RendererMode;
+  private textStrategy: TextStrategy;
 
   constructor(
-    private readonly elements: ShellElements,
-    private readonly config: AppConfig,
+    private readonly chrome: StageChromeElements,
+    private readonly config: StageConfig,
   ) {
-    this.rendererMode = config.rendererMode;
+    this.textStrategy = config.textStrategy;
   }
 
   async start(): Promise<void> {
@@ -185,11 +184,11 @@ class WebGPUShell {
 
     try {
       this.device = await luma.createDevice({
-        id: 'linker-webgpu-shell',
+        id: 'linker-luma-stage',
         type: 'webgpu',
         adapters: [webgpuAdapter],
         createCanvasContext: {
-          canvas: this.elements.canvas,
+          canvas: this.chrome.canvas,
           alphaMode: 'opaque',
           autoResize: true,
           useDevicePixels: true,
@@ -201,12 +200,12 @@ class WebGPUShell {
         return;
       }
 
-      this.profiler = new FrameProfiler(this.device, {
+      this.frameTelemetry = new FrameTelemetry(this.device, {
         enableGpuTimestamps: this.config.gpuTimingEnabled,
       });
       this.backgroundModel = new Model(this.device, {
-        id: 'phase-1-shell',
-        source: SHELL_SHADER,
+        id: 'luma-stage-background',
+        source: STAGE_SHADER,
         geometry: new Geometry({
           topology: 'triangle-strip',
           vertexCount: 4,
@@ -227,16 +226,16 @@ class WebGPUShell {
         },
       });
 
-      this.grid = new GridRenderer(this.device);
-      this.text = new TextRenderer(this.device, this.config.labels, this.rendererMode);
-      await this.text.ready;
+      this.gridLayer = new GridLayer(this.device);
+      this.textLayer = new TextLayer(this.device, this.config.labels, this.textStrategy);
+      await this.textLayer.ready;
       this.installInteractionHandlers();
       this.updateTextStrategyButtons();
 
-      this.elements.detail.textContent =
+      this.chrome.detail.textContent =
         'Text strategies compare upload and submission paths. Camera input stays button-only so zoom traces and benchmarks remain deterministic.';
-      this.elements.message.hidden = true;
-      this.elements.canvas.hidden = false;
+      this.chrome.launchBanner.hidden = true;
+      this.chrome.canvas.hidden = false;
       this.setState('ready');
       this.updateStatus();
       this.render();
@@ -259,11 +258,11 @@ class WebGPUShell {
     cancelAnimationFrame(this.frameId);
     this.removeInteractionHandlers();
     this.backgroundModel?.destroy();
-    this.grid?.destroy();
-    this.text?.destroy();
-    this.profiler?.destroy();
+    this.gridLayer?.destroy();
+    this.textLayer?.destroy();
+    this.frameTelemetry?.destroy();
     this.device?.destroy();
-    this.elements.shell.remove();
+    this.chrome.stage.remove();
   }
 
   private render = (): void => {
@@ -271,8 +270,8 @@ class WebGPUShell {
       this.destroyed ||
       !this.device ||
       !this.backgroundModel ||
-      !this.grid ||
-      !this.text
+      !this.gridLayer ||
+      !this.textLayer
     ) {
       return;
     }
@@ -282,11 +281,11 @@ class WebGPUShell {
       const viewport = this.getViewportSize();
 
       const gridStartedAt = performance.now();
-      this.grid.update(this.camera, viewport);
+      this.gridLayer.update(this.camera, viewport);
       const gridCpuMs = performance.now() - gridStartedAt;
 
       const textStartedAt = performance.now();
-      this.text.update(this.camera, viewport);
+      this.textLayer.update(this.camera, viewport);
       const textCpuMs = performance.now() - textStartedAt;
 
       const drawStartedAt = performance.now();
@@ -295,25 +294,25 @@ class WebGPUShell {
         .getCurrentFramebuffer({depthStencilFormat: false});
 
       const renderPass = this.device.beginRenderPass({
-        id: 'phase-1-shell-pass',
+        id: 'luma-stage-pass',
         framebuffer,
         clearColor: [0.01, 0.02, 0.04, 1],
-        ...this.profiler?.getRenderPassTimingProps(),
+        ...this.frameTelemetry?.getRenderPassTimingProps(),
       });
 
       this.backgroundModel.draw(renderPass);
-      this.grid.draw(renderPass);
-      this.text.draw(renderPass);
+      this.gridLayer.draw(renderPass);
+      this.textLayer.draw(renderPass);
       renderPass.end();
-      this.profiler?.resolveGpuPass();
+      this.frameTelemetry?.resolveGpuPass();
       this.device.submit();
-      this.profiler?.submitGpuPass();
+      this.frameTelemetry?.submitGpuPass();
       const drawCpuMs = performance.now() - drawStartedAt;
 
-      this.profiler?.recordCpuGrid(gridCpuMs);
-      this.profiler?.recordCpuText(textCpuMs);
-      this.profiler?.recordCpuDraw(drawCpuMs);
-      this.profiler?.recordCpuFrame(performance.now() - frameStartedAt);
+      this.frameTelemetry?.recordCpuGrid(gridCpuMs);
+      this.frameTelemetry?.recordCpuText(textCpuMs);
+      this.frameTelemetry?.recordCpuDraw(drawCpuMs);
+      this.frameTelemetry?.recordCpuFrame(performance.now() - frameStartedAt);
       this.updateStatus();
 
       this.frameId = window.requestAnimationFrame(this.render);
@@ -357,7 +356,7 @@ class WebGPUShell {
   }
 
   private getViewportSize(): ViewportSize {
-    const rect = this.elements.canvas.getBoundingClientRect();
+    const rect = this.chrome.canvas.getBoundingClientRect();
 
     return {
       width: rect.width || window.innerWidth,
@@ -386,33 +385,33 @@ class WebGPUShell {
       return;
     }
 
-    const mode = button.dataset.rendererMode;
+    const textStrategy = button.dataset.textStrategy;
 
-    if (isRendererMode(mode)) {
-      this.setTextStrategy(mode);
+    if (isTextStrategy(textStrategy)) {
+      this.setTextStrategy(textStrategy);
     }
   };
 
   private setTextStrategy(mode: TextStrategy): void {
-    if (!this.text || mode === this.rendererMode || document.body.dataset.benchmarkState === 'running') {
+    if (!this.textLayer || mode === this.textStrategy || document.body.dataset.benchmarkState === 'running') {
       return;
     }
 
-    this.rendererMode = mode;
-    this.text.setMode(mode);
+    this.textStrategy = mode;
+    this.textLayer.setMode(mode);
     this.benchmarkSummary = null;
     document.body.dataset.benchmarkError = '';
     document.body.dataset.benchmarkState = this.config.benchmarkEnabled ? 'pending' : 'disabled';
-    syncRendererQueryParam(mode);
+    syncTextStrategyQueryParam(mode);
     this.updateTextStrategyButtons();
     this.updateStatus();
   }
 
   private updateTextStrategyButtons(): void {
-    const buttons = this.elements.renderPanel.querySelectorAll<HTMLButtonElement>('[data-renderer-mode]');
+    const buttons = this.chrome.renderPanel.querySelectorAll<HTMLButtonElement>('[data-text-strategy]');
 
     for (const button of buttons) {
-      const isActive = button.dataset.rendererMode === this.rendererMode;
+      const isActive = button.dataset.textStrategy === this.textStrategy;
       button.dataset.active = String(isActive);
       button.setAttribute('aria-pressed', String(isActive));
     }
@@ -420,10 +419,10 @@ class WebGPUShell {
 
   private installInteractionHandlers(): void {
     this.actionButtons.push(
-      ...this.elements.cameraPanel.querySelectorAll<HTMLButtonElement>('[data-control]'),
+      ...this.chrome.cameraPanel.querySelectorAll<HTMLButtonElement>('[data-control]'),
     );
     this.strategyButtons.push(
-      ...this.elements.renderPanel.querySelectorAll<HTMLButtonElement>('[data-renderer-mode]'),
+      ...this.chrome.renderPanel.querySelectorAll<HTMLButtonElement>('[data-text-strategy]'),
     );
 
     for (const button of this.actionButtons) {
@@ -449,7 +448,7 @@ class WebGPUShell {
   }
 
   private async runBenchmark(): Promise<void> {
-    if (!this.profiler || !this.text || this.benchmarkStarted) {
+    if (!this.frameTelemetry || !this.textLayer || this.benchmarkStarted) {
       return;
     }
 
@@ -457,13 +456,13 @@ class WebGPUShell {
     document.body.dataset.benchmarkState = 'running';
     document.body.dataset.benchmarkError = '';
     console.info(
-      `Starting benchmark renderer=${this.rendererMode} dataset=${this.config.datasetName} labels=${this.config.labels.length}`,
+      `Starting benchmark strategy=${this.textStrategy} labelSet=${this.config.labelSetKind} labels=${this.config.labels.length}`,
     );
 
     try {
       await this.waitForAnimationFrames(4);
-      await this.profiler.flushGpuSamples();
-      this.profiler.reset();
+      await this.frameTelemetry.flushGpuSamples();
+      this.frameTelemetry.reset();
       this.applyControlAction('reset-camera');
       await this.waitForAnimationFrames(2);
 
@@ -475,10 +474,10 @@ class WebGPUShell {
       }
 
       await this.waitForAnimationFrames(2);
-      await this.profiler.flushGpuSamples();
+      await this.frameTelemetry.flushGpuSamples();
 
-      const perf = this.profiler.getSnapshot();
-      const textStats = this.text.getStats();
+      const perf = this.frameTelemetry.getSnapshot();
+      const textStats = this.textLayer.getStats();
 
       this.benchmarkSummary = {
         bytesUploadedPerFrame: textStats.bytesUploadedPerFrame,
@@ -491,7 +490,7 @@ class WebGPUShell {
         gpuFrameSamples: perf.gpuFrameSamples,
         gpuSupported: perf.gpuSupported,
         labelCount: textStats.labelCount,
-        rendererMode: this.rendererMode,
+        textStrategy: this.textStrategy,
         submittedGlyphCount: textStats.submittedGlyphCount,
         submittedVertexCount: textStats.submittedVertexCount,
         visibleChunkCount: textStats.visibleChunkCount,
@@ -514,10 +513,11 @@ class WebGPUShell {
 
   private setBenchmarkDatasets(): void {
     document.body.dataset.benchmarkLabelCount = String(this.config.labels.length);
+    document.body.dataset.benchmarkLabelSetKind = this.config.labelSetKind;
+    document.body.dataset.benchmarkLabelSetPreset = this.config.labelSetPreset;
+    document.body.dataset.benchmarkLabelTargetCount = String(this.config.labelTargetCount);
+    document.body.dataset.benchmarkTextStrategy = this.textStrategy;
     document.body.dataset.benchmarkGpuTimingEnabled = String(this.config.gpuTimingEnabled);
-    document.body.dataset.benchmarkRequestedLabelCount = String(this.config.requestedLabelCount);
-    document.body.dataset.benchmarkDatasetPreset = this.config.datasetPreset;
-    document.body.dataset.benchmarkRendererMode = this.rendererMode;
 
     if (!this.benchmarkSummary) {
       document.body.dataset.benchmarkBytesUploadedPerFrame = '0';
@@ -567,42 +567,42 @@ class WebGPUShell {
     const message = error instanceof Error ? error.message : 'Unknown startup error';
 
     this.setState('error');
-    this.elements.canvas.hidden = true;
-    this.elements.detail.hidden = false;
-    this.elements.message.hidden = false;
-    this.elements.message.innerHTML = `
+    this.chrome.canvas.hidden = true;
+    this.chrome.detail.hidden = false;
+    this.chrome.launchBanner.hidden = false;
+    this.chrome.launchBanner.innerHTML = `
       <strong>Startup Failed</strong>
       <p>${escapeHtml(message)}</p>
     `;
-    this.elements.detail.textContent =
-      'The shell failed after entering the WebGPU path. Check the console and runtime error details.';
+    this.chrome.detail.textContent =
+      'The stage failed after entering the WebGPU path. Check the console and runtime error details.';
   }
 
   private showUnsupported(message: string): void {
     this.setState('unsupported');
-    this.elements.canvas.hidden = true;
-    this.elements.detail.hidden = false;
-    this.elements.message.hidden = false;
-    this.elements.message.innerHTML = `
+    this.chrome.canvas.hidden = true;
+    this.chrome.detail.hidden = false;
+    this.chrome.launchBanner.hidden = false;
+    this.chrome.launchBanner.innerHTML = `
       <strong>WebGPU Required</strong>
       <p>${escapeHtml(message)}</p>
     `;
-    this.elements.detail.textContent =
+    this.chrome.detail.textContent =
       'This build intentionally does not fall back to WebGL. It only boots with a working WebGPU implementation.';
   }
 
   private updateStatus(): void {
     const snapshot = this.camera.getSnapshot();
-    const gridStats = this.grid?.getStats();
-    const perf = this.profiler?.getSnapshot();
-    const textStats = this.text?.getStats();
+    const gridStats = this.gridLayer?.getStats();
+    const perf = this.frameTelemetry?.getSnapshot();
+    const textStats = this.textLayer?.getStats();
     const lineCount = gridStats ? gridStats.verticalLines + gridStats.horizontalLines : 0;
     const minorSpacing = gridStats ? formatSpacing(gridStats.minorSpacing) : 'n/a';
     const majorSpacing = gridStats ? formatSpacing(gridStats.majorSpacing) : 'n/a';
     const labelCount = textStats ? textStats.labelCount : 0;
     const glyphCount = textStats ? textStats.glyphCount : 0;
-    const rendererMode = textStats ? textStats.rendererMode : this.rendererMode;
-    const rendererLabel = getRendererModeLabel(rendererMode);
+    const activeTextStrategy = textStats ? textStats.textStrategy : this.textStrategy;
+    const textStrategyLabel = getTextStrategyLabel(activeTextStrategy);
     const bytesUploadedPerFrame = textStats ? textStats.bytesUploadedPerFrame : 0;
     const submittedGlyphCount = textStats ? textStats.submittedGlyphCount : 0;
     const submittedVertexCount = textStats ? textStats.submittedVertexCount : 0;
@@ -617,14 +617,15 @@ class WebGPUShell {
     document.body.dataset.cameraCenterY = snapshot.centerY.toFixed(4);
     document.body.dataset.cameraZoom = snapshot.zoom.toFixed(4);
     document.body.dataset.cameraScale = snapshot.pixelsPerWorldUnit.toFixed(4);
-    document.body.dataset.datasetName = this.config.datasetName;
-    document.body.dataset.datasetPreset = this.config.datasetPreset;
-    document.body.dataset.datasetLabelCount = String(this.config.labels.length);
+    document.body.dataset.labelSetKind = this.config.labelSetKind;
+    document.body.dataset.labelSetPreset = this.config.labelSetPreset;
+    document.body.dataset.labelSetCount = String(this.config.labels.length);
+    document.body.dataset.labelTargetCount = String(this.config.labelTargetCount);
     document.body.dataset.gridLineCount = String(lineCount);
     document.body.dataset.gridMinorSpacing = minorSpacing;
     document.body.dataset.gridMajorSpacing = majorSpacing;
-    document.body.dataset.rendererMode = rendererMode;
-    document.body.dataset.rendererLabel = rendererLabel;
+    document.body.dataset.textStrategy = activeTextStrategy;
+    document.body.dataset.textStrategyLabel = textStrategyLabel;
     document.body.dataset.textBytesUploadedPerFrame = String(bytesUploadedPerFrame);
     document.body.dataset.textLabelCount = String(labelCount);
     document.body.dataset.textGlyphCount = String(glyphCount);
@@ -652,9 +653,9 @@ class WebGPUShell {
 
     this.setBenchmarkDatasets();
 
-    this.elements.stats.textContent = [
-      `dataset ${this.config.datasetName} (${this.config.labels.length} labels)`,
-      `strategy ${rendererLabel}`,
+    this.chrome.stats.textContent = [
+      `label set ${this.config.labelSetKind} (${this.config.labels.length} labels)`,
+      `strategy ${textStrategyLabel}`,
       `center ${snapshot.centerX.toFixed(2)}, ${snapshot.centerY.toFixed(2)}`,
       `zoom ${snapshot.zoom.toFixed(2)}`,
       `scale ${snapshot.pixelsPerWorldUnit.toFixed(1)} px/world`,
@@ -696,12 +697,12 @@ function buildBenchmarkCameraTrace(stepCount: number): ControlAction[] {
   return actions;
 }
 
-function createShell(root: HTMLElement): ShellElements {
-  const shell = document.createElement('div');
-  shell.className = 'app-shell';
+function createStageChrome(root: HTMLElement): StageChromeElements {
+  const stage = document.createElement('div');
+  stage.className = 'luma-stage';
 
   const canvas = document.createElement('canvas');
-  canvas.className = 'app-canvas';
+  canvas.className = 'stage-canvas';
   canvas.dataset.testid = 'gpu-canvas';
   canvas.setAttribute('aria-label', 'luma.gl WebGPU canvas');
   canvas.hidden = true;
@@ -720,9 +721,9 @@ function createShell(root: HTMLElement): ShellElements {
     'strategy Baseline  |  center 0.00, 0.00  |  zoom 0.00  |  scale 56.0 px/world';
   statusPanel.append(stats);
 
-  const strategyButtonsMarkup = RENDERER_MODE_OPTIONS.map(
+  const strategyButtonsMarkup = TEXT_STRATEGY_OPTIONS.map(
     ({mode, label}) =>
-      `<button type="button" class="control-button" data-renderer-mode="${mode}" aria-pressed="false">${label}</button>`,
+      `<button type="button" class="control-button" data-text-strategy="${mode}" aria-pressed="false">${label}</button>`,
   ).join('');
 
   const detailsPanel = document.createElement('aside');
@@ -734,10 +735,10 @@ function createShell(root: HTMLElement): ShellElements {
   detailLabel.textContent = 'Details';
   detailsPanel.append(detailLabel);
 
-  const message = document.createElement('div');
-  message.className = 'center-message';
-  message.dataset.testid = 'app-message';
-  message.innerHTML = `
+  const launchBanner = document.createElement('div');
+  launchBanner.className = 'launch-banner';
+  launchBanner.dataset.testid = 'app-message';
+  launchBanner.innerHTML = `
     <strong>Preparing WebGPU</strong>
     <p>Initializing a luma-stage and fullscreen WebGPU canvas.</p>
   `;
@@ -753,7 +754,7 @@ function createShell(root: HTMLElement): ShellElements {
   renderPanel.setAttribute('aria-label', 'Render panel');
   renderPanel.innerHTML = `
     <div class="panel-label">Text Strategy</div>
-    <div class="control-row" data-testid="renderer-panel">
+    <div class="control-row" data-testid="text-strategy-panel">
       ${strategyButtonsMarkup}
     </div>
   `;
@@ -775,10 +776,10 @@ function createShell(root: HTMLElement): ShellElements {
     </div>
   `;
 
-  shell.append(canvas, statusPanel, detailsPanel, renderPanel, cameraPanel, message);
-  root.replaceChildren(shell);
+  stage.append(canvas, statusPanel, detailsPanel, renderPanel, cameraPanel, launchBanner);
+  root.replaceChildren(stage);
 
-  return {cameraPanel, canvas, detail, detailsPanel, message, renderPanel, shell, statusPanel, stats};
+  return {cameraPanel, canvas, detail, detailsPanel, launchBanner, renderPanel, stage, statusPanel, stats};
 }
 
 function escapeHtml(input: string): string {
@@ -790,7 +791,7 @@ function escapeHtml(input: string): string {
     .replaceAll("'", '&#39;');
 }
 
-function formatPerfSummary(perf: PerfSnapshot): string {
+function formatPerfSummary(perf: FrameTelemetrySnapshot): string {
   const cpuFrame = formatMs(perf.cpuFrameAvgMs);
   const cpuText = formatMs(perf.cpuTextAvgMs);
   const gpuFrame =
@@ -851,9 +852,9 @@ function isWebGPUUnavailableError(error: unknown): error is Error {
   return /webgpu|gpu adapter|gpu device|navigator\.gpu/i.test(error.message);
 }
 
-function getRendererModeLabel(rendererMode: RendererMode): string {
+function getTextStrategyLabel(textStrategy: TextStrategy): string {
   return (
-    RENDERER_MODE_OPTIONS.find((option) => option.mode === rendererMode)?.label ?? rendererMode
+    TEXT_STRATEGY_OPTIONS.find((option) => option.mode === textStrategy)?.label ?? textStrategy
   );
 }
 
@@ -872,35 +873,35 @@ function parseBoundedInteger(
   return Math.min(max, Math.max(min, parsed));
 }
 
-function isRendererMode(value: string | null | undefined): value is RendererMode {
-  return RENDERER_MODES.includes(value as RendererMode);
+function isTextStrategy(value: string | null | undefined): value is TextStrategy {
+  return TEXT_STRATEGIES.includes(value as TextStrategy);
 }
 
-function parseRendererMode(value: string | null): RendererMode {
-  return isRendererMode(value) ? value : 'baseline';
+function parseTextStrategy(value: string | null): TextStrategy {
+  return isTextStrategy(value) ? value : 'baseline';
 }
 
-function syncRendererQueryParam(rendererMode: RendererMode): void {
+function syncTextStrategyQueryParam(textStrategy: TextStrategy): void {
   const url = new URL(window.location.href);
 
-  if (rendererMode === 'baseline') {
-    url.searchParams.delete('renderer');
+  if (textStrategy === 'baseline') {
+    url.searchParams.delete('textStrategy');
   } else {
-    url.searchParams.set('renderer', rendererMode);
+    url.searchParams.set('textStrategy', textStrategy);
   }
 
   window.history.replaceState({}, '', url.toString());
 }
 
-function readAppConfig(search: string): AppConfig {
+function readStageConfig(search: string): StageConfig {
   const params = new URLSearchParams(search);
-  const datasetName: DatasetName = params.get('dataset') === 'benchmark' ? 'benchmark' : 'demo';
-  const requestedLabelCount =
-    datasetName === 'benchmark'
+  const labelSetKind: LabelSetKind = params.get('labelSet') === 'benchmark' ? 'benchmark' : 'demo';
+  const labelTargetCount =
+    labelSetKind === 'benchmark'
       ? parseBoundedInteger(params.get('labelCount'), DEFAULT_BENCHMARK_LABEL_COUNT, 64, 16384)
       : DEMO_LABELS.length;
   const labels =
-    datasetName === 'benchmark' ? getStaticBenchmarkLabels(requestedLabelCount) : DEMO_LABELS;
+    labelSetKind === 'benchmark' ? getStaticBenchmarkLabels(labelTargetCount) : DEMO_LABELS;
 
   return {
     benchmarkTraceStepCount: parseBoundedInteger(
@@ -910,11 +911,11 @@ function readAppConfig(search: string): AppConfig {
       120,
     ),
     benchmarkEnabled: params.get('benchmark') === '1',
-    datasetPreset: datasetName === 'benchmark' ? STATIC_BENCHMARK_DATASET_ID : DEMO_DATASET_ID,
-    datasetName,
     gpuTimingEnabled: params.get('gpuTiming') === '1',
+    labelSetKind,
+    labelSetPreset: labelSetKind === 'benchmark' ? STATIC_BENCHMARK_LABEL_SET_ID : DEMO_LABEL_SET_ID,
+    labelTargetCount,
     labels,
-    requestedLabelCount,
-    rendererMode: parseRendererMode(params.get('renderer')),
+    textStrategy: parseTextStrategy(params.get('textStrategy')),
   };
 }

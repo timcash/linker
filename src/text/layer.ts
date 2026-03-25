@@ -8,9 +8,9 @@ import {layoutLabels} from './layout';
 import type {
   GlyphPlacement,
   LabelDefinition,
-  RendererMode,
+  TextLayerStats,
   TextLayout,
-  TextRendererStats,
+  TextStrategy,
 } from './types';
 
 const BASELINE_TEXT_SHADER = /* wgsl */ `
@@ -324,7 +324,7 @@ type VisibleGlyph = GlyphPlacement & {
   top: number;
 };
 
-type VisibilityAnalysis = {
+type GlyphVisibilityResult = {
   visibleChunkCount: number;
   visibleGlyphCount: number;
   visibleGlyphIndices: number[];
@@ -355,22 +355,22 @@ type PackedGlyphInstances = {
   zoomRanges: Float32Array;
 };
 
-type TextRendererStrategy = {
+type TextLayerStrategy = {
   destroy: () => void;
   draw: (renderPass: Parameters<Model['draw']>[0]) => void;
-  getStats: () => TextRendererStats;
+  getStats: () => TextLayerStats;
   update: (camera: Camera2D, viewport: ViewportSize) => void;
 };
 
-export class TextRenderer {
+export class TextLayer {
   private readonly resources: PreparedTextResources;
-  private mode: RendererMode;
-  private strategy: TextRendererStrategy;
+  private mode: TextStrategy;
+  private strategy: TextLayerStrategy;
 
   constructor(
     private readonly device: Device,
     labels: LabelDefinition[],
-    mode: RendererMode = 'baseline',
+    mode: TextStrategy = 'baseline',
   ) {
     const atlas = buildGlyphAtlas(getCharacterSetFromLabels(labels));
     const layout = layoutLabels(labels, atlas);
@@ -412,11 +412,11 @@ export class TextRenderer {
     this.strategy.draw(renderPass);
   }
 
-  getStats(): TextRendererStats {
+  getStats(): TextLayerStats {
     return this.strategy.getStats();
   }
 
-  setMode(mode: RendererMode): void {
+  setMode(mode: TextStrategy): void {
     if (mode === this.mode) {
       return;
     }
@@ -430,7 +430,7 @@ export class TextRenderer {
     this.strategy.update(camera, viewport);
   }
 
-  private createStrategy(mode: RendererMode): TextRendererStrategy {
+  private createStrategy(mode: TextStrategy): TextLayerStrategy {
     switch (mode) {
       case 'instanced':
         return new InstancedTextStrategy(this.device, this.resources);
@@ -447,13 +447,13 @@ export class TextRenderer {
   }
 }
 
-class BaselineTextStrategy implements TextRendererStrategy {
+class BaselineTextStrategy implements TextLayerStrategy {
   private readonly model: Model;
   private positionBuffer;
   private uvBuffer;
   private colorBuffer;
   private capacity = 6;
-  private stats: TextRendererStats;
+  private stats: TextLayerStats;
 
   constructor(
     private readonly device: Device,
@@ -484,7 +484,7 @@ class BaselineTextStrategy implements TextRendererStrategy {
       vertexCount: 0,
       parameters: TEXT_BLEND_PARAMETERS,
     });
-    this.stats = createEmptyTextRendererStats(this.resources.layout, 'baseline');
+    this.stats = createEmptyTextLayerStats(this.resources.layout, 'baseline');
   }
 
   destroy(): void {
@@ -502,7 +502,7 @@ class BaselineTextStrategy implements TextRendererStrategy {
     this.model.draw(renderPass);
   }
 
-  getStats(): TextRendererStats {
+  getStats(): TextLayerStats {
     return this.stats;
   }
 
@@ -541,7 +541,7 @@ class BaselineTextStrategy implements TextRendererStrategy {
 
     if (mesh.vertexCount === 0) {
       this.model.setVertexCount(0);
-      this.stats = createTextRendererStats(this.resources.layout, 'baseline', visibility, 0, 0, 0);
+      this.stats = createTextLayerStats(this.resources.layout, 'baseline', visibility, 0, 0, 0);
       return;
     }
 
@@ -550,7 +550,7 @@ class BaselineTextStrategy implements TextRendererStrategy {
     this.colorBuffer.write(mesh.colors);
     this.model.setVertexCount(mesh.vertexCount);
 
-    this.stats = createTextRendererStats(
+    this.stats = createTextLayerStats(
       this.resources.layout,
       'baseline',
       visibility,
@@ -578,7 +578,7 @@ class BaselineTextStrategy implements TextRendererStrategy {
   }
 }
 
-class InstancedTextStrategy implements TextRendererStrategy {
+class InstancedTextStrategy implements TextLayerStrategy {
   private readonly unitPositionBuffer;
   private readonly unitUvBuffer;
   private readonly viewportBuffer;
@@ -587,7 +587,7 @@ class InstancedTextStrategy implements TextRendererStrategy {
   private uvRectBuffer;
   private colorBuffer;
   private capacity = 1;
-  private stats: TextRendererStats;
+  private stats: TextLayerStats;
 
   constructor(
     private readonly device: Device,
@@ -627,7 +627,7 @@ class InstancedTextStrategy implements TextRendererStrategy {
       instanceCount: 0,
       parameters: TEXT_BLEND_PARAMETERS,
     });
-    this.stats = createEmptyTextRendererStats(this.resources.layout, 'instanced');
+    this.stats = createEmptyTextLayerStats(this.resources.layout, 'instanced');
   }
 
   destroy(): void {
@@ -648,7 +648,7 @@ class InstancedTextStrategy implements TextRendererStrategy {
     this.model.draw(renderPass);
   }
 
-  getStats(): TextRendererStats {
+  getStats(): TextLayerStats {
     return this.stats;
   }
 
@@ -687,7 +687,7 @@ class InstancedTextStrategy implements TextRendererStrategy {
 
     if (instances.instanceCount === 0) {
       this.model.setInstanceCount(0);
-      this.stats = createTextRendererStats(this.resources.layout, 'instanced', visibility, 0, 0, 0);
+      this.stats = createTextLayerStats(this.resources.layout, 'instanced', visibility, 0, 0, 0);
       return;
     }
 
@@ -697,7 +697,7 @@ class InstancedTextStrategy implements TextRendererStrategy {
     this.colorBuffer.write(instances.colors);
     this.model.setInstanceCount(instances.instanceCount);
 
-    this.stats = createTextRendererStats(
+    this.stats = createTextLayerStats(
       this.resources.layout,
       'instanced',
       visibility,
@@ -732,7 +732,7 @@ class InstancedTextStrategy implements TextRendererStrategy {
   }
 }
 
-class PackedTextStrategy implements TextRendererStrategy {
+class PackedTextStrategy implements TextLayerStrategy {
   private readonly unitPositionBuffer;
   private readonly unitUvBuffer;
   private readonly anchorBuffer;
@@ -742,7 +742,7 @@ class PackedTextStrategy implements TextRendererStrategy {
   private readonly zoomRangeBuffer;
   private readonly cameraBuffer;
   private readonly model: Model;
-  private stats: TextRendererStats;
+  private stats: TextLayerStats;
 
   constructor(
     device: Device,
@@ -774,7 +774,7 @@ class PackedTextStrategy implements TextRendererStrategy {
       instanceCount: this.resources.layout.glyphCount,
       parameters: TEXT_BLEND_PARAMETERS,
     });
-    this.stats = createEmptyTextRendererStats(this.resources.layout, 'packed');
+    this.stats = createEmptyTextLayerStats(this.resources.layout, 'packed');
   }
 
   destroy(): void {
@@ -797,7 +797,7 @@ class PackedTextStrategy implements TextRendererStrategy {
     this.model.draw(renderPass);
   }
 
-  getStats(): TextRendererStats {
+  getStats(): TextLayerStats {
     return this.stats;
   }
 
@@ -809,7 +809,7 @@ class PackedTextStrategy implements TextRendererStrategy {
     });
 
     if (visibility.visibleGlyphCount === 0) {
-      this.stats = createTextRendererStats(this.resources.layout, 'packed', visibility, 0, 0, 0);
+      this.stats = createTextLayerStats(this.resources.layout, 'packed', visibility, 0, 0, 0);
       return;
     }
 
@@ -824,7 +824,7 @@ class PackedTextStrategy implements TextRendererStrategy {
       0,
     ]));
 
-    this.stats = createTextRendererStats(
+    this.stats = createTextLayerStats(
       this.resources.layout,
       'packed',
       visibility,
@@ -860,7 +860,7 @@ class PackedTextStrategy implements TextRendererStrategy {
   }
 }
 
-class VisibleIndexTextStrategy implements TextRendererStrategy {
+class VisibleIndexTextStrategy implements TextLayerStrategy {
   private readonly cameraBuffer;
   private readonly glyphRecordBuffer;
   private readonly model: Model;
@@ -868,7 +868,7 @@ class VisibleIndexTextStrategy implements TextRendererStrategy {
   private readonly unitUvBuffer;
   private visibleIndexBuffer;
   private capacity = 1;
-  private stats: TextRendererStats;
+  private stats: TextLayerStats;
 
   constructor(
     private readonly device: Device,
@@ -907,7 +907,7 @@ class VisibleIndexTextStrategy implements TextRendererStrategy {
       instanceCount: 0,
       parameters: TEXT_BLEND_PARAMETERS,
     });
-    this.stats = createEmptyTextRendererStats(this.resources.layout, mode);
+    this.stats = createEmptyTextLayerStats(this.resources.layout, mode);
   }
 
   destroy(): void {
@@ -927,7 +927,7 @@ class VisibleIndexTextStrategy implements TextRendererStrategy {
     this.model.draw(renderPass);
   }
 
-  getStats(): TextRendererStats {
+  getStats(): TextLayerStats {
     return this.stats;
   }
 
@@ -957,7 +957,7 @@ class VisibleIndexTextStrategy implements TextRendererStrategy {
 
     if (visibleIndices.length === 0) {
       this.model.setInstanceCount(0);
-      this.stats = createTextRendererStats(this.resources.layout, this.mode, visibility, 0, 0, 0);
+      this.stats = createTextLayerStats(this.resources.layout, this.mode, visibility, 0, 0, 0);
       return;
     }
 
@@ -974,7 +974,7 @@ class VisibleIndexTextStrategy implements TextRendererStrategy {
     this.visibleIndexBuffer.write(visibleIndices);
     this.model.setInstanceCount(visibleIndices.length);
 
-    this.stats = createTextRendererStats(
+    this.stats = createTextLayerStats(
       this.resources.layout,
       this.mode,
       visibility,
@@ -1011,7 +1011,7 @@ function analyzeGlyphVisibility(
   camera: Camera2D,
   viewport: ViewportSize,
   options: VisibilityOptions,
-): VisibilityAnalysis {
+): GlyphVisibilityResult {
   const {glyphs} = resources.layout;
   const visibleGlyphIndices: number[] = [];
   const visibleGlyphs: VisibleGlyph[] = [];
@@ -1243,15 +1243,15 @@ function buildPackedGlyphInstances(glyphs: GlyphPlacement[]): PackedGlyphInstanc
   };
 }
 
-function createEmptyTextRendererStats(
+function createEmptyTextLayerStats(
   layout: TextLayout,
-  rendererMode: RendererMode,
-): TextRendererStats {
+  textStrategy: TextStrategy,
+): TextLayerStats {
   return {
     bytesUploadedPerFrame: 0,
     glyphCount: layout.glyphCount,
     labelCount: layout.labelCount,
-    rendererMode,
+    textStrategy,
     submittedGlyphCount: 0,
     submittedVertexCount: 0,
     visibleChunkCount: 0,
@@ -1273,19 +1273,19 @@ function createStaticVertexBuffer(
   });
 }
 
-function createTextRendererStats(
+function createTextLayerStats(
   layout: TextLayout,
-  rendererMode: RendererMode,
-  visibility: VisibilityAnalysis,
+  textStrategy: TextStrategy,
+  visibility: GlyphVisibilityResult,
   bytesUploadedPerFrame: number,
   submittedVertexCount: number,
   submittedGlyphCount: number,
-): TextRendererStats {
+): TextLayerStats {
   return {
     bytesUploadedPerFrame,
     glyphCount: layout.glyphCount,
     labelCount: layout.labelCount,
-    rendererMode,
+    textStrategy,
     submittedGlyphCount,
     submittedVertexCount,
     visibleChunkCount: visibility.visibleChunkCount,

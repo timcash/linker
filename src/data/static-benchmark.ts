@@ -54,7 +54,7 @@ const STATIC_BENCHMARK_MAX_LABEL_COUNT = 16384;
 
 export const DEFAULT_BENCHMARK_LABEL_COUNT = 1024;
 export const STATIC_BENCHMARK_COUNTS = [1024, 4096, 16384] as const;
-export const STATIC_BENCHMARK_DATASET_ID = 'static-benchmark-v2';
+export const STATIC_BENCHMARK_LABEL_SET_ID = 'static-benchmark-label-set-v2';
 
 const STATIC_BENCHMARK_LABELS = createStaticBenchmarkLabels(STATIC_BENCHMARK_MAX_LABEL_COUNT);
 

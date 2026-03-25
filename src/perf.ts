@@ -12,7 +12,7 @@ type RollingMetricSummary = {
   sampleCount: number;
 };
 
-export type PerfSnapshot = {
+export type FrameTelemetrySnapshot = {
   cpuDrawAvgMs: number;
   cpuFrameAvgMs: number;
   cpuFrameMaxMs: number;
@@ -26,7 +26,7 @@ export type PerfSnapshot = {
   gpuSupported: boolean;
 };
 
-export type FrameProfilerOptions = {
+export type FrameTelemetryOptions = {
   enableGpuTimestamps?: boolean;
 };
 
@@ -97,7 +97,7 @@ class RollingMetric {
   }
 }
 
-export class FrameProfiler {
+export class FrameTelemetry {
   private readonly cpuDraw = new RollingMetric();
   private readonly cpuFrame = new RollingMetric();
   private readonly cpuGrid = new RollingMetric();
@@ -110,7 +110,7 @@ export class FrameProfiler {
 
   constructor(
     private readonly device: Device,
-    options: FrameProfilerOptions = {},
+    options: FrameTelemetryOptions = {},
   ) {
     this.gpuSupported = Boolean(options.enableGpuTimestamps) && device.features.has('timestamp-query');
 
@@ -173,7 +173,7 @@ export class FrameProfiler {
     };
   }
 
-  getSnapshot(): PerfSnapshot {
+  getSnapshot(): FrameTelemetrySnapshot {
     const cpuFrame = this.cpuFrame.getSummary();
     const cpuGrid = this.cpuGrid.getSummary();
     const cpuText = this.cpuText.getSummary();

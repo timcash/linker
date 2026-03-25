@@ -48,7 +48,7 @@ export type GridStats = {
   horizontalLines: number;
 };
 
-export class GridRenderer {
+export class GridLayer {
   private model: Model;
   private positionBuffer;
   private colorBuffer;

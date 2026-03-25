@@ -13,8 +13,6 @@ The system is easiest to reason about as:
 - deterministic `camera-trace` tests
 - measurable `frame-telemetry`
 
-`PLAN.md` is the agent-oriented workflow document for this repo. This README uses the preferred domain language from that file, even where some code still has older names like `rendererMode`.
-
 ## Domain Language
 
 Use these words consistently when describing the system:
@@ -34,11 +32,11 @@ Use these words consistently when describing the system:
 - `frame-telemetry`
   CPU, GPU, upload, visibility, and submission metrics for the current frame or benchmark run.
 
-Legacy naming that still exists in code:
+Canonical public surface:
 
-- the route query param is still `renderer=...`, but it selects a `text-strategy`
-- some code still uses `rendererMode`, but the preferred concept name is `text-strategy`
-- the route query param `dataset=...` maps to a `label-set`
+- use `labelSet=...` to choose the label-set
+- use `textStrategy=...` to choose the text strategy
+- read live label, strategy, and benchmark telemetry from `document.body.dataset`
 
 ## Quick Start
 
@@ -61,10 +59,24 @@ Open:
 Useful routes:
 
 - Demo route: `/`
-- Start in a specific text strategy: `/?renderer=chunked`
-- Run a benchmark route: `/?dataset=benchmark&benchmark=1&gpuTiming=1&renderer=visible-index&labelCount=4096&benchmarkFrames=8`
+- Start in a specific text strategy: `/?textStrategy=chunked`
+- Run a benchmark route: `/?labelSet=benchmark&benchmark=1&gpuTiming=1&textStrategy=visible-index&labelCount=4096&benchmarkFrames=8`
 
-The default UI boots the demo label set preset `demo-csv-v1`, which is sourced from `src/data/demo-label-set.csv`.
+The default UI boots the demo label-set preset `demo-label-set-v1`, which is sourced from `src/data/demo-label-set.csv`.
+
+## Deterministic Assets
+
+- Demo label-set id: `demo-label-set-v1`
+- Demo label-set source: `src/data/demo-label-set.csv`
+- Benchmark label-set id: `static-benchmark-label-set-v2`
+- Benchmark label counts: `1024`, `4096`, `16384`
+- Benchmark route template:
+
+```text
+/?labelSet=benchmark&benchmark=1&gpuTiming=1&textStrategy=<baseline|instanced|packed|visible-index|chunked>&labelCount=<1024|4096|16384>&benchmarkFrames=8
+```
+
+Never replace the benchmark label set with random or unstable generation.
 
 ## Terminal Commands
 
@@ -103,8 +115,6 @@ Current panel layout:
 
 ## Render Strategies
 
-The code still uses the query param name `renderer`, but conceptually each option is a `text-strategy`.
-
 - `baseline`
   Correctness reference. CPU filters visible glyphs and expands them into full triangle-list vertex data every frame.
 - `instanced`
@@ -133,21 +143,41 @@ What the test suite checks:
 - app boot reaches `ready` without unexpected browser errors
 - the `stage-canvas` fills the viewport
 - the four UI panels are present and positioned correctly
-- the default demo route uses the shared preset `demo-csv-v1`
+- the default demo route uses the shared preset `demo-label-set-v1`
 - all render-panel buttons switch strategies correctly
 - zoom-window visibility behaves correctly for every text strategy
 - each strategy survives a large-scale `4096` label zoom sweep with visible and fully hidden phases
-- benchmark routes use the shared preset `static-benchmark-v2`
+- benchmark routes use the shared preset `static-benchmark-label-set-v2`
 - benchmark summaries are collected for `1024`, `4096`, and `16384` labels
 - `browser.log` and `browser.png` are written on each run
 
 Benchmark route template:
 
 ```text
-/?dataset=benchmark&benchmark=1&gpuTiming=1&renderer=<baseline|instanced|packed|visible-index|chunked>&labelCount=<1024|4096|16384>&benchmarkFrames=8
+/?labelSet=benchmark&benchmark=1&gpuTiming=1&textStrategy=<baseline|instanced|packed|visible-index|chunked>&labelCount=<1024|4096|16384>&benchmarkFrames=8
 ```
 
-The benchmark label set is deterministic. All strategies run against stable prefixes of the same centered static dataset, so the comparisons are meaningful.
+The benchmark label set is deterministic. All strategies run against stable prefixes of the same centered static label set, so the comparisons are meaningful.
+
+## Contributor Workflow
+
+Use this when making non-trivial changes:
+
+1. Name the task in domain terms.
+2. Pick one primary owner: stage, camera model, grid layer, text layer, or frame telemetry.
+3. Trace the control path before editing.
+   For text work: `readStageConfig -> LumaStageController.start -> TextLayer.createStrategy -> TextLayer.update -> TextLayer.draw -> LumaStageController.updateStatus`.
+4. Keep the benchmark label set and camera trace deterministic.
+5. Export any comparison-worthy metric through `document.body.dataset`.
+6. Extend the browser suite with structural assertions instead of fragile hardcoded thresholds.
+7. Keep panel names semantic: `status-panel`, `details-panel`, `render-panel`, `camera-panel`.
+8. Run the quality gate before handing work back.
+
+Quality gate:
+
+- `npm run lint`
+- `npm run build`
+- `npm test`
 
 ## Text CSV File Example
 
@@ -183,12 +213,12 @@ The parsing and placement logic lives in `src/data/labels.ts`.
 If you are new to this repo, start with these files:
 
 - `src/app.ts`
-  Boots the `luma-stage`, reads query params, builds the panels, runs the render loop, and exports dataset-based telemetry.
+  Boots the `luma-stage`, reads query params, builds the panels, runs the render loop, and exports stage telemetry.
 - `src/camera.ts`
   Owns the 2D camera model and world-to-screen transforms.
 - `src/grid.ts`
   Implements the `grid-layer`.
-- `src/text/renderer.ts`
+- `src/text/layer.ts`
   Implements the `text-layer`, text strategy selection, visibility analysis, and draw submission.
 - `src/perf.ts`
   Captures CPU and GPU frame telemetry.
@@ -196,15 +226,16 @@ If you are new to this repo, start with these files:
 Minimal render flow:
 
 1. `startApp` creates the stage chrome and reads the route config.
+   Current stage helpers: `createStageChrome`, `readStageConfig`, and `LumaStageController`.
 2. `luma.createDevice(...)` creates the WebGPU device and binds the `stage-canvas`.
-3. `GridRenderer` and `TextRenderer` are created from the chosen `label-set` and `text-strategy`.
+3. `GridLayer` and `TextLayer` are created from the chosen `label-set` and `text-strategy`.
 4. Each frame updates camera-dependent grid and text state.
 5. A render pass draws the background, grid layer, and text layer.
-6. The device submits the frame and `FrameProfiler` updates `frame-telemetry`.
+6. The device submits the frame and `FrameTelemetry` updates `frame-telemetry`.
 
 If you want to add another text strategy, the shortest path is:
 
 1. Add the mode to `src/text/types.ts`.
-2. Implement the strategy path in `src/text/renderer.ts`.
+2. Implement the strategy path in `src/text/layer.ts`.
 3. Expose the new button in the render panel from `src/app.ts`.
 4. Extend `scripts/test.ts` so the new strategy participates in zoom sweeps and benchmark collection.
