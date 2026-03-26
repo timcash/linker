@@ -77,10 +77,10 @@ body {
 
 .status-panel,
 .details-panel,
+.strategy-mode-panel,
 .render-panel,
 .camera-panel {
   z-index: 2;
-  margin: 24px;
   padding: 18px 20px;
   border: 1px solid var(--panel-border);
   border-radius: 18px;
@@ -95,16 +95,35 @@ body {
   grid-area: status;
   align-self: start;
   justify-self: start;
+  margin: 24px;
   max-width: min(28rem, calc(50vw - 36px));
 }
 
-.details-panel {
+.top-right-stack {
   grid-area: details;
   align-self: start;
   justify-self: end;
+  z-index: 2;
+  display: grid;
+  gap: 16px;
+  margin: 24px;
+  width: min(24rem, calc(50vw - 36px));
+}
+
+.top-right-stack > .details-panel,
+.top-right-stack > .strategy-mode-panel {
+  margin: 0;
+  width: 100%;
+}
+
+.details-panel {
   display: grid;
   gap: 10px;
-  max-width: min(24rem, calc(50vw - 36px));
+}
+
+.strategy-mode-panel {
+  display: grid;
+  gap: 12px;
 }
 
 .render-panel {
@@ -113,6 +132,7 @@ body {
   justify-self: start;
   display: grid;
   gap: 12px;
+  margin: 24px;
   width: min(32rem, calc(50vw - 36px));
 }
 
@@ -122,6 +142,7 @@ body {
   justify-self: end;
   display: grid;
   gap: 12px;
+  margin: 24px;
   width: min(26rem, calc(50vw - 36px));
 }
 
@@ -236,6 +257,16 @@ body {
   border-color: rgb(125 211 252 / 40%);
   background:
     linear-gradient(180deg, rgb(18 47 84 / 94%), rgb(8 24 44 / 94%));
+}
+
+.control-button:disabled,
+.control-button:disabled:hover {
+  cursor: not-allowed;
+  border-color: rgb(125 211 252 / 10%);
+  background:
+    linear-gradient(180deg, rgb(11 24 42 / 72%), rgb(6 14 27 / 72%));
+  color: rgb(229 237 249 / 48%);
+  box-shadow: none;
 }
 
 .control-button[data-active='true'] {

@@ -627,6 +627,13 @@ export class TextLayer {
     this.strategy = this.createStrategy(mode);
   }
 
+  setLayoutLabels(labels: LabelDefinition[]): void {
+    this.strategy.destroy();
+    this.resources.bitmap = relayoutPreparedTextResources(this.resources.bitmap, labels);
+    this.resources.sdf = relayoutPreparedTextResources(this.resources.sdf, labels);
+    this.strategy = this.createStrategy(this.mode);
+  }
+
   update(camera: Camera2D, viewport: ViewportSize): void {
     this.strategy.update(camera, viewport);
   }
@@ -1299,6 +1306,22 @@ function createPreparedTextResources(
       mipmaps: false,
       width: atlas.width,
     }),
+  };
+}
+
+function relayoutPreparedTextResources(
+  resources: PreparedTextResources,
+  labels: LabelDefinition[],
+): PreparedTextResources {
+  const layout = layoutLabels(labels, resources.atlas);
+
+  return {
+    ...resources,
+    chunkIndex: buildGlyphChunkIndex(layout.glyphs),
+    glyphRecordData: buildGlyphRecordData(layout.glyphs),
+    layout,
+    maxScreenExtentX: getMaxScreenExtent(layout.glyphs, 'x'),
+    maxScreenExtentY: getMaxScreenExtent(layout.glyphs, 'y'),
   };
 }
 

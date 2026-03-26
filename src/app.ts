@@ -4,7 +4,14 @@ import {webgpuAdapter} from '@luma.gl/webgpu';
 
 import {Camera2D, type CameraSnapshot, type ViewportSize} from './camera';
 import {DEMO_LABEL_SET_ID} from './data/demo-meta';
-import {DEMO_LABELS} from './data/labels';
+import {
+  DEFAULT_LAYOUT_STRATEGY,
+  DEMO_LABELS,
+  LAYOUT_STRATEGIES,
+  LAYOUT_STRATEGY_OPTIONS,
+  getDemoLabels,
+  type LayoutStrategy,
+} from './data/labels';
 import {
   DEFAULT_BENCHMARK_LABEL_COUNT,
   STATIC_BENCHMARK_LABEL_SET_ID,
@@ -79,6 +86,7 @@ const BENCHMARK_CAMERA_TRACE: ControlAction[] = [
 ];
 
 type AppState = 'loading' | 'ready' | 'unsupported' | 'error';
+type StrategyPanelMode = 'text' | 'layout';
 
 type ControlAction =
   | 'pan-up'
@@ -98,6 +106,7 @@ type StageConfig = {
   initialCamera: CameraView;
   labelSetKind: LabelSetKind;
   labelSetPreset: string;
+  layoutStrategy: LayoutStrategy;
   labelTargetCount: number;
   labels: LabelDefinition[];
   textStrategy: TextStrategy;
@@ -135,6 +144,7 @@ type StageChromeElements = {
   stage: HTMLDivElement;
   statusPanel: HTMLElement;
   stats: HTMLParagraphElement;
+  strategyModePanel: HTMLElement;
 };
 
 export type AppHandle = {
@@ -164,14 +174,19 @@ class LumaStageController {
   private textLayer: TextLayer | null = null;
   private readonly camera = new Camera2D();
   private readonly actionButtons: HTMLButtonElement[] = [];
-  private readonly strategyButtons: HTMLButtonElement[] = [];
+  private readonly layoutStrategyButtons: HTMLButtonElement[] = [];
+  private readonly strategyModeButtons: HTMLButtonElement[] = [];
+  private readonly textStrategyButtons: HTMLButtonElement[] = [];
   private destroyed = false;
+  private layoutStrategy: LayoutStrategy;
+  private strategyPanelMode: StrategyPanelMode = 'text';
   private textStrategy: TextStrategy;
 
   constructor(
     private readonly chrome: StageChromeElements,
     private readonly config: StageConfig,
   ) {
+    this.layoutStrategy = config.layoutStrategy;
     this.textStrategy = config.textStrategy;
     this.camera.setView(
       config.initialCamera.centerX,
@@ -240,9 +255,12 @@ class LumaStageController {
       await this.textLayer.ready;
       this.installInteractionHandlers();
       this.updateTextStrategyButtons();
+      this.updateLayoutStrategyButtons();
+      this.updateStrategyModeButtons();
+      this.updateStrategyPanel();
 
       this.chrome.detail.textContent =
-        'Text strategies compare upload and submission paths. Camera input stays button-only so zoom traces and benchmarks remain deterministic.';
+        'Text strategies compare upload and submission paths. Layout strategies rewrite the world locations of the CSV-sourced demo hierarchy while camera input stays button-only so zoom traces and benchmarks remain deterministic.';
       this.chrome.launchBanner.hidden = true;
       this.chrome.canvas.hidden = false;
       this.setState('ready');
@@ -425,6 +443,34 @@ class LumaStageController {
     }
   };
 
+  private handleLayoutStrategyButtonClick = (event: MouseEvent): void => {
+    const button = event.currentTarget;
+
+    if (!(button instanceof HTMLButtonElement)) {
+      return;
+    }
+
+    const layoutStrategy = button.dataset.layoutStrategy;
+
+    if (isLayoutStrategy(layoutStrategy)) {
+      this.setLayoutStrategy(layoutStrategy);
+    }
+  };
+
+  private handleStrategyModeButtonClick = (event: MouseEvent): void => {
+    const button = event.currentTarget;
+
+    if (!(button instanceof HTMLButtonElement)) {
+      return;
+    }
+
+    const mode = button.dataset.strategyPanelMode;
+
+    if (mode === 'text' || mode === 'layout') {
+      this.setStrategyPanelMode(mode);
+    }
+  };
+
   private setTextStrategy(mode: TextStrategy): void {
     if (!this.textLayer || mode === this.textStrategy || document.body.dataset.benchmarkState === 'running') {
       return;
@@ -440,6 +486,42 @@ class LumaStageController {
     this.updateStatus();
   }
 
+  private setLayoutStrategy(mode: LayoutStrategy): void {
+    if (
+      !this.textLayer ||
+      this.config.labelSetKind !== 'demo' ||
+      mode === this.layoutStrategy ||
+      document.body.dataset.benchmarkState === 'running'
+    ) {
+      return;
+    }
+
+    this.layoutStrategy = mode;
+    this.config.labels = getDemoLabels(mode);
+    this.textLayer.setLayoutLabels(this.config.labels);
+    this.benchmarkSummary = null;
+    document.body.dataset.benchmarkError = '';
+    document.body.dataset.benchmarkState = this.config.benchmarkEnabled ? 'pending' : 'disabled';
+    syncLayoutStrategyQueryParam(mode);
+    this.updateLayoutStrategyButtons();
+    this.updateStatus();
+  }
+
+  private setStrategyPanelMode(mode: StrategyPanelMode): void {
+    if (mode === 'layout' && this.config.labelSetKind !== 'demo') {
+      return;
+    }
+
+    if (mode === this.strategyPanelMode) {
+      return;
+    }
+
+    this.strategyPanelMode = mode;
+    this.updateStrategyModeButtons();
+    this.updateStrategyPanel();
+    this.updateStatus();
+  }
+
   private updateTextStrategyButtons(): void {
     const buttons = this.chrome.renderPanel.querySelectorAll<HTMLButtonElement>('[data-text-strategy]');
 
@@ -450,20 +532,86 @@ class LumaStageController {
     }
   }
 
+  private updateLayoutStrategyButtons(): void {
+    const buttons = this.chrome.renderPanel.querySelectorAll<HTMLButtonElement>('[data-layout-strategy]');
+
+    for (const button of buttons) {
+      const isActive = button.dataset.layoutStrategy === this.layoutStrategy;
+      button.dataset.active = String(isActive);
+      button.setAttribute('aria-pressed', String(isActive));
+    }
+  }
+
+  private updateStrategyModeButtons(): void {
+    const buttons =
+      this.chrome.strategyModePanel.querySelectorAll<HTMLButtonElement>('[data-strategy-panel-mode]');
+
+    for (const button of buttons) {
+      const mode = button.dataset.strategyPanelMode;
+      const isLayoutMode = mode === 'layout';
+      const isDisabled = isLayoutMode && this.config.labelSetKind !== 'demo';
+      const isActive = mode === this.strategyPanelMode;
+
+      button.disabled = isDisabled;
+      button.dataset.active = String(isActive);
+      button.setAttribute('aria-pressed', String(isActive));
+    }
+  }
+
+  private updateStrategyPanel(): void {
+    const textStrategyPanel = this.chrome.renderPanel.querySelector<HTMLElement>(
+      '[data-testid="text-strategy-panel"]',
+    );
+    const layoutStrategyPanel = this.chrome.renderPanel.querySelector<HTMLElement>(
+      '[data-testid="layout-strategy-panel"]',
+    );
+    const panelLabel = this.chrome.renderPanel.querySelector<HTMLElement>(
+      '[data-testid="strategy-panel-label"]',
+    );
+
+    if (panelLabel) {
+      panelLabel.textContent =
+        this.strategyPanelMode === 'layout' ? 'Layout Strategy' : 'Text Strategy';
+    }
+
+    if (textStrategyPanel) {
+      textStrategyPanel.hidden = this.strategyPanelMode !== 'text';
+    }
+
+    if (layoutStrategyPanel) {
+      layoutStrategyPanel.hidden =
+        this.strategyPanelMode !== 'layout' || this.config.labelSetKind !== 'demo';
+    }
+  }
+
   private installInteractionHandlers(): void {
     this.actionButtons.push(
       ...this.chrome.cameraPanel.querySelectorAll<HTMLButtonElement>('[data-control]'),
     );
-    this.strategyButtons.push(
+    this.textStrategyButtons.push(
       ...this.chrome.renderPanel.querySelectorAll<HTMLButtonElement>('[data-text-strategy]'),
+    );
+    this.layoutStrategyButtons.push(
+      ...this.chrome.renderPanel.querySelectorAll<HTMLButtonElement>('[data-layout-strategy]'),
+    );
+    this.strategyModeButtons.push(
+      ...this.chrome.strategyModePanel.querySelectorAll<HTMLButtonElement>('[data-strategy-panel-mode]'),
     );
 
     for (const button of this.actionButtons) {
       button.addEventListener('click', this.handleActionButtonClick);
     }
 
-    for (const button of this.strategyButtons) {
+    for (const button of this.textStrategyButtons) {
       button.addEventListener('click', this.handleStrategyButtonClick);
+    }
+
+    for (const button of this.layoutStrategyButtons) {
+      button.addEventListener('click', this.handleLayoutStrategyButtonClick);
+    }
+
+    for (const button of this.strategyModeButtons) {
+      button.addEventListener('click', this.handleStrategyModeButtonClick);
     }
   }
 
@@ -472,12 +620,22 @@ class LumaStageController {
       button.removeEventListener('click', this.handleActionButtonClick);
     }
 
-    for (const button of this.strategyButtons) {
+    for (const button of this.textStrategyButtons) {
       button.removeEventListener('click', this.handleStrategyButtonClick);
     }
 
+    for (const button of this.layoutStrategyButtons) {
+      button.removeEventListener('click', this.handleLayoutStrategyButtonClick);
+    }
+
+    for (const button of this.strategyModeButtons) {
+      button.removeEventListener('click', this.handleStrategyModeButtonClick);
+    }
+
     this.actionButtons.length = 0;
-    this.strategyButtons.length = 0;
+    this.textStrategyButtons.length = 0;
+    this.layoutStrategyButtons.length = 0;
+    this.strategyModeButtons.length = 0;
   }
 
   private async runBenchmark(): Promise<void> {
@@ -643,6 +801,12 @@ class LumaStageController {
     const labelCount = textStats ? textStats.labelCount : 0;
     const glyphCount = textStats ? textStats.glyphCount : 0;
     const activeTextStrategy = textStats ? textStats.textStrategy : this.textStrategy;
+    const activeLayoutStrategy =
+      this.config.labelSetKind === 'demo' ? this.layoutStrategy : 'benchmark-static';
+    const layoutStrategyLabel =
+      this.config.labelSetKind === 'demo'
+        ? getLayoutStrategyLabel(this.layoutStrategy)
+        : 'Benchmark Static';
     const textStrategyLabel = getTextStrategyLabel(activeTextStrategy);
     const bytesUploadedPerFrame = textStats ? textStats.bytesUploadedPerFrame : 0;
     const submittedGlyphCount = textStats ? textStats.submittedGlyphCount : 0;
@@ -665,6 +829,10 @@ class LumaStageController {
     document.body.dataset.gridLineCount = String(lineCount);
     document.body.dataset.gridMinorSpacing = minorSpacing;
     document.body.dataset.gridMajorSpacing = majorSpacing;
+    document.body.dataset.layoutFingerprint = getLayoutFingerprint(this.config.labels);
+    document.body.dataset.layoutStrategy = activeLayoutStrategy;
+    document.body.dataset.layoutStrategyLabel = layoutStrategyLabel;
+    document.body.dataset.strategyPanelMode = this.strategyPanelMode;
     document.body.dataset.textStrategy = activeTextStrategy;
     document.body.dataset.textStrategyLabel = textStrategyLabel;
     document.body.dataset.textBytesUploadedPerFrame = String(bytesUploadedPerFrame);
@@ -702,6 +870,7 @@ class LumaStageController {
 
     this.chrome.stats.textContent = [
       `label set ${this.config.labelSetKind} (${this.config.labels.length} labels)`,
+      `layout ${layoutStrategyLabel}`,
       `strategy ${textStrategyLabel}`,
       `center ${snapshot.centerX.toFixed(2)}, ${snapshot.centerY.toFixed(2)}`,
       `zoom ${snapshot.zoom.toFixed(2)}`,
@@ -765,13 +934,21 @@ function createStageChrome(root: HTMLElement): StageChromeElements {
   const stats = document.createElement('p');
   stats.className = 'status-stats';
   stats.textContent =
-    'strategy Baseline  |  center 0.00, 0.00  |  zoom 0.00  |  scale 56.0 px/world';
+    'layout Column Ramp  |  strategy Baseline  |  center 0.00, 0.00  |  zoom 0.00  |  scale 56.0 px/world';
   statusPanel.append(stats);
 
-  const strategyButtonsMarkup = TEXT_STRATEGY_OPTIONS.map(
+  const textStrategyButtonsMarkup = TEXT_STRATEGY_OPTIONS.map(
     ({mode, label}) =>
       `<button type="button" class="control-button" data-text-strategy="${mode}" aria-pressed="false">${label}</button>`,
   ).join('');
+  const layoutStrategyButtonsMarkup = LAYOUT_STRATEGY_OPTIONS.map(
+    ({mode, label}) =>
+      `<button type="button" class="control-button" data-layout-strategy="${mode}" aria-pressed="false">${label}</button>`,
+  ).join('');
+  const strategyModeButtonsMarkup = `
+    <button type="button" class="control-button" data-strategy-panel-mode="text" aria-pressed="false">Text Strategy</button>
+    <button type="button" class="control-button" data-strategy-panel-mode="layout" aria-pressed="false">Layout Strategy</button>
+  `;
 
   const detailsPanel = document.createElement('aside');
   detailsPanel.className = 'details-panel';
@@ -795,14 +972,31 @@ function createStageChrome(root: HTMLElement): StageChromeElements {
   detail.textContent = 'Checking browser WebGPU support and creating the luma.gl device.';
   detailsPanel.append(detail);
 
+  const strategyModePanel = document.createElement('aside');
+  strategyModePanel.className = 'strategy-mode-panel';
+  strategyModePanel.dataset.testid = 'strategy-mode-panel';
+  strategyModePanel.innerHTML = `
+    <div class="panel-label">Strategy View</div>
+    <div class="control-row" data-testid="strategy-panel-mode">
+      ${strategyModeButtonsMarkup}
+    </div>
+  `;
+
+  const topRightStack = document.createElement('div');
+  topRightStack.className = 'top-right-stack';
+  topRightStack.append(detailsPanel, strategyModePanel);
+
   const renderPanel = document.createElement('aside');
   renderPanel.className = 'render-panel';
   renderPanel.dataset.testid = 'render-panel';
   renderPanel.setAttribute('aria-label', 'Render panel');
   renderPanel.innerHTML = `
-    <div class="panel-label">Text Strategy</div>
+    <div class="panel-label" data-testid="strategy-panel-label">Text Strategy</div>
     <div class="control-row" data-testid="text-strategy-panel">
-      ${strategyButtonsMarkup}
+      ${textStrategyButtonsMarkup}
+    </div>
+    <div class="control-row" data-testid="layout-strategy-panel" hidden>
+      ${layoutStrategyButtonsMarkup}
     </div>
   `;
 
@@ -823,10 +1017,21 @@ function createStageChrome(root: HTMLElement): StageChromeElements {
     </div>
   `;
 
-  stage.append(canvas, statusPanel, detailsPanel, renderPanel, cameraPanel, launchBanner);
+  stage.append(canvas, statusPanel, topRightStack, renderPanel, cameraPanel, launchBanner);
   root.replaceChildren(stage);
 
-  return {cameraPanel, canvas, detail, detailsPanel, launchBanner, renderPanel, stage, statusPanel, stats};
+  return {
+    cameraPanel,
+    canvas,
+    detail,
+    detailsPanel,
+    launchBanner,
+    renderPanel,
+    stage,
+    statusPanel,
+    stats,
+    strategyModePanel,
+  };
 }
 
 function escapeHtml(input: string): string {
@@ -894,6 +1099,35 @@ function formatVisibleLabelSample(visibleLabels: string[], visibleLabelCount: nu
   return `${visibleLabels.join('|')}${suffix}`;
 }
 
+function getLayoutFingerprint(labels: LabelDefinition[]): string {
+  let weightedX = 0;
+  let weightedY = 0;
+  let minX = Number.POSITIVE_INFINITY;
+  let maxX = Number.NEGATIVE_INFINITY;
+  let minY = Number.POSITIVE_INFINITY;
+  let maxY = Number.NEGATIVE_INFINITY;
+
+  labels.forEach((label, index) => {
+    const weight = index + 1;
+    weightedX += label.location.x * weight;
+    weightedY += label.location.y * weight;
+    minX = Math.min(minX, label.location.x);
+    maxX = Math.max(maxX, label.location.x);
+    minY = Math.min(minY, label.location.y);
+    maxY = Math.max(maxY, label.location.y);
+  });
+
+  return [
+    labels.length,
+    weightedX.toFixed(3),
+    weightedY.toFixed(3),
+    minX.toFixed(3),
+    maxX.toFixed(3),
+    minY.toFixed(3),
+    maxY.toFixed(3),
+  ].join(':');
+}
+
 function getViewportCenter(viewport: ViewportSize): {x: number; y: number} {
   return {
     x: viewport.width / 2,
@@ -912,6 +1146,12 @@ function isWebGPUUnavailableError(error: unknown): error is Error {
 function getTextStrategyLabel(textStrategy: TextStrategy): string {
   return (
     TEXT_STRATEGY_OPTIONS.find((option) => option.mode === textStrategy)?.label ?? textStrategy
+  );
+}
+
+function getLayoutStrategyLabel(layoutStrategy: LayoutStrategy): string {
+  return (
+    LAYOUT_STRATEGY_OPTIONS.find((option) => option.mode === layoutStrategy)?.label ?? layoutStrategy
   );
 }
 
@@ -934,8 +1174,16 @@ function isTextStrategy(value: string | null | undefined): value is TextStrategy
   return TEXT_STRATEGIES.includes(value as TextStrategy);
 }
 
+function isLayoutStrategy(value: string | null | undefined): value is LayoutStrategy {
+  return LAYOUT_STRATEGIES.includes(value as LayoutStrategy);
+}
+
 function parseTextStrategy(value: string | null): TextStrategy {
   return isTextStrategy(value) ? value : 'baseline';
+}
+
+function parseLayoutStrategy(value: string | null): LayoutStrategy {
+  return isLayoutStrategy(value) ? value : DEFAULT_LAYOUT_STRATEGY;
 }
 
 function syncTextStrategyQueryParam(textStrategy: TextStrategy): void {
@@ -944,6 +1192,16 @@ function syncTextStrategyQueryParam(textStrategy: TextStrategy): void {
       searchParams.delete('textStrategy');
     } else {
       searchParams.set('textStrategy', textStrategy);
+    }
+  });
+}
+
+function syncLayoutStrategyQueryParam(layoutStrategy: LayoutStrategy): void {
+  updateRouteSearchParams((searchParams) => {
+    if (layoutStrategy === DEFAULT_LAYOUT_STRATEGY) {
+      searchParams.delete('layoutStrategy');
+    } else {
+      searchParams.set('layoutStrategy', layoutStrategy);
     }
   });
 }
@@ -999,12 +1257,13 @@ function parseFiniteNumber(input: string | null, fallback: number): number {
 function readStageConfig(search: string): StageConfig {
   const params = new URLSearchParams(search);
   const labelSetKind: LabelSetKind = params.get('labelSet') === 'benchmark' ? 'benchmark' : 'demo';
+  const layoutStrategy = parseLayoutStrategy(params.get('layoutStrategy'));
   const labelTargetCount =
     labelSetKind === 'benchmark'
       ? parseBoundedInteger(params.get('labelCount'), DEFAULT_BENCHMARK_LABEL_COUNT, 64, 16384)
       : DEMO_LABELS.length;
   const labels =
-    labelSetKind === 'benchmark' ? getStaticBenchmarkLabels(labelTargetCount) : DEMO_LABELS;
+    labelSetKind === 'benchmark' ? getStaticBenchmarkLabels(labelTargetCount) : getDemoLabels(layoutStrategy);
 
   return {
     benchmarkTraceStepCount: parseBoundedInteger(
@@ -1022,6 +1281,7 @@ function readStageConfig(search: string): StageConfig {
     },
     labelSetKind,
     labelSetPreset: labelSetKind === 'benchmark' ? STATIC_BENCHMARK_LABEL_SET_ID : DEMO_LABEL_SET_ID,
+    layoutStrategy,
     labelTargetCount,
     labels,
     textStrategy: parseTextStrategy(params.get('textStrategy')),

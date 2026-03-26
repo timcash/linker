@@ -57,14 +57,20 @@ type CameraQueryState = {
   zoom: number | null;
 };
 
+type StrategyPanelMode = 'text' | 'layout';
+type LayoutStrategy = 'column-ramp' | 'scan-grid';
+
 type TextState = {
   bytesUploadedPerFrame: number;
   labelSetPreset: string;
   labelCount: number;
   glyphCount: number;
+  layoutFingerprint: string;
+  layoutStrategy: string;
   textStrategy: TextStrategy;
   submittedGlyphCount: number;
   submittedVertexCount: number;
+  strategyPanelMode: string;
   visibleChunkCount: number;
   visibleLabelCount: number;
   visibleLabels: string;
@@ -138,6 +144,8 @@ const README_PERFORMANCE_HISTORY_HEADING = '## Performance History';
 const README_PERFORMANCE_HISTORY_ENTRY_LIMIT = 3;
 const README_PERFORMANCE_HISTORY_NOTE =
   'This section is auto-appended by `npm test` and keeps only the 3 most recent benchmark snapshots.';
+const DEFAULT_LAYOUT_STRATEGY: LayoutStrategy = 'column-ramp';
+const LAYOUT_STRATEGIES: readonly LayoutStrategy[] = ['column-ramp', 'scan-grid'];
 const LARGE_SCALE_SWEEP_CAMERA_ZOOM = 4.08;
 const LARGE_SCALE_CAMERA_TRACE: readonly CameraTraceStep[] = [
   {name: 'zoom-out-visible', control: 'zoom-out', repeat: 1},
@@ -269,9 +277,12 @@ try {
           labelSetPreset: document.body.dataset.labelSetPreset ?? '',
           labelCount: Number(document.body.dataset.textLabelCount ?? '0'),
           glyphCount: Number(document.body.dataset.textGlyphCount ?? '0'),
+          layoutFingerprint: document.body.dataset.layoutFingerprint ?? '',
+          layoutStrategy: document.body.dataset.layoutStrategy ?? '',
           textStrategy: (document.body.dataset.textStrategy ?? 'baseline') as TextStrategy,
           submittedGlyphCount: Number(document.body.dataset.textSubmittedGlyphCount ?? '0'),
           submittedVertexCount: Number(document.body.dataset.textSubmittedVertexCount ?? '0'),
+          strategyPanelMode: document.body.dataset.strategyPanelMode ?? '',
           visibleChunkCount: Number(document.body.dataset.textVisibleChunkCount ?? '0'),
           visibleLabelCount: Number(document.body.dataset.textVisibleLabelCount ?? '0'),
           visibleLabels: document.body.dataset.textVisibleLabels ?? '',
@@ -360,13 +371,24 @@ try {
       const cameraPanel = document.querySelector('[data-testid="camera-panel"]');
       const detailsPanel = document.querySelector('[data-testid="details-panel"]');
       const renderPanel = document.querySelector('[data-testid="render-panel"]');
+      const layoutStrategyPanel = document.querySelector('[data-testid="layout-strategy-panel"]');
+      const strategyModePanel = document.querySelector('[data-testid="strategy-mode-panel"]');
+      const strategyPanelLabel = document.querySelector('[data-testid="strategy-panel-label"]');
       const textStrategyPanel = document.querySelector('[data-testid="text-strategy-panel"]');
       const statusPanel = document.querySelector('[data-testid="status-panel"]');
+      const layoutStrategyButtons = [
+        ...document.querySelectorAll<HTMLButtonElement>('button[data-layout-strategy]'),
+      ];
       const strategyButtons = [...document.querySelectorAll<HTMLButtonElement>('button[data-text-strategy]')];
+      const strategyModeButtons = [
+        ...document.querySelectorAll<HTMLButtonElement>('button[data-strategy-panel-mode]'),
+      ];
       const cameraRect = cameraPanel instanceof HTMLElement ? cameraPanel.getBoundingClientRect() : null;
       const detailsRect = detailsPanel instanceof HTMLElement ? detailsPanel.getBoundingClientRect() : null;
       const renderRect = renderPanel instanceof HTMLElement ? renderPanel.getBoundingClientRect() : null;
       const statusRect = statusPanel instanceof HTMLElement ? statusPanel.getBoundingClientRect() : null;
+      const strategyModeRect =
+        strategyModePanel instanceof HTMLElement ? strategyModePanel.getBoundingClientRect() : null;
 
       return {
         messageHiddenProperty: message instanceof HTMLElement ? message.hidden : false,
@@ -377,14 +399,27 @@ try {
         detailsPanelVisible:
           detailsPanel instanceof HTMLElement &&
           window.getComputedStyle(detailsPanel).display !== 'none',
+        strategyModePanelVisible:
+          strategyModePanel instanceof HTMLElement &&
+          window.getComputedStyle(strategyModePanel).display !== 'none',
         renderPanelVisible:
           renderPanel instanceof HTMLElement && window.getComputedStyle(renderPanel).display !== 'none',
+        layoutStrategyPanelVisible:
+          layoutStrategyPanel instanceof HTMLElement &&
+          !layoutStrategyPanel.hidden &&
+          window.getComputedStyle(layoutStrategyPanel).display !== 'none',
         textStrategyPanelVisible:
           textStrategyPanel instanceof HTMLElement &&
+          !textStrategyPanel.hidden &&
           window.getComputedStyle(textStrategyPanel).display !== 'none',
         cameraRightGap: cameraRect ? Math.round(window.innerWidth - cameraRect.right) : -1,
         cameraBottomGap: cameraRect ? Math.round(window.innerHeight - cameraRect.bottom) : -1,
         detailsRightGap: detailsRect ? Math.round(window.innerWidth - detailsRect.right) : -1,
+        layoutStrategyButtonModes: layoutStrategyButtons.map((button) => button.dataset.layoutStrategy ?? ''),
+        strategyModeButtonModes: strategyModeButtons.map((button) => button.dataset.strategyPanelMode ?? ''),
+        strategyModeRightGap: strategyModeRect ? Math.round(window.innerWidth - strategyModeRect.right) : -1,
+        strategyModeTopGap: strategyModeRect ? Math.round(strategyModeRect.top) : -1,
+        strategyPanelLabelText: strategyPanelLabel instanceof HTMLElement ? strategyPanelLabel.textContent ?? '' : '',
         textStrategyButtonModes: strategyButtons.map((button) => button.dataset.textStrategy ?? ''),
         renderLeftGap: renderRect ? Math.round(renderRect.left) : -1,
         renderBottomGap: renderRect ? Math.round(window.innerHeight - renderRect.bottom) : -1,
@@ -406,12 +441,25 @@ try {
     );
     assert.equal(readyUiState.cameraPanelVisible, true, 'Camera panel should be visible.');
     assert.equal(readyUiState.detailsPanelVisible, true, 'Details panel should be visible.');
+    assert.equal(readyUiState.strategyModePanelVisible, true, 'Strategy view panel should be visible.');
     assert.equal(readyUiState.renderPanelVisible, true, 'Render panel should be visible.');
     assert.equal(readyUiState.textStrategyPanelVisible, true, 'Text strategy panel should be visible.');
+    assert.equal(readyUiState.layoutStrategyPanelVisible, false, 'Layout strategy panel should be hidden by default.');
+    assert.equal(readyUiState.strategyPanelLabelText, 'Text Strategy', 'Render panel should default to the text strategy label.');
     assert.deepEqual(
       readyUiState.textStrategyButtonModes,
       [...TEXT_STRATEGIES],
       'Text strategy panel should expose a button for every text strategy.',
+    );
+    assert.deepEqual(
+      readyUiState.layoutStrategyButtonModes,
+      [...getLayoutStrategies()],
+      'Layout strategy panel should expose a button for every layout strategy.',
+    );
+    assert.deepEqual(
+      readyUiState.strategyModeButtonModes,
+      ['text', 'layout'],
+      'Strategy view panel should expose text and layout toggles.',
     );
     assert.ok(
       readyUiState.statusLeftGap >= 0 && readyUiState.statusLeftGap <= 32,
@@ -430,6 +478,14 @@ try {
       'Details panel should sit near the top edge.',
     );
     assert.ok(
+      readyUiState.strategyModeRightGap >= 0 && readyUiState.strategyModeRightGap <= 32,
+      'Strategy view panel should sit near the right edge.',
+    );
+    assert.ok(
+      readyUiState.strategyModeTopGap > readyUiState.detailsTopGap,
+      'Strategy view panel should sit below the details panel.',
+    );
+    assert.ok(
       readyUiState.renderLeftGap >= 0 && readyUiState.renderLeftGap <= 32,
       'Render panel should sit near the left edge.',
     );
@@ -444,6 +500,66 @@ try {
     assert.ok(
       readyUiState.cameraBottomGap >= 0 && readyUiState.cameraBottomGap <= 32,
       'Camera panel should sit near the bottom edge.',
+    );
+
+    const baselineLayoutFingerprint = result.text.layoutFingerprint;
+
+    await showStrategyPanelMode(page, 'layout');
+
+    const layoutPanelUiState = await page.evaluate(() => {
+      const layoutStrategyPanel = document.querySelector('[data-testid="layout-strategy-panel"]');
+      const strategyPanelLabel = document.querySelector('[data-testid="strategy-panel-label"]');
+      const textStrategyPanel = document.querySelector('[data-testid="text-strategy-panel"]');
+
+      return {
+        layoutStrategyPanelVisible:
+          layoutStrategyPanel instanceof HTMLElement &&
+          !layoutStrategyPanel.hidden &&
+          window.getComputedStyle(layoutStrategyPanel).display !== 'none',
+        strategyPanelLabelText: strategyPanelLabel instanceof HTMLElement ? strategyPanelLabel.textContent ?? '' : '',
+        textStrategyPanelVisible:
+          textStrategyPanel instanceof HTMLElement &&
+          !textStrategyPanel.hidden &&
+          window.getComputedStyle(textStrategyPanel).display !== 'none',
+      };
+    });
+
+    assert.equal(layoutPanelUiState.layoutStrategyPanelVisible, true, 'Layout strategy panel should appear when selected.');
+    assert.equal(layoutPanelUiState.textStrategyPanelVisible, false, 'Text strategy panel should hide while layout strategy view is active.');
+    assert.equal(layoutPanelUiState.strategyPanelLabelText, 'Layout Strategy', 'Render panel should rename itself for layout strategies.');
+
+    await switchLayoutStrategy(page, 'scan-grid');
+
+    const relaidTextState = await getTextState(page);
+    assert.equal(relaidTextState.layoutStrategy, 'scan-grid', 'Scan Grid should become the active layout strategy.');
+    assert.equal(relaidTextState.strategyPanelMode, 'layout', 'Layout strategy view should remain active after switching layouts.');
+    assert.ok(relaidTextState.visibleLabelCount > 0, 'Relayout should keep visible demo labels on screen.');
+
+    assert.notEqual(
+      relaidTextState.layoutFingerprint,
+      baselineLayoutFingerprint,
+      'Changing the layout strategy should rewrite the generated label locations.',
+    );
+
+    await switchLayoutStrategy(page, DEFAULT_LAYOUT_STRATEGY);
+    await showStrategyPanelMode(page, 'text');
+
+    const restoredTextState = await getTextState(page);
+    assert.equal(
+      restoredTextState.layoutStrategy,
+      DEFAULT_LAYOUT_STRATEGY,
+      'Switching back should restore the default layout strategy.',
+    );
+    assert.equal(
+      restoredTextState.strategyPanelMode,
+      'text',
+      'Text strategy view should become active again after switching back.',
+    );
+
+    assert.equal(
+      restoredTextState.layoutFingerprint,
+      baselineLayoutFingerprint,
+      'Restoring the default layout strategy should restore the original label locations.',
     );
 
     const initialCamera = result.camera;
@@ -1325,9 +1441,12 @@ async function getTextState(page: Page): Promise<TextState> {
     labelSetPreset: document.body.dataset.labelSetPreset ?? '',
     labelCount: Number(document.body.dataset.textLabelCount ?? '0'),
     glyphCount: Number(document.body.dataset.textGlyphCount ?? '0'),
+    layoutFingerprint: document.body.dataset.layoutFingerprint ?? '',
+    layoutStrategy: document.body.dataset.layoutStrategy ?? '',
     textStrategy: (document.body.dataset.textStrategy ?? 'baseline') as TextStrategy,
     submittedGlyphCount: Number(document.body.dataset.textSubmittedGlyphCount ?? '0'),
     submittedVertexCount: Number(document.body.dataset.textSubmittedVertexCount ?? '0'),
+    strategyPanelMode: document.body.dataset.strategyPanelMode ?? '',
     visibleChunkCount: Number(document.body.dataset.textVisibleChunkCount ?? '0'),
     visibleLabelCount: Number(document.body.dataset.textVisibleLabelCount ?? '0'),
     visibleLabels: document.body.dataset.textVisibleLabels ?? '',
@@ -1462,6 +1581,10 @@ function getTextStrategies(): TextStrategy[] {
   return [...TEXT_STRATEGIES];
 }
 
+function getLayoutStrategies(): LayoutStrategy[] {
+  return [...LAYOUT_STRATEGIES];
+}
+
 function isSdfTextStrategy(textStrategy: TextStrategy): boolean {
   return textStrategy === 'sdf-instanced' || textStrategy === 'sdf-visible-index';
 }
@@ -1470,7 +1593,44 @@ function preservesBaselinePixels(textStrategy: TextStrategy): boolean {
   return !isSdfTextStrategy(textStrategy);
 }
 
+async function showStrategyPanelMode(page: Page, mode: StrategyPanelMode): Promise<void> {
+  const currentMode = await page.evaluate(
+    () => (document.body.dataset.strategyPanelMode ?? 'text') as StrategyPanelMode,
+  );
+
+  if (currentMode !== mode) {
+    const selector = `button[data-strategy-panel-mode="${mode}"]`;
+    await page.waitForSelector(selector);
+    await page.evaluate((buttonSelector) => {
+      const button = document.querySelector<HTMLButtonElement>(buttonSelector);
+
+      if (!button) {
+        throw new Error(`Missing strategy panel mode button ${buttonSelector}`);
+      }
+
+      button.click();
+    }, selector);
+  }
+
+  await page.waitForFunction(
+    (expectedMode) => document.body.dataset.strategyPanelMode === expectedMode,
+    {},
+    mode,
+  );
+  await page.waitForFunction(
+    (expectedMode) => {
+      const button = document.querySelector(`button[data-strategy-panel-mode="${expectedMode}"]`);
+      return button?.getAttribute('aria-pressed') === 'true';
+    },
+    {},
+    mode,
+  );
+  await waitForBrowserUpdate(page);
+}
+
 async function switchTextStrategy(page: Page, textStrategy: TextStrategy): Promise<void> {
+  await showStrategyPanelMode(page, 'text');
+
   const currentMode = await page.evaluate(
     () => (document.body.dataset.textStrategy ?? 'baseline') as TextStrategy,
   );
@@ -1505,12 +1665,57 @@ async function switchTextStrategy(page: Page, textStrategy: TextStrategy): Promi
   await waitForBrowserUpdate(page);
 }
 
+async function switchLayoutStrategy(page: Page, layoutStrategy: LayoutStrategy): Promise<void> {
+  await showStrategyPanelMode(page, 'layout');
+
+  const currentMode = await page.evaluate(() => document.body.dataset.layoutStrategy ?? '');
+
+  if (currentMode !== layoutStrategy) {
+    const selector = `button[data-layout-strategy="${layoutStrategy}"]`;
+    await page.waitForSelector(selector);
+    await page.evaluate((buttonSelector) => {
+      const button = document.querySelector<HTMLButtonElement>(buttonSelector);
+
+      if (!button) {
+        throw new Error(`Missing layout strategy button ${buttonSelector}`);
+      }
+
+      button.click();
+    }, selector);
+  }
+
+  await page.waitForFunction(
+    (expectedMode) => document.body.dataset.layoutStrategy === expectedMode,
+    {},
+    layoutStrategy,
+  );
+  await page.waitForFunction(
+    (expectedMode) => {
+      const button = document.querySelector(`button[data-layout-strategy="${expectedMode}"]`);
+      return button?.getAttribute('aria-pressed') === 'true';
+    },
+    {},
+    layoutStrategy,
+  );
+  await waitForBrowserUpdate(page);
+}
+
 async function verifyDemoTextStrategyVisibility(
   page: Page,
   textStrategy: TextStrategy,
 ): Promise<TextState> {
   const textState = await getTextState(page);
 
+  assert.equal(
+    textState.layoutStrategy,
+    DEFAULT_LAYOUT_STRATEGY,
+    `${textStrategy} mode should keep the default layout strategy active.`,
+  );
+  assert.equal(
+    textState.strategyPanelMode,
+    'text',
+    `${textStrategy} mode should keep the text strategy panel visible.`,
+  );
   assert.equal(textState.textStrategy, textStrategy, `${textStrategy} mode should be active.`);
 
   await clickControl(page, 'reset-camera');
