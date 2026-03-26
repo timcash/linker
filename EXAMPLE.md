@@ -328,8 +328,8 @@ type GlyphRecord = {
   v0: number;
   u1: number;
   v1: number;
-  minZoom: number;
-  maxZoom: number;
+  zoomLevel: number;
+  zoomRange: number;
   colorR: number;
   colorG: number;
   colorB: number;
@@ -343,7 +343,7 @@ function buildGlyphRecordData(glyphs: GlyphPlacement[]): Float32Array {
     values.push(
       glyph.anchorX, glyph.anchorY, glyph.offsetX, glyph.offsetY,
       glyph.width, glyph.height, glyph.u0, glyph.v0,
-      glyph.u1, glyph.v1, glyph.minZoom, glyph.maxZoom,
+      glyph.u1, glyph.v1, glyph.zoomLevel, glyph.zoomRange,
       ...glyph.color,
     );
   }
@@ -594,8 +594,8 @@ type ShapedLabel = {
   text: string;
   anchorX: number;
   anchorY: number;
-  minZoom: number;
-  maxZoom: number;
+  zoomLevel: number;
+  zoomRange: number;
   width: number;
   height: number;
   glyphs: ShapedGlyph[];
@@ -664,8 +664,8 @@ function expandPlacedLabelsToGlyphs(placedLabels: PlacedLabel[]): GlyphPlacement
         labelText: label.text,
         anchorX: label.placedAnchorX,
         anchorY: label.placedAnchorY,
-        minZoom: label.minZoom,
-        maxZoom: label.maxZoom,
+        zoomLevel: label.zoomLevel,
+        zoomRange: label.zoomRange,
         offsetX: glyph.offsetX,
         offsetY: glyph.offsetY,
         width: glyph.width,
@@ -757,19 +757,24 @@ fn computeMain(@builtin(global_invocation_id) gid: vec3<u32>) {
   let anchor = glyph.anchorAndOffset.xy;
   let offset = glyph.anchorAndOffset.zw;
   let size = glyph.sizeAndUv0.xy;
-  let zoomRange = glyph.uv1AndZoom.zw;
+  let zoomStyle = glyph.uv1AndZoom.zw;
+  let zoomRange = max(zoomStyle.y, 0.0);
 
-  if (camera.zoom < zoomRange.x || camera.zoom > zoomRange.y) {
+  if (abs(camera.zoom - zoomStyle.x) > zoomRange) {
     return;
   }
+
+  let zoomScale = zoomRange <= 0.0001
+    ? 1.0
+    : 0.72 + (1.0 - 0.72) * clamp(1.0 - abs(camera.zoom - zoomStyle.x) / zoomRange, 0.0, 1.0);
 
   let anchorScreen = vec2<f32>(
     (anchor.x - camera.center.x) * camera.scale + camera.viewportSize.x * 0.5,
     (camera.center.y - anchor.y) * camera.scale + camera.viewportSize.y * 0.5,
   );
 
-  let rectMin = anchorScreen + offset;
-  let rectMax = rectMin + size;
+  let rectMin = anchorScreen + offset * zoomScale;
+  let rectMax = rectMin + size * zoomScale;
   let visible =
     rectMax.x >= -8.0 &&
     rectMin.x <= camera.viewportSize.x + 8.0 &&

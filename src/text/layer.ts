@@ -5,6 +5,13 @@ import {type Camera2D, type ViewportSize} from '../camera';
 import {buildGlyphAtlas} from './atlas';
 import {getCharacterSetFromLabels} from './charset';
 import {layoutLabels} from './layout';
+import {
+  getMaxVisibleZoom,
+  getMinVisibleZoom,
+  getZoomScale,
+  isZoomVisible,
+  MIN_ZOOM_SCALE,
+} from './zoom';
 import type {
   GlyphAtlas,
   GlyphPlacement,
@@ -191,7 +198,7 @@ struct VertexInputs {
   @location(3) instanceRect: vec4<f32>,
   @location(4) instanceUvRect: vec4<f32>,
   @location(5) instanceColor: vec4<f32>,
-  @location(6) instanceZoomRange: vec2<f32>
+  @location(6) instanceZoomStyle: vec2<f32>
 }
 
 struct FragmentInputs {
@@ -207,6 +214,22 @@ fn screenToClip(position: vec2<f32>) -> vec2<f32> {
   );
 }
 
+fn isZoomVisible(zoom: f32, zoomStyle: vec2<f32>) -> bool {
+  let zoomRange = max(zoomStyle.y, 0.0);
+  return abs(zoom - zoomStyle.x) <= zoomRange;
+}
+
+fn getZoomScale(zoom: f32, zoomStyle: vec2<f32>) -> f32 {
+  let zoomRange = max(zoomStyle.y, 0.0);
+
+  if (zoomRange <= 0.0001) {
+    return 1.0;
+  }
+
+  let emphasis = clamp(1.0 - abs(zoom - zoomStyle.x) / zoomRange, 0.0, 1.0);
+  return ${MIN_ZOOM_SCALE} + (1.0 - ${MIN_ZOOM_SCALE}) * emphasis;
+}
+
 @vertex
 fn vertexMain(inputs: VertexInputs) -> FragmentInputs {
   var outputs: FragmentInputs;
@@ -214,18 +237,19 @@ fn vertexMain(inputs: VertexInputs) -> FragmentInputs {
     (inputs.instanceAnchor.x - camera.center.x) * camera.scale + camera.viewportSize.x * 0.5,
     (camera.center.y - inputs.instanceAnchor.y) * camera.scale + camera.viewportSize.y * 0.5,
   );
-  let rectMin = anchorScreen + inputs.instanceRect.xy;
-  let rectMax = rectMin + inputs.instanceRect.zw;
-  let zoomVisible =
-    camera.zoom >= inputs.instanceZoomRange.x &&
-    camera.zoom <= inputs.instanceZoomRange.y;
+  let zoomScale = getZoomScale(camera.zoom, inputs.instanceZoomStyle);
+  let scaledOffset = inputs.instanceRect.xy * zoomScale;
+  let scaledSize = inputs.instanceRect.zw * zoomScale;
+  let rectMin = anchorScreen + scaledOffset;
+  let rectMax = rectMin + scaledSize;
+  let zoomVisible = isZoomVisible(camera.zoom, inputs.instanceZoomStyle);
   let boundsVisible =
     rectMax.x >= -8.0 &&
     rectMin.x <= camera.viewportSize.x + 8.0 &&
     rectMax.y >= -8.0 &&
     rectMin.y <= camera.viewportSize.y + 8.0;
   let visible = zoomVisible && boundsVisible;
-  var screenPosition = rectMin + inputs.unitPosition * inputs.instanceRect.zw;
+  var screenPosition = rectMin + inputs.unitPosition * scaledSize;
 
   if (!visible) {
     screenPosition = vec2<f32>(-4096.0, -4096.0);
@@ -292,6 +316,17 @@ fn screenToClip(position: vec2<f32>) -> vec2<f32> {
   );
 }
 
+fn getZoomScale(zoom: f32, zoomStyle: vec2<f32>) -> f32 {
+  let zoomRange = max(zoomStyle.y, 0.0);
+
+  if (zoomRange <= 0.0001) {
+    return 1.0;
+  }
+
+  let emphasis = clamp(1.0 - abs(zoom - zoomStyle.x) / zoomRange, 0.0, 1.0);
+  return ${MIN_ZOOM_SCALE} + (1.0 - ${MIN_ZOOM_SCALE}) * emphasis;
+}
+
 @vertex
 fn vertexMain(inputs: VertexInputs) -> FragmentInputs {
   var outputs: FragmentInputs;
@@ -302,11 +337,13 @@ fn vertexMain(inputs: VertexInputs) -> FragmentInputs {
   let size = glyph.sizeAndUv0.xy;
   let uv0 = glyph.sizeAndUv0.zw;
   let uv1 = glyph.uv1AndZoom.xy;
+  let zoomStyle = glyph.uv1AndZoom.zw;
+  let zoomScale = getZoomScale(camera.zoom, zoomStyle);
   let anchorScreen = vec2<f32>(
     (anchor.x - camera.center.x) * camera.scale + camera.viewportSize.x * 0.5,
     (camera.center.y - anchor.y) * camera.scale + camera.viewportSize.y * 0.5,
   );
-  let screenPosition = anchorScreen + offset + inputs.unitPosition * size;
+  let screenPosition = anchorScreen + offset * zoomScale + inputs.unitPosition * size * zoomScale;
 
   outputs.clipPosition = vec4<f32>(screenToClip(screenPosition), 0.0, 1.0);
   outputs.uv = uv0 + inputs.unitUv * (uv1 - uv0);
@@ -376,6 +413,17 @@ fn screenToClip(position: vec2<f32>) -> vec2<f32> {
   );
 }
 
+fn getZoomScale(zoom: f32, zoomStyle: vec2<f32>) -> f32 {
+  let zoomRange = max(zoomStyle.y, 0.0);
+
+  if (zoomRange <= 0.0001) {
+    return 1.0;
+  }
+
+  let emphasis = clamp(1.0 - abs(zoom - zoomStyle.x) / zoomRange, 0.0, 1.0);
+  return ${MIN_ZOOM_SCALE} + (1.0 - ${MIN_ZOOM_SCALE}) * emphasis;
+}
+
 @vertex
 fn vertexMain(inputs: VertexInputs) -> FragmentInputs {
   var outputs: FragmentInputs;
@@ -386,11 +434,13 @@ fn vertexMain(inputs: VertexInputs) -> FragmentInputs {
   let size = glyph.sizeAndUv0.xy;
   let uv0 = glyph.sizeAndUv0.zw;
   let uv1 = glyph.uv1AndZoom.xy;
+  let zoomStyle = glyph.uv1AndZoom.zw;
+  let zoomScale = getZoomScale(camera.zoom, zoomStyle);
   let anchorScreen = vec2<f32>(
     (anchor.x - camera.center.x) * camera.scale + camera.viewportSize.x * 0.5,
     (camera.center.y - anchor.y) * camera.scale + camera.viewportSize.y * 0.5,
   );
-  let screenPosition = anchorScreen + offset + inputs.unitPosition * size;
+  let screenPosition = anchorScreen + offset * zoomScale + inputs.unitPosition * size * zoomScale;
 
   outputs.clipPosition = vec4<f32>(screenToClip(screenPosition), 0.0, 1.0);
   outputs.uv = uv0 + inputs.unitUv * (uv1 - uv0);
@@ -463,10 +513,10 @@ type GlyphChunk = {
   glyphIndices: Uint32Array;
   maxAnchorX: number;
   maxAnchorY: number;
-  maxZoom: number;
+  maxVisibleZoom: number;
   minAnchorX: number;
   minAnchorY: number;
-  minZoom: number;
+  minVisibleZoom: number;
 };
 
 type GlyphChunkIndex = {
@@ -508,7 +558,7 @@ type PackedGlyphInstances = {
   colors: Float32Array;
   rects: Float32Array;
   uvRects: Float32Array;
-  zoomRanges: Float32Array;
+  zoomStyles: Float32Array;
 };
 
 type TextLayerStrategy = {
@@ -939,7 +989,7 @@ class PackedTextStrategy implements TextLayerStrategy {
   private readonly rectBuffer;
   private readonly uvRectBuffer;
   private readonly colorBuffer;
-  private readonly zoomRangeBuffer;
+  private readonly zoomStyleBuffer;
   private readonly cameraBuffer;
   private readonly model: Model;
   private stats: TextLayerStats;
@@ -956,7 +1006,7 @@ class PackedTextStrategy implements TextLayerStrategy {
     this.rectBuffer = createStaticVertexBuffer(device, 'text-packed-rects', instances.rects);
     this.uvRectBuffer = createStaticVertexBuffer(device, 'text-packed-uv-rects', instances.uvRects);
     this.colorBuffer = createStaticVertexBuffer(device, 'text-packed-colors', instances.colors);
-    this.zoomRangeBuffer = createStaticVertexBuffer(device, 'text-packed-zoom-ranges', instances.zoomRanges);
+    this.zoomStyleBuffer = createStaticVertexBuffer(device, 'text-packed-zoom-styles', instances.zoomStyles);
     this.cameraBuffer = device.createBuffer({
       id: 'text-packed-camera',
       usage: Buffer.UNIFORM | Buffer.COPY_DST,
@@ -985,7 +1035,7 @@ class PackedTextStrategy implements TextLayerStrategy {
     this.rectBuffer.destroy();
     this.uvRectBuffer.destroy();
     this.colorBuffer.destroy();
-    this.zoomRangeBuffer.destroy();
+    this.zoomStyleBuffer.destroy();
     this.cameraBuffer.destroy();
   }
 
@@ -1045,7 +1095,7 @@ class PackedTextStrategy implements TextLayerStrategy {
         {name: 'instanceRect', format: 'float32x4', stepMode: 'instance'},
         {name: 'instanceUvRect', format: 'float32x4', stepMode: 'instance'},
         {name: 'instanceColor', format: 'float32x4', stepMode: 'instance'},
-        {name: 'instanceZoomRange', format: 'float32x2', stepMode: 'instance'},
+        {name: 'instanceZoomStyle', format: 'float32x2', stepMode: 'instance'},
       ],
       attributes: {
         unitPosition: this.unitPositionBuffer,
@@ -1054,7 +1104,7 @@ class PackedTextStrategy implements TextLayerStrategy {
         instanceRect: this.rectBuffer,
         instanceUvRect: this.uvRectBuffer,
         instanceColor: this.colorBuffer,
-        instanceZoomRange: this.zoomRangeBuffer,
+        instanceZoomStyle: this.zoomStyleBuffer,
       },
     });
   }
@@ -1270,7 +1320,7 @@ function analyzeGlyphVisibility(
     const expandedBounds = getExpandedWorldBounds(resources, camera, viewport);
 
     for (const chunk of resources.chunkIndex.chunks) {
-      if (camera.zoom < chunk.minZoom || camera.zoom > chunk.maxZoom) {
+      if (camera.zoom < chunk.minVisibleZoom || camera.zoom > chunk.maxVisibleZoom) {
         continue;
       }
 
@@ -1341,10 +1391,10 @@ function buildGlyphChunkIndex(glyphs: GlyphPlacement[]): GlyphChunkIndex {
     glyphIndices: number[];
     maxAnchorX: number;
     maxAnchorY: number;
-    maxZoom: number;
+    maxVisibleZoom: number;
     minAnchorX: number;
     minAnchorY: number;
-    minZoom: number;
+    minVisibleZoom: number;
   }>();
 
   for (let glyphIndex = 0; glyphIndex < glyphs.length; glyphIndex += 1) {
@@ -1360,8 +1410,14 @@ function buildGlyphChunkIndex(glyphs: GlyphPlacement[]): GlyphChunkIndex {
       existingChunk.maxAnchorX = Math.max(existingChunk.maxAnchorX, glyph.anchorX);
       existingChunk.minAnchorY = Math.min(existingChunk.minAnchorY, glyph.anchorY);
       existingChunk.maxAnchorY = Math.max(existingChunk.maxAnchorY, glyph.anchorY);
-      existingChunk.minZoom = Math.min(existingChunk.minZoom, glyph.minZoom);
-      existingChunk.maxZoom = Math.max(existingChunk.maxZoom, glyph.maxZoom);
+      existingChunk.minVisibleZoom = Math.min(
+        existingChunk.minVisibleZoom,
+        getMinVisibleZoom(glyph.zoomLevel, glyph.zoomRange),
+      );
+      existingChunk.maxVisibleZoom = Math.max(
+        existingChunk.maxVisibleZoom,
+        getMaxVisibleZoom(glyph.zoomLevel, glyph.zoomRange),
+      );
       continue;
     }
 
@@ -1369,10 +1425,10 @@ function buildGlyphChunkIndex(glyphs: GlyphPlacement[]): GlyphChunkIndex {
       glyphIndices: [glyphIndex],
       maxAnchorX: glyph.anchorX,
       maxAnchorY: glyph.anchorY,
-      maxZoom: glyph.maxZoom,
+      maxVisibleZoom: getMaxVisibleZoom(glyph.zoomLevel, glyph.zoomRange),
       minAnchorX: glyph.anchorX,
       minAnchorY: glyph.anchorY,
-      minZoom: glyph.minZoom,
+      minVisibleZoom: getMinVisibleZoom(glyph.zoomLevel, glyph.zoomRange),
     });
   }
 
@@ -1381,10 +1437,10 @@ function buildGlyphChunkIndex(glyphs: GlyphPlacement[]): GlyphChunkIndex {
       glyphIndices: new Uint32Array(chunk.glyphIndices),
       maxAnchorX: chunk.maxAnchorX,
       maxAnchorY: chunk.maxAnchorY,
-      maxZoom: chunk.maxZoom,
+      maxVisibleZoom: chunk.maxVisibleZoom,
       minAnchorX: chunk.minAnchorX,
       minAnchorY: chunk.minAnchorY,
-      minZoom: chunk.minZoom,
+      minVisibleZoom: chunk.minVisibleZoom,
     })),
   };
 }
@@ -1396,7 +1452,7 @@ function buildGlyphRecordData(glyphs: GlyphPlacement[]): Float32Array {
     recordData.push(
       glyph.anchorX, glyph.anchorY, glyph.offsetX, glyph.offsetY,
       glyph.width, glyph.height, glyph.u0, glyph.v0,
-      glyph.u1, glyph.v1, glyph.minZoom, glyph.maxZoom,
+      glyph.u1, glyph.v1, glyph.zoomLevel, glyph.zoomRange,
       ...glyph.color,
     );
   }
@@ -1470,14 +1526,14 @@ function buildPackedGlyphInstances(glyphs: GlyphPlacement[]): PackedGlyphInstanc
   const rects: number[] = [];
   const uvRects: number[] = [];
   const colors: number[] = [];
-  const zoomRanges: number[] = [];
+  const zoomStyles: number[] = [];
 
   for (const glyph of glyphs) {
     anchors.push(glyph.anchorX, glyph.anchorY);
     rects.push(glyph.offsetX, glyph.offsetY, glyph.width, glyph.height);
     uvRects.push(glyph.u0, glyph.v0, glyph.u1, glyph.v1);
     colors.push(...glyph.color);
-    zoomRanges.push(glyph.minZoom, glyph.maxZoom);
+    zoomStyles.push(glyph.zoomLevel, glyph.zoomRange);
   }
 
   return {
@@ -1485,7 +1541,7 @@ function buildPackedGlyphInstances(glyphs: GlyphPlacement[]): PackedGlyphInstanc
     colors: new Float32Array(colors),
     rects: new Float32Array(rects),
     uvRects: new Float32Array(uvRects),
-    zoomRanges: new Float32Array(zoomRanges),
+    zoomStyles: new Float32Array(zoomStyles),
   };
 }
 
@@ -1589,15 +1645,18 @@ function inspectGlyph(
   camera: Camera2D,
   viewport: ViewportSize,
 ): VisibleGlyph | null {
-  if (camera.zoom < glyph.minZoom || camera.zoom > glyph.maxZoom) {
+  if (!isZoomVisible(camera.zoom, glyph.zoomLevel, glyph.zoomRange)) {
     return null;
   }
 
+  const zoomScale = getZoomScale(camera.zoom, glyph.zoomLevel, glyph.zoomRange);
   const anchor = camera.worldToScreen({x: glyph.anchorX, y: glyph.anchorY}, viewport);
-  const left = anchor.x + glyph.offsetX;
-  const top = anchor.y + glyph.offsetY;
-  const right = left + glyph.width;
-  const bottom = top + glyph.height;
+  const width = glyph.width * zoomScale;
+  const height = glyph.height * zoomScale;
+  const left = anchor.x + glyph.offsetX * zoomScale;
+  const top = anchor.y + glyph.offsetY * zoomScale;
+  const right = left + width;
+  const bottom = top + height;
 
   if (
     right < -VIEWPORT_BOUNDS_PADDING ||
@@ -1611,9 +1670,11 @@ function inspectGlyph(
   return {
     ...glyph,
     bottom,
+    height,
     left,
     right,
     top,
+    width,
   };
 }
 

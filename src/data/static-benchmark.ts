@@ -1,4 +1,5 @@
 import type {LabelDefinition} from '../text/types';
+import {createZoomBand} from '../text/zoom';
 
 const BENCHMARK_COLORS = [
   [0.88, 0.94, 1, 1],
@@ -8,10 +9,10 @@ const BENCHMARK_COLORS = [
 ] as const;
 
 const BENCHMARK_ZOOM_WINDOWS = [
-  {minZoom: -4, maxZoom: 0.35, size: 0.92},
-  {minZoom: -0.2, maxZoom: 1.15, size: 0.78},
-  {minZoom: 0.55, maxZoom: 2.4, size: 0.68},
-  {minZoom: 1.2, maxZoom: 4, size: 0.58},
+  {size: 0.92, ...createZoomBand(-4, 0.35)},
+  {size: 0.78, ...createZoomBand(-0.2, 1.15)},
+  {size: 0.68, ...createZoomBand(0.55, 2.4)},
+  {size: 0.58, ...createZoomBand(1.2, 4)},
 ] as const;
 
 const BENCHMARK_TEXT_VARIANTS = [
@@ -122,8 +123,8 @@ function createStaticBenchmarkLabels(count: number): LabelDefinition[] {
         y: cell.y,
       },
       size: style.size,
-      minZoom: style.minZoom,
-      maxZoom: style.maxZoom,
+      zoomLevel: style.zoomLevel,
+      zoomRange: style.zoomRange,
       color: [...BENCHMARK_COLORS[styleIndex]] as LabelDefinition['color'],
     };
   });

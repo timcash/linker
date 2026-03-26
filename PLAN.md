@@ -341,7 +341,7 @@ For these, assert:
 
 - visible label count matches `baseline`
 - visible glyph count matches `baseline`
-- zoom-window behavior matches the sentinel labels already used by the suite
+- zoom-band behavior matches the sentinel labels already used by the suite
 
 Relevant file:
 

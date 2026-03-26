@@ -716,7 +716,7 @@ class LumaStageController {
         ? `draw ${submittedGlyphCount} glyphs / ${submittedVertexCount} vertices / ${formatBytes(bytesUploadedPerFrame)}`
         : 'draw 0 glyphs',
       textStats ? `glyphs ${glyphCount}` : 'glyphs 0',
-      perf ? formatPerfSummary(perf) : 'perf pending',
+      perf ? formatPerfSummary(perf, this.config.gpuTimingEnabled) : 'perf pending',
     ].filter(Boolean).join('  |  ');
   }
 
@@ -838,12 +838,18 @@ function escapeHtml(input: string): string {
     .replaceAll("'", '&#39;');
 }
 
-function formatPerfSummary(perf: FrameTelemetrySnapshot): string {
+function formatPerfSummary(perf: FrameTelemetrySnapshot, gpuTimingEnabled: boolean): string {
   const cpuFrame = formatMs(perf.cpuFrameAvgMs);
   const cpuText = formatMs(perf.cpuTextAvgMs);
   const gpuSummary =
-    perf.gpuFrameAvgMs === null
+    !gpuTimingEnabled
+      ? 'gpu disabled'
+      : perf.gpuError
+      ? `gpu error ${perf.gpuError}`
+      : !perf.gpuSupported
       ? 'gpu unsupported'
+      : perf.gpuFrameSamples === 0 || perf.gpuFrameAvgMs === null
+      ? 'gpu pending'
       : perf.gpuTextAvgMs === null
       ? `gpu ${formatMs(perf.gpuFrameAvgMs)} frame`
       : `gpu ${formatMs(perf.gpuFrameAvgMs)} frame / ${formatMs(perf.gpuTextAvgMs)} text`;
@@ -1008,7 +1014,7 @@ function readStageConfig(search: string): StageConfig {
       120,
     ),
     benchmarkEnabled: params.get('benchmark') === '1',
-    gpuTimingEnabled: params.get('gpuTiming') === '1',
+    gpuTimingEnabled: params.get('gpuTiming') !== '0',
     initialCamera: {
       centerX: parseFiniteNumber(params.get('cameraCenterX'), 0),
       centerY: parseFiniteNumber(params.get('cameraCenterY'), 0),

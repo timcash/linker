@@ -1,10 +1,9 @@
 import demoLabelSetCsv from './demo-label-set.csv?raw';
 
 import type {LabelDefinition, RgbaColor} from '../text/types';
+import {createZoomBand, type ZoomBand} from '../text/zoom';
 
-type ZoomWindow = {
-  maxZoom: number;
-  minZoom: number;
+type ZoomBandPreset = ZoomBand & {
   size: number;
 };
 
@@ -24,29 +23,10 @@ const DEMO_CHILD_Y_OFFSET = -0.18;
 const DEMO_DETAIL_X_OFFSET = 0.94;
 const DEMO_DETAIL_Y_OFFSET = -0.38;
 
-const DEMO_ROOT_WINDOW: ZoomWindow = {
-  minZoom: -0.6,
-  maxZoom: 0.15,
-  size: 0.58,
-};
-
-const DEMO_CHILD_WINDOW: ZoomWindow = {
-  minZoom: 0.2,
-  maxZoom: 0.45,
-  size: 0.42,
-};
-
-const DEMO_DETAIL_WINDOW: ZoomWindow = {
-  minZoom: 0.95,
-  maxZoom: 2.8,
-  size: 0.32,
-};
-
-const DEMO_WORLD_WINDOW: ZoomWindow = {
-  minZoom: -4,
-  maxZoom: -0.18,
-  size: 0.68,
-};
+const DEMO_ROOT_WINDOW = {size: 0.58, ...createZoomBand(-0.6, 0.15)};
+const DEMO_CHILD_WINDOW = {size: 0.42, ...createZoomBand(0.2, 0.45)};
+const DEMO_DETAIL_WINDOW = {size: 0.32, ...createZoomBand(0.95, 2.8)};
+const DEMO_WORLD_WINDOW = {size: 0.68, ...createZoomBand(-4, -0.18)};
 
 const DEMO_COLUMN_PALETTES: readonly [
   root: RgbaColor,
@@ -117,8 +97,8 @@ function createDemoLabels(rootTexts: string[]): LabelDefinition[] {
         text: hierarchyTexts.root,
         location: {x: columnX, y: rootY},
         size: rootWindow.size,
-        minZoom: rootWindow.minZoom,
-        maxZoom: rootWindow.maxZoom,
+        zoomLevel: rootWindow.zoomLevel,
+        zoomRange: rootWindow.zoomRange,
         color: palette[0],
       });
 
@@ -129,8 +109,8 @@ function createDemoLabels(rootTexts: string[]): LabelDefinition[] {
           y: rootY + DEMO_CHILD_Y_OFFSET - childJitter,
         },
         size: DEMO_CHILD_WINDOW.size,
-        minZoom: DEMO_CHILD_WINDOW.minZoom,
-        maxZoom: DEMO_CHILD_WINDOW.maxZoom,
+        zoomLevel: DEMO_CHILD_WINDOW.zoomLevel,
+        zoomRange: DEMO_CHILD_WINDOW.zoomRange,
         color: palette[1],
       });
 
@@ -141,8 +121,8 @@ function createDemoLabels(rootTexts: string[]): LabelDefinition[] {
           y: rootY + DEMO_DETAIL_Y_OFFSET - childJitter * 1.5,
         },
         size: DEMO_DETAIL_WINDOW.size,
-        minZoom: DEMO_DETAIL_WINDOW.minZoom,
-        maxZoom: DEMO_DETAIL_WINDOW.maxZoom,
+        zoomLevel: DEMO_DETAIL_WINDOW.zoomLevel,
+        zoomRange: DEMO_DETAIL_WINDOW.zoomRange,
         color: palette[2],
       });
 
@@ -191,7 +171,7 @@ function createDemoHierarchyTexts(rootText: string, index: number): DemoHierarch
   }
 }
 
-function getRootZoomWindow(rootText: string): ZoomWindow {
+function getRootZoomWindow(rootText: string): ZoomBandPreset {
   if (rootText === 'WORLD VIEW') {
     return DEMO_WORLD_WINDOW;
   }

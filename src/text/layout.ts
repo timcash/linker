@@ -28,8 +28,6 @@ export function layoutLabels(labels: LabelDefinition[], atlas: GlyphAtlas): Text
         anchorX: label.location.x,
         anchorY: label.location.y,
         labelText: label.text,
-        maxZoom: label.maxZoom,
-        minZoom: label.minZoom,
         offsetX: penX - atlas.padding * scale,
         offsetY: -(atlas.ascent + atlas.padding) * scale,
         width: glyphMetric.width * scale,
@@ -39,6 +37,8 @@ export function layoutLabels(labels: LabelDefinition[], atlas: GlyphAtlas): Text
         u1: glyphMetric.u1,
         v1: glyphMetric.v1,
         color: [...color],
+        zoomLevel: label.zoomLevel,
+        zoomRange: label.zoomRange,
       });
 
       penX += glyphMetric.advance * scale;

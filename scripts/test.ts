@@ -17,6 +17,14 @@ import {
   STATIC_BENCHMARK_LABEL_SET_ID,
 } from '../src/data/static-benchmark';
 import {TEXT_STRATEGIES, type TextStrategy} from '../src/text/types';
+import {
+  MIN_ZOOM_SCALE,
+  createZoomBand,
+  getMaxVisibleZoom,
+  getMinVisibleZoom,
+  getZoomScale,
+  isZoomVisible,
+} from '../src/text/zoom';
 
 type ReadyResult = {
   state: 'ready';
@@ -140,6 +148,7 @@ const LARGE_SCALE_CAMERA_TRACE: readonly CameraTraceStep[] = [
 await writeFile(logPath, '', 'utf8');
 
 runCameraUnitTests();
+runZoomBandUnitTests();
 
 function addBrowserLog(kind: string, message: string): void {
   const timestamp = new Date().toISOString();
@@ -454,12 +463,12 @@ try {
     assert.doesNotMatch(
       textAfterZoomIn.visibleLabels,
       /BUTTON PAN/,
-      'BUTTON PAN should disappear once the zoom exceeds its maxZoom.',
+      'BUTTON PAN should disappear once the zoom leaves its focal zoom band.',
     );
     assert.match(
       textAfterZoomIn.visibleLabels,
       /LUMA TEXT/,
-      'LUMA TEXT should appear once the zoom reaches its minZoom.',
+      'LUMA TEXT should appear once the zoom enters its focal zoom band.',
     );
 
     await clickControl(page, 'zoom-out');
@@ -539,7 +548,7 @@ try {
     assert.match(
       textAfterReset.visibleLabels,
       /BUTTON PAN/,
-      'Reset should restore the initial zoom-window visibility.',
+      'Reset should restore the initial zoom-band visibility.',
     );
     assert.doesNotMatch(
       textAfterReset.visibleLabels,
@@ -1601,7 +1610,7 @@ async function runLargeScaleTextStrategySweep(
   sweepUrl.searchParams.set('textStrategy', textStrategy);
   sweepUrl.searchParams.set('cameraZoom', String(LARGE_SCALE_SWEEP_CAMERA_ZOOM));
   sweepUrl.searchParams.delete('benchmark');
-  sweepUrl.searchParams.delete('gpuTiming');
+  sweepUrl.searchParams.set('gpuTiming', '0');
   sweepUrl.searchParams.delete('benchmarkFrames');
 
   await page.goto(sweepUrl.toString(), {waitUntil: 'networkidle0'});
@@ -1832,8 +1841,8 @@ async function runBenchmarkRoute(
       'test',
       'Benchmark GPU timestamps were requested, but this browser/device did not expose timestamp-query.',
     );
-	  }
-	
+  }
+
   const benchmarkSummary = formatBenchmarkSummary(benchmark);
   addBrowserLog('test', `Benchmark summary ${benchmarkSummary}`);
   benchmarkHistory.push(benchmark);
@@ -2092,5 +2101,57 @@ function runCameraUnitTests(): void {
   assert.ok(
     Math.abs(worldAfterZoom.y - worldBeforeZoom.y) < 0.0001,
     'Zooming around a screen point should preserve world Y at the anchor.',
+  );
+}
+
+function runZoomBandUnitTests(): void {
+  const detailBand = createZoomBand(3.5, 4.5);
+
+  assert.equal(detailBand.zoomLevel, 4, 'Zoom bands should store the focal zoom midpoint.');
+  assert.equal(detailBand.zoomRange, 0.5, 'Zoom bands should store half of the visible zoom span.');
+  assert.equal(
+    getMinVisibleZoom(detailBand.zoomLevel, detailBand.zoomRange),
+    3.5,
+    'Zoom bands should expose the lower visible bound.',
+  );
+  assert.equal(
+    getMaxVisibleZoom(detailBand.zoomLevel, detailBand.zoomRange),
+    4.5,
+    'Zoom bands should expose the upper visible bound.',
+  );
+  assert.equal(
+    isZoomVisible(3.49, detailBand.zoomLevel, detailBand.zoomRange),
+    false,
+    'Zoom bands should keep labels hidden before the reveal threshold.',
+  );
+  assert.equal(
+    isZoomVisible(3.5, detailBand.zoomLevel, detailBand.zoomRange),
+    true,
+    'Zoom bands should reveal labels at the threshold.',
+  );
+  assert.equal(
+    isZoomVisible(4.5, detailBand.zoomLevel, detailBand.zoomRange),
+    true,
+    'Zoom bands should remain visible through the upper threshold.',
+  );
+  assert.equal(
+    isZoomVisible(4.51, detailBand.zoomLevel, detailBand.zoomRange),
+    false,
+    'Zoom bands should hide labels once the zoom passes the upper threshold.',
+  );
+  assert.equal(
+    getZoomScale(3.5, detailBand.zoomLevel, detailBand.zoomRange),
+    MIN_ZOOM_SCALE,
+    'Zoom-band scaling should start at the minimum reveal scale.',
+  );
+  assert.equal(
+    getZoomScale(4, detailBand.zoomLevel, detailBand.zoomRange),
+    1,
+    'Zoom-band scaling should reach full size at the focal zoom.',
+  );
+  assert.ok(
+    getZoomScale(3.75, detailBand.zoomLevel, detailBand.zoomRange) > MIN_ZOOM_SCALE &&
+      getZoomScale(3.75, detailBand.zoomLevel, detailBand.zoomRange) < 1,
+    'Zoom-band scaling should interpolate between the reveal edge and the focal zoom.',
   );
 }

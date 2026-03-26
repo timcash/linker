@@ -32,10 +32,10 @@ export type LabelLocation = {
 export type LabelDefinition = {
   color?: RgbaColor;
   location: LabelLocation;
-  maxZoom: number;
-  minZoom: number;
   size: number;
   text: string;
+  zoomLevel: number;
+  zoomRange: number;
 };
 
 export type GlyphMetric = {
@@ -74,13 +74,13 @@ export type GlyphPlacement = {
   offsetY: number;
   width: number;
   height: number;
-  maxZoom: number;
-  minZoom: number;
   u0: number;
   v0: number;
   u1: number;
   v1: number;
   color: RgbaColor;
+  zoomLevel: number;
+  zoomRange: number;
 };
 
 export type TextLayout = {
