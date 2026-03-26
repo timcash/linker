@@ -27,6 +27,8 @@ Use these words consistently when describing the system:
   The atlas-backed label rendering layer.
 - `text-strategy`
   A selectable text rendering path such as `baseline` or `chunked`.
+- `zoom-band`
+  The focal visibility band defined by `zoomLevel` and `zoomRange`.
 - `label-set`
   A deterministic collection of labels used by the text layer.
 - `camera-trace`
@@ -39,6 +41,7 @@ Canonical public surface:
 - use `labelSet=...` to choose the label-set
 - use `textStrategy=...` to choose the text strategy
 - use `cameraCenterX=...`, `cameraCenterY=...`, and `cameraZoom=...` to seed or share the camera view
+- use `gpuTiming=0` to disable live GPU timestamp collection for a route
 - read live label, strategy, and benchmark telemetry from `document.body.dataset`
 
 ## Quick Start
@@ -84,6 +87,21 @@ The default UI boots the demo label-set preset `demo-label-set-v1`, which is sou
 ```
 
 Never replace the benchmark label set with random or unstable generation.
+
+## Zoom Model
+
+The text layer now uses a focal `zoom-band` model instead of hard `minZoom` / `maxZoom` fields.
+
+- each label carries `size`, `zoomLevel`, and `zoomRange`
+- a label is visible when `abs(camera.zoom - zoomLevel) <= zoomRange`
+- glyph size scales at runtime from `0.72` at the band edge to `1.0` at the focal zoom
+- shared zoom helpers live in `src/text/zoom.ts`
+- benchmark and demo label builders derive their bands from `createZoomBand(...)`
+
+If you change zoom visibility, touch both sides:
+
+- CPU visibility and chunk filtering in `src/text/layer.ts`
+- shader-side zoom helpers in the packed, indexed, and SDF WGSL paths in `src/text/layer.ts`
 
 ## Terminal Commands
 
@@ -176,6 +194,7 @@ GPU timing note:
 
 - GPU timing is enabled by default. Use `gpuTiming=0` to disable it for a route.
 - When timestamp-query is supported, the app records both total GPU frame time and a text-only GPU pass time so text strategies can be compared more directly.
+- The status panel distinguishes `gpu disabled`, `gpu pending`, `gpu unsupported`, `gpu error ...`, and live GPU timings.
 - the total GPU frame metric is derived from the timed render passes, so it excludes small untimed command overhead between passes.
 - Chrome quantizes timestamp queries to `100` microseconds by default. For higher-resolution development measurements, enable `chrome://flags/#enable-webgpu-developer-features`.
 
@@ -244,6 +263,8 @@ If you are new to this repo, start with these files:
   Implements the `grid-layer`.
 - `src/text/layer.ts`
   Implements the `text-layer`, text strategy selection, visibility analysis, and draw submission.
+- `src/text/zoom.ts`
+  Owns the shared zoom-band visibility and zoom-scale math used by labels, tests, and chunk culling.
 - `src/perf.ts`
   Captures CPU and GPU frame telemetry.
 
@@ -266,83 +287,7 @@ If you want to add another text strategy, the shortest path is:
 
 ## Performance History
 
-### 2026-03-25T22:40:26.417Z
-
-```text
-strategy=baseline labels=1024 glyphs=19968 cpuFrame=3.883ms cpuSamples=12 cpuText=3.450ms cpuDraw=0.317ms gpu=2.802ms gpuSamples=12 gpuText=2.375ms uploaded=1472832B visibleLabels=402 visibleGlyphs=7671 visibleVertices=46026 submittedGlyphs=7671 submittedVertices=46026 visibleChunks=0 labelSetPreset=static-benchmark-label-set-v2
-strategy=instanced labels=1024 glyphs=19968 cpuFrame=1.842ms cpuSamples=12 cpuText=1.442ms cpuDraw=0.325ms gpu=3.156ms gpuSamples=12 gpuText=2.690ms uploaded=368224B visibleLabels=402 visibleGlyphs=7671 visibleVertices=30684 submittedGlyphs=7671 submittedVertices=30684 visibleChunks=0 labelSetPreset=static-benchmark-label-set-v2
-strategy=packed labels=1024 glyphs=19968 cpuFrame=1.125ms cpuSamples=12 cpuText=0.717ms cpuDraw=0.300ms gpu=2.921ms gpuSamples=12 gpuText=2.468ms uploaded=32B visibleLabels=402 visibleGlyphs=7671 visibleVertices=30684 submittedGlyphs=19968 submittedVertices=79872 visibleChunks=0 labelSetPreset=static-benchmark-label-set-v2
-strategy=visible-index labels=1024 glyphs=19968 cpuFrame=1.200ms cpuSamples=12 cpuText=0.783ms cpuDraw=0.283ms gpu=2.740ms gpuSamples=12 gpuText=2.296ms uploaded=30716B visibleLabels=402 visibleGlyphs=7671 visibleVertices=30684 submittedGlyphs=7671 submittedVertices=30684 visibleChunks=0 labelSetPreset=static-benchmark-label-set-v2
-strategy=chunked labels=1024 glyphs=19968 cpuFrame=1.158ms cpuSamples=12 cpuText=0.792ms cpuDraw=0.275ms gpu=2.444ms gpuSamples=12 gpuText=2.003ms uploaded=30716B visibleLabels=402 visibleGlyphs=7671 visibleVertices=30684 submittedGlyphs=7671 submittedVertices=30684 visibleChunks=12 labelSetPreset=static-benchmark-label-set-v2
-strategy=sdf-instanced labels=1024 glyphs=19968 cpuFrame=1.775ms cpuSamples=12 cpuText=1.342ms cpuDraw=0.317ms gpu=2.846ms gpuSamples=12 gpuText=2.375ms uploaded=368240B visibleLabels=402 visibleGlyphs=7671 visibleVertices=30684 submittedGlyphs=7671 submittedVertices=30684 visibleChunks=0 labelSetPreset=static-benchmark-label-set-v2
-strategy=sdf-visible-index labels=1024 glyphs=19968 cpuFrame=1.200ms cpuSamples=12 cpuText=0.767ms cpuDraw=0.300ms gpu=2.789ms gpuSamples=12 gpuText=2.310ms uploaded=30732B visibleLabels=402 visibleGlyphs=7671 visibleVertices=30684 submittedGlyphs=7671 submittedVertices=30684 visibleChunks=0 labelSetPreset=static-benchmark-label-set-v2
-strategy=baseline labels=4096 glyphs=79872 cpuFrame=6.708ms cpuSamples=12 cpuText=6.283ms cpuDraw=0.300ms gpu=3.287ms gpuSamples=12 gpuText=2.809ms uploaded=1758336B visibleLabels=595 visibleGlyphs=9158 visibleVertices=54948 submittedGlyphs=9158 submittedVertices=54948 visibleChunks=0 labelSetPreset=static-benchmark-label-set-v2
-strategy=instanced labels=4096 glyphs=79872 cpuFrame=3.183ms cpuSamples=12 cpuText=2.817ms cpuDraw=0.275ms gpu=3.432ms gpuSamples=12 gpuText=3.014ms uploaded=439600B visibleLabels=595 visibleGlyphs=9158 visibleVertices=36632 submittedGlyphs=9158 submittedVertices=36632 visibleChunks=0 labelSetPreset=static-benchmark-label-set-v2
-strategy=packed labels=4096 glyphs=79872 cpuFrame=2.358ms cpuSamples=12 cpuText=1.917ms cpuDraw=0.333ms gpu=3.470ms gpuSamples=12 gpuText=2.984ms uploaded=32B visibleLabels=595 visibleGlyphs=9158 visibleVertices=36632 submittedGlyphs=79872 submittedVertices=319488 visibleChunks=0 labelSetPreset=static-benchmark-label-set-v2
-strategy=visible-index labels=4096 glyphs=79872 cpuFrame=2.042ms cpuSamples=12 cpuText=1.658ms cpuDraw=0.300ms gpu=3.044ms gpuSamples=13 gpuText=2.576ms uploaded=36664B visibleLabels=595 visibleGlyphs=9158 visibleVertices=36632 submittedGlyphs=9158 submittedVertices=36632 visibleChunks=0 labelSetPreset=static-benchmark-label-set-v2
-strategy=chunked labels=4096 glyphs=79872 cpuFrame=1.883ms cpuSamples=12 cpuText=1.508ms cpuDraw=0.283ms gpu=3.170ms gpuSamples=12 gpuText=2.740ms uploaded=36664B visibleLabels=595 visibleGlyphs=9158 visibleVertices=36632 submittedGlyphs=9158 submittedVertices=36632 visibleChunks=18 labelSetPreset=static-benchmark-label-set-v2
-strategy=sdf-instanced labels=4096 glyphs=79872 cpuFrame=2.583ms cpuSamples=12 cpuText=2.208ms cpuDraw=0.267ms gpu=3.549ms gpuSamples=12 gpuText=3.127ms uploaded=439616B visibleLabels=595 visibleGlyphs=9158 visibleVertices=36632 submittedGlyphs=9158 submittedVertices=36632 visibleChunks=0 labelSetPreset=static-benchmark-label-set-v2
-strategy=sdf-visible-index labels=4096 glyphs=79872 cpuFrame=1.867ms cpuSamples=12 cpuText=1.408ms cpuDraw=0.342ms gpu=3.360ms gpuSamples=13 gpuText=2.914ms uploaded=36680B visibleLabels=595 visibleGlyphs=9158 visibleVertices=36632 submittedGlyphs=9158 submittedVertices=36632 visibleChunks=0 labelSetPreset=static-benchmark-label-set-v2
-strategy=baseline labels=16384 glyphs=319488 cpuFrame=8.375ms cpuSamples=12 cpuText=7.975ms cpuDraw=0.300ms gpu=4.284ms gpuSamples=12 gpuText=3.868ms uploaded=1758336B visibleLabels=595 visibleGlyphs=9158 visibleVertices=54948 submittedGlyphs=9158 submittedVertices=54948 visibleChunks=0 labelSetPreset=static-benchmark-label-set-v2
-strategy=instanced labels=16384 glyphs=319488 cpuFrame=7.015ms cpuSamples=13 cpuText=6.531ms cpuDraw=0.377ms gpu=3.238ms gpuSamples=12 gpuText=2.780ms uploaded=439600B visibleLabels=595 visibleGlyphs=9158 visibleVertices=36632 submittedGlyphs=9158 submittedVertices=36632 visibleChunks=0 labelSetPreset=static-benchmark-label-set-v2
-strategy=packed labels=16384 glyphs=319488 cpuFrame=4.175ms cpuSamples=12 cpuText=3.750ms cpuDraw=0.300ms gpu=4.256ms gpuSamples=12 gpuText=3.865ms uploaded=32B visibleLabels=595 visibleGlyphs=9158 visibleVertices=36632 submittedGlyphs=319488 submittedVertices=1277952 visibleChunks=0 labelSetPreset=static-benchmark-label-set-v2
-strategy=visible-index labels=16384 glyphs=319488 cpuFrame=4.158ms cpuSamples=12 cpuText=3.808ms cpuDraw=0.275ms gpu=3.457ms gpuSamples=12 gpuText=3.055ms uploaded=36664B visibleLabels=595 visibleGlyphs=9158 visibleVertices=36632 submittedGlyphs=9158 submittedVertices=36632 visibleChunks=0 labelSetPreset=static-benchmark-label-set-v2
-strategy=chunked labels=16384 glyphs=319488 cpuFrame=1.867ms cpuSamples=12 cpuText=1.508ms cpuDraw=0.267ms gpu=3.892ms gpuSamples=12 gpuText=3.412ms uploaded=36664B visibleLabels=595 visibleGlyphs=9158 visibleVertices=36632 submittedGlyphs=9158 submittedVertices=36632 visibleChunks=18 labelSetPreset=static-benchmark-label-set-v2
-strategy=sdf-instanced labels=16384 glyphs=319488 cpuFrame=4.717ms cpuSamples=12 cpuText=4.342ms cpuDraw=0.258ms gpu=3.064ms gpuSamples=12 gpuText=2.667ms uploaded=439616B visibleLabels=595 visibleGlyphs=9158 visibleVertices=36632 submittedGlyphs=9158 submittedVertices=36632 visibleChunks=0 labelSetPreset=static-benchmark-label-set-v2
-strategy=sdf-visible-index labels=16384 glyphs=319488 cpuFrame=4.017ms cpuSamples=12 cpuText=3.650ms cpuDraw=0.283ms gpu=3.955ms gpuSamples=12 gpuText=3.565ms uploaded=36680B visibleLabels=595 visibleGlyphs=9158 visibleVertices=36632 submittedGlyphs=9158 submittedVertices=36632 visibleChunks=0 labelSetPreset=static-benchmark-label-set-v2
-```
-
-### 2026-03-25T23:37:38.878Z
-
-```text
-strategy=baseline labels=1024 glyphs=19968 cpuFrame=3.925ms cpuSamples=12 cpuText=3.575ms cpuDraw=0.275ms gpu=2.565ms gpuSamples=12 gpuText=2.139ms uploaded=1493568B visibleLabels=402 visibleGlyphs=7779 visibleVertices=46674 submittedGlyphs=7779 submittedVertices=46674 visibleChunks=0 labelSetPreset=static-benchmark-label-set-v2
-strategy=instanced labels=1024 glyphs=19968 cpuFrame=1.867ms cpuSamples=12 cpuText=1.492ms cpuDraw=0.283ms gpu=2.613ms gpuSamples=12 gpuText=2.152ms uploaded=373408B visibleLabels=402 visibleGlyphs=7779 visibleVertices=31116 submittedGlyphs=7779 submittedVertices=31116 visibleChunks=0 labelSetPreset=static-benchmark-label-set-v2
-strategy=packed labels=1024 glyphs=19968 cpuFrame=1.150ms cpuSamples=12 cpuText=0.758ms cpuDraw=0.275ms gpu=2.224ms gpuSamples=12 gpuText=1.779ms uploaded=32B visibleLabels=402 visibleGlyphs=7779 visibleVertices=31116 submittedGlyphs=19968 submittedVertices=79872 visibleChunks=0 labelSetPreset=static-benchmark-label-set-v2
-strategy=visible-index labels=1024 glyphs=19968 cpuFrame=1.258ms cpuSamples=12 cpuText=0.850ms cpuDraw=0.292ms gpu=2.521ms gpuSamples=12 gpuText=2.025ms uploaded=31148B visibleLabels=402 visibleGlyphs=7779 visibleVertices=31116 submittedGlyphs=7779 submittedVertices=31116 visibleChunks=0 labelSetPreset=static-benchmark-label-set-v2
-strategy=chunked labels=1024 glyphs=19968 cpuFrame=1.425ms cpuSamples=12 cpuText=1.033ms cpuDraw=0.267ms gpu=2.484ms gpuSamples=12 gpuText=2.078ms uploaded=31148B visibleLabels=402 visibleGlyphs=7779 visibleVertices=31116 submittedGlyphs=7779 submittedVertices=31116 visibleChunks=12 labelSetPreset=static-benchmark-label-set-v2
-strategy=sdf-instanced labels=1024 glyphs=19968 cpuFrame=1.858ms cpuSamples=12 cpuText=1.417ms cpuDraw=0.308ms gpu=2.247ms gpuSamples=12 gpuText=1.773ms uploaded=373424B visibleLabels=402 visibleGlyphs=7779 visibleVertices=31116 submittedGlyphs=7779 submittedVertices=31116 visibleChunks=0 labelSetPreset=static-benchmark-label-set-v2
-strategy=sdf-visible-index labels=1024 glyphs=19968 cpuFrame=1.158ms cpuSamples=12 cpuText=0.783ms cpuDraw=0.283ms gpu=2.730ms gpuSamples=12 gpuText=2.250ms uploaded=31164B visibleLabels=402 visibleGlyphs=7779 visibleVertices=31116 submittedGlyphs=7779 submittedVertices=31116 visibleChunks=0 labelSetPreset=static-benchmark-label-set-v2
-strategy=baseline labels=4096 glyphs=79872 cpuFrame=5.608ms cpuSamples=12 cpuText=5.225ms cpuDraw=0.275ms gpu=2.849ms gpuSamples=13 gpuText=2.419ms uploaded=1738752B visibleLabels=557 visibleGlyphs=9056 visibleVertices=54336 submittedGlyphs=9056 submittedVertices=54336 visibleChunks=0 labelSetPreset=static-benchmark-label-set-v2
-strategy=instanced labels=4096 glyphs=79872 cpuFrame=3.267ms cpuSamples=12 cpuText=2.883ms cpuDraw=0.275ms gpu=3.057ms gpuSamples=12 gpuText=2.620ms uploaded=434704B visibleLabels=557 visibleGlyphs=9056 visibleVertices=36224 submittedGlyphs=9056 submittedVertices=36224 visibleChunks=0 labelSetPreset=static-benchmark-label-set-v2
-strategy=packed labels=4096 glyphs=79872 cpuFrame=2.242ms cpuSamples=12 cpuText=1.775ms cpuDraw=0.358ms gpu=3.220ms gpuSamples=12 gpuText=2.634ms uploaded=32B visibleLabels=557 visibleGlyphs=9056 visibleVertices=36224 submittedGlyphs=79872 submittedVertices=319488 visibleChunks=0 labelSetPreset=static-benchmark-label-set-v2
-strategy=visible-index labels=4096 glyphs=79872 cpuFrame=2.500ms cpuSamples=12 cpuText=2.083ms cpuDraw=0.317ms gpu=2.593ms gpuSamples=12 gpuText=2.169ms uploaded=36256B visibleLabels=557 visibleGlyphs=9056 visibleVertices=36224 submittedGlyphs=9056 submittedVertices=36224 visibleChunks=0 labelSetPreset=static-benchmark-label-set-v2
-strategy=chunked labels=4096 glyphs=79872 cpuFrame=2.225ms cpuSamples=12 cpuText=1.817ms cpuDraw=0.300ms gpu=2.548ms gpuSamples=12 gpuText=2.131ms uploaded=36256B visibleLabels=557 visibleGlyphs=9056 visibleVertices=36224 submittedGlyphs=9056 submittedVertices=36224 visibleChunks=18 labelSetPreset=static-benchmark-label-set-v2
-strategy=sdf-instanced labels=4096 glyphs=79872 cpuFrame=2.867ms cpuSamples=12 cpuText=2.500ms cpuDraw=0.275ms gpu=2.988ms gpuSamples=12 gpuText=2.506ms uploaded=434720B visibleLabels=557 visibleGlyphs=9056 visibleVertices=36224 submittedGlyphs=9056 submittedVertices=36224 visibleChunks=0 labelSetPreset=static-benchmark-label-set-v2
-strategy=sdf-visible-index labels=4096 glyphs=79872 cpuFrame=2.017ms cpuSamples=12 cpuText=1.600ms cpuDraw=0.292ms gpu=3.135ms gpuSamples=12 gpuText=2.591ms uploaded=36272B visibleLabels=557 visibleGlyphs=9056 visibleVertices=36224 submittedGlyphs=9056 submittedVertices=36224 visibleChunks=0 labelSetPreset=static-benchmark-label-set-v2
-strategy=baseline labels=16384 glyphs=319488 cpuFrame=9.250ms cpuSamples=12 cpuText=8.883ms cpuDraw=0.275ms gpu=3.119ms gpuSamples=13 gpuText=2.664ms uploaded=1738752B visibleLabels=557 visibleGlyphs=9056 visibleVertices=54336 submittedGlyphs=9056 submittedVertices=54336 visibleChunks=0 labelSetPreset=static-benchmark-label-set-v2
-strategy=instanced labels=16384 glyphs=319488 cpuFrame=6.083ms cpuSamples=12 cpuText=5.725ms cpuDraw=0.250ms gpu=2.858ms gpuSamples=12 gpuText=2.459ms uploaded=434704B visibleLabels=557 visibleGlyphs=9056 visibleVertices=36224 submittedGlyphs=9056 submittedVertices=36224 visibleChunks=0 labelSetPreset=static-benchmark-label-set-v2
-strategy=packed labels=16384 glyphs=319488 cpuFrame=6.408ms cpuSamples=12 cpuText=5.975ms cpuDraw=0.308ms gpu=4.774ms gpuSamples=12 gpuText=4.347ms uploaded=32B visibleLabels=557 visibleGlyphs=9056 visibleVertices=36224 submittedGlyphs=319488 submittedVertices=1277952 visibleChunks=0 labelSetPreset=static-benchmark-label-set-v2
-strategy=visible-index labels=16384 glyphs=319488 cpuFrame=4.525ms cpuSamples=12 cpuText=4.142ms cpuDraw=0.267ms gpu=2.695ms gpuSamples=12 gpuText=2.313ms uploaded=36256B visibleLabels=557 visibleGlyphs=9056 visibleVertices=36224 submittedGlyphs=9056 submittedVertices=36224 visibleChunks=0 labelSetPreset=static-benchmark-label-set-v2
-strategy=chunked labels=16384 glyphs=319488 cpuFrame=3.292ms cpuSamples=12 cpuText=2.892ms cpuDraw=0.325ms gpu=3.320ms gpuSamples=12 gpuText=2.641ms uploaded=36256B visibleLabels=557 visibleGlyphs=9056 visibleVertices=36224 submittedGlyphs=9056 submittedVertices=36224 visibleChunks=18 labelSetPreset=static-benchmark-label-set-v2
-strategy=sdf-instanced labels=16384 glyphs=319488 cpuFrame=5.358ms cpuSamples=12 cpuText=4.975ms cpuDraw=0.283ms gpu=3.200ms gpuSamples=12 gpuText=2.801ms uploaded=434720B visibleLabels=557 visibleGlyphs=9056 visibleVertices=36224 submittedGlyphs=9056 submittedVertices=36224 visibleChunks=0 labelSetPreset=static-benchmark-label-set-v2
-strategy=sdf-visible-index labels=16384 glyphs=319488 cpuFrame=5.000ms cpuSamples=12 cpuText=4.617ms cpuDraw=0.283ms gpu=3.534ms gpuSamples=12 gpuText=3.131ms uploaded=36272B visibleLabels=557 visibleGlyphs=9056 visibleVertices=36224 submittedGlyphs=9056 submittedVertices=36224 visibleChunks=0 labelSetPreset=static-benchmark-label-set-v2
-```
-
-### 2026-03-25T23:45:03.018Z
-
-```text
-strategy=baseline labels=1024 glyphs=19968 cpuFrame=3.942ms cpuSamples=12 cpuText=3.517ms cpuDraw=0.300ms gpu=2.424ms gpuSamples=12 gpuText=1.952ms uploaded=1493568B visibleLabels=402 visibleGlyphs=7779 visibleVertices=46674 submittedGlyphs=7779 submittedVertices=46674 visibleChunks=0 labelSetPreset=static-benchmark-label-set-v2
-strategy=instanced labels=1024 glyphs=19968 cpuFrame=2.042ms cpuSamples=12 cpuText=1.575ms cpuDraw=0.350ms gpu=2.407ms gpuSamples=12 gpuText=1.946ms uploaded=373408B visibleLabels=402 visibleGlyphs=7779 visibleVertices=31116 submittedGlyphs=7779 submittedVertices=31116 visibleChunks=0 labelSetPreset=static-benchmark-label-set-v2
-strategy=packed labels=1024 glyphs=19968 cpuFrame=1.200ms cpuSamples=12 cpuText=0.808ms cpuDraw=0.275ms gpu=2.634ms gpuSamples=12 gpuText=2.191ms uploaded=32B visibleLabels=402 visibleGlyphs=7779 visibleVertices=31116 submittedGlyphs=19968 submittedVertices=79872 visibleChunks=0 labelSetPreset=static-benchmark-label-set-v2
-strategy=visible-index labels=1024 glyphs=19968 cpuFrame=1.267ms cpuSamples=12 cpuText=0.867ms cpuDraw=0.258ms gpu=2.615ms gpuSamples=12 gpuText=2.075ms uploaded=31148B visibleLabels=402 visibleGlyphs=7779 visibleVertices=31116 submittedGlyphs=7779 submittedVertices=31116 visibleChunks=0 labelSetPreset=static-benchmark-label-set-v2
-strategy=chunked labels=1024 glyphs=19968 cpuFrame=1.500ms cpuSamples=12 cpuText=1.067ms cpuDraw=0.317ms gpu=2.329ms gpuSamples=12 gpuText=1.860ms uploaded=31148B visibleLabels=402 visibleGlyphs=7779 visibleVertices=31116 submittedGlyphs=7779 submittedVertices=31116 visibleChunks=12 labelSetPreset=static-benchmark-label-set-v2
-strategy=sdf-instanced labels=1024 glyphs=19968 cpuFrame=1.942ms cpuSamples=12 cpuText=1.575ms cpuDraw=0.275ms gpu=2.292ms gpuSamples=12 gpuText=1.782ms uploaded=373424B visibleLabels=402 visibleGlyphs=7779 visibleVertices=31116 submittedGlyphs=7779 submittedVertices=31116 visibleChunks=0 labelSetPreset=static-benchmark-label-set-v2
-strategy=sdf-visible-index labels=1024 glyphs=19968 cpuFrame=1.192ms cpuSamples=12 cpuText=0.808ms cpuDraw=0.275ms gpu=2.720ms gpuSamples=12 gpuText=2.229ms uploaded=31164B visibleLabels=402 visibleGlyphs=7779 visibleVertices=31116 submittedGlyphs=7779 submittedVertices=31116 visibleChunks=0 labelSetPreset=static-benchmark-label-set-v2
-strategy=baseline labels=4096 glyphs=79872 cpuFrame=6.675ms cpuSamples=12 cpuText=6.283ms cpuDraw=0.308ms gpu=3.208ms gpuSamples=13 gpuText=2.730ms uploaded=1738752B visibleLabels=557 visibleGlyphs=9056 visibleVertices=54336 submittedGlyphs=9056 submittedVertices=54336 visibleChunks=0 labelSetPreset=static-benchmark-label-set-v2
-strategy=instanced labels=4096 glyphs=79872 cpuFrame=3.442ms cpuSamples=12 cpuText=3.058ms cpuDraw=0.283ms gpu=2.512ms gpuSamples=13 gpuText=2.101ms uploaded=434704B visibleLabels=557 visibleGlyphs=9056 visibleVertices=36224 submittedGlyphs=9056 submittedVertices=36224 visibleChunks=0 labelSetPreset=static-benchmark-label-set-v2
-strategy=packed labels=4096 glyphs=79872 cpuFrame=2.125ms cpuSamples=12 cpuText=1.633ms cpuDraw=0.375ms gpu=3.224ms gpuSamples=12 gpuText=2.699ms uploaded=32B visibleLabels=557 visibleGlyphs=9056 visibleVertices=36224 submittedGlyphs=79872 submittedVertices=319488 visibleChunks=0 labelSetPreset=static-benchmark-label-set-v2
-strategy=visible-index labels=4096 glyphs=79872 cpuFrame=3.067ms cpuSamples=12 cpuText=2.667ms cpuDraw=0.300ms gpu=2.766ms gpuSamples=12 gpuText=2.230ms uploaded=36256B visibleLabels=557 visibleGlyphs=9056 visibleVertices=36224 submittedGlyphs=9056 submittedVertices=36224 visibleChunks=0 labelSetPreset=static-benchmark-label-set-v2
-strategy=chunked labels=4096 glyphs=79872 cpuFrame=2.242ms cpuSamples=12 cpuText=1.825ms cpuDraw=0.292ms gpu=2.850ms gpuSamples=12 gpuText=2.375ms uploaded=36256B visibleLabels=557 visibleGlyphs=9056 visibleVertices=36224 submittedGlyphs=9056 submittedVertices=36224 visibleChunks=18 labelSetPreset=static-benchmark-label-set-v2
-strategy=sdf-instanced labels=4096 glyphs=79872 cpuFrame=2.800ms cpuSamples=12 cpuText=2.383ms cpuDraw=0.300ms gpu=2.366ms gpuSamples=12 gpuText=1.928ms uploaded=434720B visibleLabels=557 visibleGlyphs=9056 visibleVertices=36224 submittedGlyphs=9056 submittedVertices=36224 visibleChunks=0 labelSetPreset=static-benchmark-label-set-v2
-strategy=sdf-visible-index labels=4096 glyphs=79872 cpuFrame=2.067ms cpuSamples=12 cpuText=1.642ms cpuDraw=0.317ms gpu=2.520ms gpuSamples=12 gpuText=2.073ms uploaded=36272B visibleLabels=557 visibleGlyphs=9056 visibleVertices=36224 submittedGlyphs=9056 submittedVertices=36224 visibleChunks=0 labelSetPreset=static-benchmark-label-set-v2
-strategy=baseline labels=16384 glyphs=319488 cpuFrame=9.683ms cpuSamples=12 cpuText=9.342ms cpuDraw=0.250ms gpu=3.470ms gpuSamples=13 gpuText=3.040ms uploaded=1738752B visibleLabels=557 visibleGlyphs=9056 visibleVertices=54336 submittedGlyphs=9056 submittedVertices=54336 visibleChunks=0 labelSetPreset=static-benchmark-label-set-v2
-strategy=instanced labels=16384 glyphs=319488 cpuFrame=9.242ms cpuSamples=12 cpuText=8.792ms cpuDraw=0.308ms gpu=3.434ms gpuSamples=12 gpuText=2.914ms uploaded=434704B visibleLabels=557 visibleGlyphs=9056 visibleVertices=36224 submittedGlyphs=9056 submittedVertices=36224 visibleChunks=0 labelSetPreset=static-benchmark-label-set-v2
-strategy=packed labels=16384 glyphs=319488 cpuFrame=5.817ms cpuSamples=12 cpuText=5.442ms cpuDraw=0.292ms gpu=4.144ms gpuSamples=12 gpuText=3.746ms uploaded=32B visibleLabels=557 visibleGlyphs=9056 visibleVertices=36224 submittedGlyphs=319488 submittedVertices=1277952 visibleChunks=0 labelSetPreset=static-benchmark-label-set-v2
-strategy=visible-index labels=16384 glyphs=319488 cpuFrame=4.833ms cpuSamples=12 cpuText=4.442ms cpuDraw=0.283ms gpu=2.485ms gpuSamples=12 gpuText=2.108ms uploaded=36256B visibleLabels=557 visibleGlyphs=9056 visibleVertices=36224 submittedGlyphs=9056 submittedVertices=36224 visibleChunks=0 labelSetPreset=static-benchmark-label-set-v2
-strategy=chunked labels=16384 glyphs=319488 cpuFrame=1.958ms cpuSamples=12 cpuText=1.558ms cpuDraw=0.292ms gpu=2.649ms gpuSamples=12 gpuText=2.131ms uploaded=36256B visibleLabels=557 visibleGlyphs=9056 visibleVertices=36224 submittedGlyphs=9056 submittedVertices=36224 visibleChunks=18 labelSetPreset=static-benchmark-label-set-v2
-strategy=sdf-instanced labels=16384 glyphs=319488 cpuFrame=5.500ms cpuSamples=12 cpuText=5.125ms cpuDraw=0.283ms gpu=2.856ms gpuSamples=12 gpuText=2.450ms uploaded=434720B visibleLabels=557 visibleGlyphs=9056 visibleVertices=36224 submittedGlyphs=9056 submittedVertices=36224 visibleChunks=0 labelSetPreset=static-benchmark-label-set-v2
-strategy=sdf-visible-index labels=16384 glyphs=319488 cpuFrame=5.233ms cpuSamples=12 cpuText=4.867ms cpuDraw=0.258ms gpu=2.550ms gpuSamples=12 gpuText=2.157ms uploaded=36272B visibleLabels=557 visibleGlyphs=9056 visibleVertices=36224 submittedGlyphs=9056 submittedVertices=36224 visibleChunks=0 labelSetPreset=static-benchmark-label-set-v2
-```
+This section is auto-appended by `npm test` and keeps only the 3 most recent benchmark snapshots.
 
 ### 2026-03-25T23:56:31.601Z
 
@@ -368,4 +313,56 @@ strategy=visible-index labels=16384 glyphs=319488 cpuFrame=6.292ms cpuSamples=12
 strategy=chunked labels=16384 glyphs=319488 cpuFrame=2.067ms cpuSamples=12 cpuText=1.683ms cpuDraw=0.292ms gpu=2.510ms gpuSamples=12 gpuText=2.079ms uploaded=36256B visibleLabels=557 visibleGlyphs=9056 visibleVertices=36224 submittedGlyphs=9056 submittedVertices=36224 visibleChunks=18 labelSetPreset=static-benchmark-label-set-v2
 strategy=sdf-instanced labels=16384 glyphs=319488 cpuFrame=5.433ms cpuSamples=12 cpuText=5.083ms cpuDraw=0.267ms gpu=2.425ms gpuSamples=12 gpuText=1.975ms uploaded=434720B visibleLabels=557 visibleGlyphs=9056 visibleVertices=36224 submittedGlyphs=9056 submittedVertices=36224 visibleChunks=0 labelSetPreset=static-benchmark-label-set-v2
 strategy=sdf-visible-index labels=16384 glyphs=319488 cpuFrame=6.215ms cpuSamples=13 cpuText=5.831ms cpuDraw=0.277ms gpu=2.951ms gpuSamples=13 gpuText=2.511ms uploaded=36272B visibleLabels=557 visibleGlyphs=9056 visibleVertices=36224 submittedGlyphs=9056 submittedVertices=36224 visibleChunks=0 labelSetPreset=static-benchmark-label-set-v2
+```
+
+### 2026-03-26T00:15:13.178Z
+
+```text
+strategy=baseline labels=1024 glyphs=19968 cpuFrame=4.100ms cpuSamples=12 cpuText=3.708ms cpuDraw=0.292ms gpu=2.245ms gpuSamples=12 gpuText=1.800ms uploaded=1493568B visibleLabels=402 visibleGlyphs=7779 visibleVertices=46674 submittedGlyphs=7779 submittedVertices=46674 visibleChunks=0 labelSetPreset=static-benchmark-label-set-v2
+strategy=instanced labels=1024 glyphs=19968 cpuFrame=3.338ms cpuSamples=13 cpuText=1.808ms cpuDraw=1.446ms gpu=2.306ms gpuSamples=13 gpuText=1.848ms uploaded=373408B visibleLabels=402 visibleGlyphs=7779 visibleVertices=31116 submittedGlyphs=7779 submittedVertices=31116 visibleChunks=0 labelSetPreset=static-benchmark-label-set-v2
+strategy=packed labels=1024 glyphs=19968 cpuFrame=1.125ms cpuSamples=12 cpuText=0.742ms cpuDraw=0.275ms gpu=2.727ms gpuSamples=12 gpuText=2.233ms uploaded=32B visibleLabels=402 visibleGlyphs=7779 visibleVertices=31116 submittedGlyphs=19968 submittedVertices=79872 visibleChunks=0 labelSetPreset=static-benchmark-label-set-v2
+strategy=visible-index labels=1024 glyphs=19968 cpuFrame=1.292ms cpuSamples=12 cpuText=0.883ms cpuDraw=0.275ms gpu=2.293ms gpuSamples=12 gpuText=1.803ms uploaded=31148B visibleLabels=402 visibleGlyphs=7779 visibleVertices=31116 submittedGlyphs=7779 submittedVertices=31116 visibleChunks=0 labelSetPreset=static-benchmark-label-set-v2
+strategy=chunked labels=1024 glyphs=19968 cpuFrame=1.425ms cpuSamples=12 cpuText=0.992ms cpuDraw=0.317ms gpu=2.090ms gpuSamples=12 gpuText=1.640ms uploaded=31148B visibleLabels=402 visibleGlyphs=7779 visibleVertices=31116 submittedGlyphs=7779 submittedVertices=31116 visibleChunks=12 labelSetPreset=static-benchmark-label-set-v2
+strategy=sdf-instanced labels=1024 glyphs=19968 cpuFrame=1.858ms cpuSamples=12 cpuText=1.425ms cpuDraw=0.308ms gpu=2.317ms gpuSamples=12 gpuText=1.817ms uploaded=373424B visibleLabels=402 visibleGlyphs=7779 visibleVertices=31116 submittedGlyphs=7779 submittedVertices=31116 visibleChunks=0 labelSetPreset=static-benchmark-label-set-v2
+strategy=sdf-visible-index labels=1024 glyphs=19968 cpuFrame=1.300ms cpuSamples=12 cpuText=0.875ms cpuDraw=0.325ms gpu=2.491ms gpuSamples=12 gpuText=1.917ms uploaded=31164B visibleLabels=402 visibleGlyphs=7779 visibleVertices=31116 submittedGlyphs=7779 submittedVertices=31116 visibleChunks=0 labelSetPreset=static-benchmark-label-set-v2
+strategy=baseline labels=4096 glyphs=79872 cpuFrame=5.075ms cpuSamples=12 cpuText=4.658ms cpuDraw=0.308ms gpu=3.218ms gpuSamples=12 gpuText=2.796ms uploaded=1738752B visibleLabels=557 visibleGlyphs=9056 visibleVertices=54336 submittedGlyphs=9056 submittedVertices=54336 visibleChunks=0 labelSetPreset=static-benchmark-label-set-v2
+strategy=instanced labels=4096 glyphs=79872 cpuFrame=3.300ms cpuSamples=12 cpuText=2.875ms cpuDraw=0.300ms gpu=2.761ms gpuSamples=12 gpuText=2.328ms uploaded=434704B visibleLabels=557 visibleGlyphs=9056 visibleVertices=36224 submittedGlyphs=9056 submittedVertices=36224 visibleChunks=0 labelSetPreset=static-benchmark-label-set-v2
+strategy=packed labels=4096 glyphs=79872 cpuFrame=2.083ms cpuSamples=12 cpuText=1.667ms cpuDraw=0.308ms gpu=3.149ms gpuSamples=12 gpuText=2.614ms uploaded=32B visibleLabels=557 visibleGlyphs=9056 visibleVertices=36224 submittedGlyphs=79872 submittedVertices=319488 visibleChunks=0 labelSetPreset=static-benchmark-label-set-v2
+strategy=visible-index labels=4096 glyphs=79872 cpuFrame=2.567ms cpuSamples=12 cpuText=2.175ms cpuDraw=0.292ms gpu=2.749ms gpuSamples=12 gpuText=2.322ms uploaded=36256B visibleLabels=557 visibleGlyphs=9056 visibleVertices=36224 submittedGlyphs=9056 submittedVertices=36224 visibleChunks=0 labelSetPreset=static-benchmark-label-set-v2
+strategy=chunked labels=4096 glyphs=79872 cpuFrame=2.142ms cpuSamples=12 cpuText=1.783ms cpuDraw=0.267ms gpu=2.202ms gpuSamples=12 gpuText=1.774ms uploaded=36256B visibleLabels=557 visibleGlyphs=9056 visibleVertices=36224 submittedGlyphs=9056 submittedVertices=36224 visibleChunks=18 labelSetPreset=static-benchmark-label-set-v2
+strategy=sdf-instanced labels=4096 glyphs=79872 cpuFrame=3.042ms cpuSamples=12 cpuText=2.667ms cpuDraw=0.283ms gpu=2.478ms gpuSamples=12 gpuText=2.023ms uploaded=434720B visibleLabels=557 visibleGlyphs=9056 visibleVertices=36224 submittedGlyphs=9056 submittedVertices=36224 visibleChunks=0 labelSetPreset=static-benchmark-label-set-v2
+strategy=sdf-visible-index labels=4096 glyphs=79872 cpuFrame=2.042ms cpuSamples=12 cpuText=1.625ms cpuDraw=0.325ms gpu=2.410ms gpuSamples=12 gpuText=1.947ms uploaded=36272B visibleLabels=557 visibleGlyphs=9056 visibleVertices=36224 submittedGlyphs=9056 submittedVertices=36224 visibleChunks=0 labelSetPreset=static-benchmark-label-set-v2
+strategy=baseline labels=16384 glyphs=319488 cpuFrame=9.917ms cpuSamples=12 cpuText=9.483ms cpuDraw=0.292ms gpu=3.103ms gpuSamples=12 gpuText=2.617ms uploaded=1738752B visibleLabels=557 visibleGlyphs=9056 visibleVertices=54336 submittedGlyphs=9056 submittedVertices=54336 visibleChunks=0 labelSetPreset=static-benchmark-label-set-v2
+strategy=instanced labels=16384 glyphs=319488 cpuFrame=6.225ms cpuSamples=12 cpuText=5.858ms cpuDraw=0.275ms gpu=2.936ms gpuSamples=12 gpuText=2.549ms uploaded=434704B visibleLabels=557 visibleGlyphs=9056 visibleVertices=36224 submittedGlyphs=9056 submittedVertices=36224 visibleChunks=0 labelSetPreset=static-benchmark-label-set-v2
+strategy=packed labels=16384 glyphs=319488 cpuFrame=4.983ms cpuSamples=12 cpuText=4.600ms cpuDraw=0.292ms gpu=4.334ms gpuSamples=12 gpuText=3.942ms uploaded=32B visibleLabels=557 visibleGlyphs=9056 visibleVertices=36224 submittedGlyphs=319488 submittedVertices=1277952 visibleChunks=0 labelSetPreset=static-benchmark-label-set-v2
+strategy=visible-index labels=16384 glyphs=319488 cpuFrame=5.017ms cpuSamples=12 cpuText=4.658ms cpuDraw=0.275ms gpu=2.961ms gpuSamples=12 gpuText=2.497ms uploaded=36256B visibleLabels=557 visibleGlyphs=9056 visibleVertices=36224 submittedGlyphs=9056 submittedVertices=36224 visibleChunks=0 labelSetPreset=static-benchmark-label-set-v2
+strategy=chunked labels=16384 glyphs=319488 cpuFrame=2.975ms cpuSamples=12 cpuText=2.600ms cpuDraw=0.267ms gpu=2.767ms gpuSamples=12 gpuText=2.349ms uploaded=36256B visibleLabels=557 visibleGlyphs=9056 visibleVertices=36224 submittedGlyphs=9056 submittedVertices=36224 visibleChunks=18 labelSetPreset=static-benchmark-label-set-v2
+strategy=sdf-instanced labels=16384 glyphs=319488 cpuFrame=5.483ms cpuSamples=12 cpuText=5.117ms cpuDraw=0.258ms gpu=2.538ms gpuSamples=12 gpuText=2.147ms uploaded=434720B visibleLabels=557 visibleGlyphs=9056 visibleVertices=36224 submittedGlyphs=9056 submittedVertices=36224 visibleChunks=0 labelSetPreset=static-benchmark-label-set-v2
+strategy=sdf-visible-index labels=16384 glyphs=319488 cpuFrame=5.775ms cpuSamples=12 cpuText=5.367ms cpuDraw=0.267ms gpu=2.989ms gpuSamples=12 gpuText=2.545ms uploaded=36272B visibleLabels=557 visibleGlyphs=9056 visibleVertices=36224 submittedGlyphs=9056 submittedVertices=36224 visibleChunks=0 labelSetPreset=static-benchmark-label-set-v2
+```
+
+### 2026-03-26T00:16:18.215Z
+
+```text
+strategy=baseline labels=1024 glyphs=19968 cpuFrame=3.933ms cpuSamples=12 cpuText=3.558ms cpuDraw=0.258ms gpu=2.493ms gpuSamples=12 gpuText=2.004ms uploaded=1493568B visibleLabels=402 visibleGlyphs=7779 visibleVertices=46674 submittedGlyphs=7779 submittedVertices=46674 visibleChunks=0 labelSetPreset=static-benchmark-label-set-v2
+strategy=instanced labels=1024 glyphs=19968 cpuFrame=2.083ms cpuSamples=12 cpuText=1.650ms cpuDraw=0.325ms gpu=2.531ms gpuSamples=12 gpuText=2.023ms uploaded=373408B visibleLabels=402 visibleGlyphs=7779 visibleVertices=31116 submittedGlyphs=7779 submittedVertices=31116 visibleChunks=0 labelSetPreset=static-benchmark-label-set-v2
+strategy=packed labels=1024 glyphs=19968 cpuFrame=1.217ms cpuSamples=12 cpuText=0.817ms cpuDraw=0.292ms gpu=2.791ms gpuSamples=12 gpuText=2.225ms uploaded=32B visibleLabels=402 visibleGlyphs=7779 visibleVertices=31116 submittedGlyphs=19968 submittedVertices=79872 visibleChunks=0 labelSetPreset=static-benchmark-label-set-v2
+strategy=visible-index labels=1024 glyphs=19968 cpuFrame=1.283ms cpuSamples=12 cpuText=0.867ms cpuDraw=0.267ms gpu=2.329ms gpuSamples=12 gpuText=1.808ms uploaded=31148B visibleLabels=402 visibleGlyphs=7779 visibleVertices=31116 submittedGlyphs=7779 submittedVertices=31116 visibleChunks=0 labelSetPreset=static-benchmark-label-set-v2
+strategy=chunked labels=1024 glyphs=19968 cpuFrame=1.567ms cpuSamples=12 cpuText=1.125ms cpuDraw=0.358ms gpu=2.695ms gpuSamples=12 gpuText=2.056ms uploaded=31148B visibleLabels=402 visibleGlyphs=7779 visibleVertices=31116 submittedGlyphs=7779 submittedVertices=31116 visibleChunks=12 labelSetPreset=static-benchmark-label-set-v2
+strategy=sdf-instanced labels=1024 glyphs=19968 cpuFrame=2.058ms cpuSamples=12 cpuText=1.583ms cpuDraw=0.350ms gpu=2.330ms gpuSamples=12 gpuText=1.839ms uploaded=373424B visibleLabels=402 visibleGlyphs=7779 visibleVertices=31116 submittedGlyphs=7779 submittedVertices=31116 visibleChunks=0 labelSetPreset=static-benchmark-label-set-v2
+strategy=sdf-visible-index labels=1024 glyphs=19968 cpuFrame=1.283ms cpuSamples=12 cpuText=0.892ms cpuDraw=0.258ms gpu=2.233ms gpuSamples=12 gpuText=1.778ms uploaded=31164B visibleLabels=402 visibleGlyphs=7779 visibleVertices=31116 submittedGlyphs=7779 submittedVertices=31116 visibleChunks=0 labelSetPreset=static-benchmark-label-set-v2
+strategy=baseline labels=4096 glyphs=79872 cpuFrame=5.533ms cpuSamples=12 cpuText=5.167ms cpuDraw=0.258ms gpu=3.118ms gpuSamples=13 gpuText=2.683ms uploaded=1738752B visibleLabels=557 visibleGlyphs=9056 visibleVertices=54336 submittedGlyphs=9056 submittedVertices=54336 visibleChunks=0 labelSetPreset=static-benchmark-label-set-v2
+strategy=instanced labels=4096 glyphs=79872 cpuFrame=3.967ms cpuSamples=12 cpuText=3.533ms cpuDraw=0.325ms gpu=2.952ms gpuSamples=12 gpuText=2.446ms uploaded=434704B visibleLabels=557 visibleGlyphs=9056 visibleVertices=36224 submittedGlyphs=9056 submittedVertices=36224 visibleChunks=0 labelSetPreset=static-benchmark-label-set-v2
+strategy=packed labels=4096 glyphs=79872 cpuFrame=2.517ms cpuSamples=12 cpuText=2.050ms cpuDraw=0.367ms gpu=3.493ms gpuSamples=12 gpuText=2.744ms uploaded=32B visibleLabels=557 visibleGlyphs=9056 visibleVertices=36224 submittedGlyphs=79872 submittedVertices=319488 visibleChunks=0 labelSetPreset=static-benchmark-label-set-v2
+strategy=visible-index labels=4096 glyphs=79872 cpuFrame=3.158ms cpuSamples=12 cpuText=2.725ms cpuDraw=0.300ms gpu=2.820ms gpuSamples=12 gpuText=2.378ms uploaded=36256B visibleLabels=557 visibleGlyphs=9056 visibleVertices=36224 submittedGlyphs=9056 submittedVertices=36224 visibleChunks=0 labelSetPreset=static-benchmark-label-set-v2
+strategy=chunked labels=4096 glyphs=79872 cpuFrame=2.225ms cpuSamples=12 cpuText=1.817ms cpuDraw=0.300ms gpu=2.159ms gpuSamples=12 gpuText=1.724ms uploaded=36256B visibleLabels=557 visibleGlyphs=9056 visibleVertices=36224 submittedGlyphs=9056 submittedVertices=36224 visibleChunks=18 labelSetPreset=static-benchmark-label-set-v2
+strategy=sdf-instanced labels=4096 glyphs=79872 cpuFrame=2.792ms cpuSamples=12 cpuText=2.408ms cpuDraw=0.283ms gpu=2.764ms gpuSamples=12 gpuText=2.338ms uploaded=434720B visibleLabels=557 visibleGlyphs=9056 visibleVertices=36224 submittedGlyphs=9056 submittedVertices=36224 visibleChunks=0 labelSetPreset=static-benchmark-label-set-v2
+strategy=sdf-visible-index labels=4096 glyphs=79872 cpuFrame=2.200ms cpuSamples=12 cpuText=1.758ms cpuDraw=0.342ms gpu=2.639ms gpuSamples=12 gpuText=2.147ms uploaded=36272B visibleLabels=557 visibleGlyphs=9056 visibleVertices=36224 submittedGlyphs=9056 submittedVertices=36224 visibleChunks=0 labelSetPreset=static-benchmark-label-set-v2
+strategy=baseline labels=16384 glyphs=319488 cpuFrame=9.825ms cpuSamples=12 cpuText=9.442ms cpuDraw=0.267ms gpu=3.198ms gpuSamples=13 gpuText=2.765ms uploaded=1738752B visibleLabels=557 visibleGlyphs=9056 visibleVertices=54336 submittedGlyphs=9056 submittedVertices=54336 visibleChunks=0 labelSetPreset=static-benchmark-label-set-v2
+strategy=instanced labels=16384 glyphs=319488 cpuFrame=5.883ms cpuSamples=12 cpuText=5.533ms cpuDraw=0.258ms gpu=2.399ms gpuSamples=12 gpuText=2.014ms uploaded=434704B visibleLabels=557 visibleGlyphs=9056 visibleVertices=36224 submittedGlyphs=9056 submittedVertices=36224 visibleChunks=0 labelSetPreset=static-benchmark-label-set-v2
+strategy=packed labels=16384 glyphs=319488 cpuFrame=4.850ms cpuSamples=12 cpuText=4.483ms cpuDraw=0.267ms gpu=5.100ms gpuSamples=12 gpuText=4.703ms uploaded=32B visibleLabels=557 visibleGlyphs=9056 visibleVertices=36224 submittedGlyphs=319488 submittedVertices=1277952 visibleChunks=0 labelSetPreset=static-benchmark-label-set-v2
+strategy=visible-index labels=16384 glyphs=319488 cpuFrame=5.392ms cpuSamples=12 cpuText=4.983ms cpuDraw=0.283ms gpu=2.800ms gpuSamples=12 gpuText=2.417ms uploaded=36256B visibleLabels=557 visibleGlyphs=9056 visibleVertices=36224 submittedGlyphs=9056 submittedVertices=36224 visibleChunks=0 labelSetPreset=static-benchmark-label-set-v2
+strategy=chunked labels=16384 glyphs=319488 cpuFrame=1.842ms cpuSamples=12 cpuText=1.483ms cpuDraw=0.258ms gpu=2.458ms gpuSamples=12 gpuText=1.967ms uploaded=36256B visibleLabels=557 visibleGlyphs=9056 visibleVertices=36224 submittedGlyphs=9056 submittedVertices=36224 visibleChunks=18 labelSetPreset=static-benchmark-label-set-v2
+strategy=sdf-instanced labels=16384 glyphs=319488 cpuFrame=5.692ms cpuSamples=12 cpuText=5.342ms cpuDraw=0.250ms gpu=2.800ms gpuSamples=12 gpuText=2.414ms uploaded=434720B visibleLabels=557 visibleGlyphs=9056 visibleVertices=36224 submittedGlyphs=9056 submittedVertices=36224 visibleChunks=0 labelSetPreset=static-benchmark-label-set-v2
+strategy=sdf-visible-index labels=16384 glyphs=319488 cpuFrame=4.933ms cpuSamples=12 cpuText=4.583ms cpuDraw=0.267ms gpu=2.492ms gpuSamples=12 gpuText=2.073ms uploaded=36272B visibleLabels=557 visibleGlyphs=9056 visibleVertices=36224 submittedGlyphs=9056 submittedVertices=36224 visibleChunks=0 labelSetPreset=static-benchmark-label-set-v2
 ```

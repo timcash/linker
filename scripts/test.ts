@@ -135,6 +135,9 @@ const INTENTIONAL_ERROR_MARKER = '[intentional-error-ping]';
 const BROWSER_UPDATE_FRAME_COUNT = 1;
 const BENCHMARK_TRACE_FRAME_COUNT = 1;
 const README_PERFORMANCE_HISTORY_HEADING = '## Performance History';
+const README_PERFORMANCE_HISTORY_ENTRY_LIMIT = 3;
+const README_PERFORMANCE_HISTORY_NOTE =
+  'This section is auto-appended by `npm test` and keeps only the 3 most recent benchmark snapshots.';
 const LARGE_SCALE_SWEEP_CAMERA_ZOOM = 4.08;
 const LARGE_SCALE_CAMERA_TRACE: readonly CameraTraceStep[] = [
   {name: 'zoom-out-visible', control: 'zoom-out', repeat: 1},
@@ -148,6 +151,7 @@ const LARGE_SCALE_CAMERA_TRACE: readonly CameraTraceStep[] = [
 await writeFile(logPath, '', 'utf8');
 
 runCameraUnitTests();
+runReadmePerformanceHistoryUnitTests();
 runZoomBandUnitTests();
 
 function addBrowserLog(kind: string, message: string): void {
@@ -1900,18 +1904,44 @@ async function appendReadmePerformanceHistory(benchmarks: BenchmarkState[]): Pro
   const existingReadme = await readFile(readmePath, 'utf8');
   const timestamp = new Date().toISOString();
   const benchmarkLines = benchmarks.map((benchmark) => formatBenchmarkSummary(benchmark)).join('\n');
-  const historyEntry = [
+  const historyEntry = buildReadmePerformanceHistoryEntry(timestamp, benchmarkLines);
+  const nextReadme = updateReadmePerformanceHistory(existingReadme, historyEntry);
+
+  await writeFile(readmePath, nextReadme, 'utf8');
+}
+
+function buildReadmePerformanceHistoryEntry(timestamp: string, benchmarkLines: string): string {
+  return [
     `### ${timestamp}`,
     '',
     '```text',
     benchmarkLines,
     '```',
   ].join('\n');
-  const nextReadme = existingReadme.includes(README_PERFORMANCE_HISTORY_HEADING)
-    ? `${existingReadme.trimEnd()}\n\n${historyEntry}\n`
-    : `${existingReadme.trimEnd()}\n\n${README_PERFORMANCE_HISTORY_HEADING}\n\n${historyEntry}\n`;
+}
 
-  await writeFile(readmePath, nextReadme, 'utf8');
+function extractReadmePerformanceHistoryEntries(readme: string): string[] {
+  const sectionStart = readme.indexOf(README_PERFORMANCE_HISTORY_HEADING);
+
+  if (sectionStart < 0) {
+    return [];
+  }
+
+  const sectionBody = readme.slice(sectionStart + README_PERFORMANCE_HISTORY_HEADING.length);
+  const entryPattern = /### [^\n]+\n\n```text\n[\s\S]*?\n```/g;
+
+  return [...sectionBody.matchAll(entryPattern)].map((match) => match[0].trim());
+}
+
+function updateReadmePerformanceHistory(readme: string, nextEntry: string): string {
+  const headingIndex = readme.indexOf(README_PERFORMANCE_HISTORY_HEADING);
+  const baseReadme = headingIndex < 0 ? readme : readme.slice(0, headingIndex);
+  const historyEntries = [
+    ...extractReadmePerformanceHistoryEntries(readme),
+    nextEntry,
+  ].slice(-README_PERFORMANCE_HISTORY_ENTRY_LIMIT);
+
+  return `${baseReadme.trimEnd()}\n\n${README_PERFORMANCE_HISTORY_HEADING}\n\n${README_PERFORMANCE_HISTORY_NOTE}\n\n${historyEntries.join('\n\n')}\n`;
 }
 
 function getVisibleVertexCount(benchmark: BenchmarkState): number {
@@ -2101,6 +2131,46 @@ function runCameraUnitTests(): void {
   assert.ok(
     Math.abs(worldAfterZoom.y - worldBeforeZoom.y) < 0.0001,
     'Zooming around a screen point should preserve world Y at the anchor.',
+  );
+}
+
+function runReadmePerformanceHistoryUnitTests(): void {
+  const entryA = buildReadmePerformanceHistoryEntry('2026-03-25T20:00:00.000Z', 'strategy=baseline labels=1024');
+  const entryB = buildReadmePerformanceHistoryEntry('2026-03-25T21:00:00.000Z', 'strategy=instanced labels=1024');
+  const entryC = buildReadmePerformanceHistoryEntry('2026-03-25T22:00:00.000Z', 'strategy=packed labels=1024');
+  const entryD = buildReadmePerformanceHistoryEntry('2026-03-25T23:00:00.000Z', 'strategy=chunked labels=1024');
+  const existingReadme = [
+    '# Linker',
+    '',
+    'Intro text.',
+    '',
+    README_PERFORMANCE_HISTORY_HEADING,
+    '',
+    README_PERFORMANCE_HISTORY_NOTE,
+    '',
+    entryA,
+    '',
+    entryB,
+    '',
+    entryC,
+    '',
+  ].join('\n');
+  const nextReadme = updateReadmePerformanceHistory(existingReadme, entryD);
+
+  assert.deepEqual(
+    extractReadmePerformanceHistoryEntries(nextReadme),
+    [entryB, entryC, entryD],
+    'README performance history should keep only the three most recent entries.',
+  );
+  assert.match(
+    nextReadme,
+    new RegExp(README_PERFORMANCE_HISTORY_NOTE.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')),
+    'README performance history should include its retention note.',
+  );
+  assert.equal(
+    (nextReadme.match(new RegExp(README_PERFORMANCE_HISTORY_HEADING, 'g')) ?? []).length,
+    1,
+    'README performance history should keep a single heading after rewrites.',
   );
 }
 
