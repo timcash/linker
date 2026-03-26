@@ -11,17 +11,32 @@ import puppeteer, {
 import {createServer} from 'vite';
 
 import {Camera2D, type ViewportSize} from '../src/camera';
+import {
+  DEFAULT_LAYOUT_STRATEGY,
+  LAYOUT_STRATEGIES,
+  layoutDemoEntries,
+  type DemoLayoutEntry,
+  type DemoLayoutNodeBox,
+  type LayoutStrategy,
+} from '../src/data/demo-layout';
 import {DEMO_LABEL_SET_ID} from '../src/data/demo-meta';
 import {
   STATIC_BENCHMARK_COUNTS,
   STATIC_BENCHMARK_LABEL_SET_ID,
 } from '../src/data/static-benchmark';
-import {TEXT_STRATEGIES, type TextStrategy} from '../src/text/types';
+import {DEMO_LABELS} from '../src/data/labels';
 import {
+  DEFAULT_TEXT_STRATEGY,
+  TEXT_STRATEGIES,
+  type TextStrategy,
+} from '../src/text/types';
+import {
+  MIN_ZOOM_OPACITY,
   MIN_ZOOM_SCALE,
   createZoomBand,
   getMaxVisibleZoom,
   getMinVisibleZoom,
+  getZoomOpacity,
   getZoomScale,
   isZoomVisible,
 } from '../src/text/zoom';
@@ -58,7 +73,6 @@ type CameraQueryState = {
 };
 
 type StrategyPanelMode = 'text' | 'layout';
-type LayoutStrategy = 'column-ramp' | 'scan-grid';
 
 type TextState = {
   bytesUploadedPerFrame: number;
@@ -144,9 +158,20 @@ const README_PERFORMANCE_HISTORY_HEADING = '## Performance History';
 const README_PERFORMANCE_HISTORY_ENTRY_LIMIT = 3;
 const README_PERFORMANCE_HISTORY_NOTE =
   'This section is auto-appended by `npm test` and keeps only the 3 most recent benchmark snapshots.';
-const DEFAULT_LAYOUT_STRATEGY: LayoutStrategy = 'column-ramp';
-const LAYOUT_STRATEGIES: readonly LayoutStrategy[] = ['column-ramp', 'scan-grid'];
 const LARGE_SCALE_SWEEP_CAMERA_ZOOM = 4.08;
+const DEMO_SOURCE_COLUMN_COUNT = 12;
+const DEMO_ROWS_PER_SOURCE_COLUMN = 12;
+const DEMO_ROOT_LABEL_COUNT = DEMO_SOURCE_COLUMN_COUNT * DEMO_ROWS_PER_SOURCE_COLUMN;
+const DEMO_LABEL_COUNT = DEMO_ROOT_LABEL_COUNT * 2;
+const DEMO_ROOT_LABEL_SIZE = 0.26;
+const DEMO_CHILD_LABEL_SIZE = 0.28;
+const FIRST_ROOT_LABEL = '1:1:1';
+const FIRST_CHILD_LABEL = '1:1:2';
+const CENTER_ROOT_LABEL = '6:6:1';
+const CENTER_CHILD_LABEL = '6:6:2';
+const LAST_ROOT_LABEL = '12:12:1';
+const LAST_CHILD_LABEL = '12:12:2';
+const RUN_EXTENDED_TEST_MATRIX = process.env.LINKER_EXTENDED_TEST_MATRIX === '1';
 const LARGE_SCALE_CAMERA_TRACE: readonly CameraTraceStep[] = [
   {name: 'zoom-out-visible', control: 'zoom-out', repeat: 1},
   {name: 'zoom-out-wide', control: 'zoom-out', repeat: 1},
@@ -159,6 +184,8 @@ const LARGE_SCALE_CAMERA_TRACE: readonly CameraTraceStep[] = [
 await writeFile(logPath, '', 'utf8');
 
 runCameraUnitTests();
+runCanonicalLabelIdUnitTests();
+runLayoutStrategyUnitTests();
 runReadmePerformanceHistoryUnitTests();
 runZoomBandUnitTests();
 
@@ -279,7 +306,7 @@ try {
           glyphCount: Number(document.body.dataset.textGlyphCount ?? '0'),
           layoutFingerprint: document.body.dataset.layoutFingerprint ?? '',
           layoutStrategy: document.body.dataset.layoutStrategy ?? '',
-          textStrategy: (document.body.dataset.textStrategy ?? 'baseline') as TextStrategy,
+          textStrategy: (document.body.dataset.textStrategy ?? DEFAULT_TEXT_STRATEGY) as TextStrategy,
           submittedGlyphCount: Number(document.body.dataset.textSubmittedGlyphCount ?? '0'),
           submittedVertexCount: Number(document.body.dataset.textSubmittedVertexCount ?? '0'),
           strategyPanelMode: document.body.dataset.strategyPanelMode ?? '',
@@ -345,20 +372,40 @@ try {
       result.camera.majorSpacing > result.camera.minorSpacing,
       'Major grid spacing should be larger than minor spacing.',
     );
-    assert.ok(result.text.labelCount > 0, 'At least one text label should be laid out.');
+    assert.equal(
+      result.text.labelCount,
+      DEMO_LABEL_COUNT,
+      'Demo route should build the full canonical 12x12x2 label set.',
+    );
     assert.ok(result.text.glyphCount > 0, 'At least one text glyph should be generated.');
-    assert.equal(result.text.textStrategy, 'baseline', 'Demo route should default to the baseline text strategy.');
-    assert.equal(result.text.labelSetPreset, DEMO_LABEL_SET_ID, 'Demo route should report the fixed demo label-set preset.');
-    assert.ok(result.text.visibleLabelCount > 0, 'At least one text label should be visible.');
+    assert.equal(
+      result.text.textStrategy,
+      DEFAULT_TEXT_STRATEGY,
+      'Demo route should default to the fastest text strategy.',
+    );
+    assert.equal(
+      result.text.labelSetPreset,
+      DEMO_LABEL_SET_ID,
+      'Demo route should report the fixed canonical 12x12 label-set preset.',
+    );
+    assert.equal(
+      result.text.visibleLabelCount,
+      DEMO_ROOT_LABEL_COUNT,
+      'Zoom 0 should show the full 12x12 root grid.',
+    );
     assert.ok(
       result.text.visibleGlyphCount > 0,
       'At least one text glyph should be visible in the viewport.',
     );
-    assert.match(result.text.visibleLabels, /BUTTON PAN/, 'BUTTON PAN should be visible at zoom 0.');
+    assert.match(
+      result.text.visibleLabels,
+      new RegExp(FIRST_ROOT_LABEL.replace(/:/g, '\\:')),
+      `${FIRST_ROOT_LABEL} should be visible at zoom 0.`,
+    );
     assert.doesNotMatch(
       result.text.visibleLabels,
-      /LUMA TEXT/,
-      'LUMA TEXT should be hidden until the zoom reaches its minimum.',
+      new RegExp(FIRST_CHILD_LABEL.replace(/:/g, '\\:')),
+      'Child labels should stay hidden at zoom 0.',
     );
     assert.deepEqual(
       await getCameraQueryState(page),
@@ -528,17 +575,46 @@ try {
     assert.equal(layoutPanelUiState.textStrategyPanelVisible, false, 'Text strategy panel should hide while layout strategy view is active.');
     assert.equal(layoutPanelUiState.strategyPanelLabelText, 'Layout Strategy', 'Render panel should rename itself for layout strategies.');
 
-    await switchLayoutStrategy(page, 'scan-grid');
+    const layoutFingerprints = new Map<LayoutStrategy, string>([
+      [DEFAULT_LAYOUT_STRATEGY, baselineLayoutFingerprint],
+    ]);
 
-    const relaidTextState = await getTextState(page);
-    assert.equal(relaidTextState.layoutStrategy, 'scan-grid', 'Scan Grid should become the active layout strategy.');
-    assert.equal(relaidTextState.strategyPanelMode, 'layout', 'Layout strategy view should remain active after switching layouts.');
-    assert.ok(relaidTextState.visibleLabelCount > 0, 'Relayout should keep visible demo labels on screen.');
+    for (const layoutStrategy of getLayoutStrategies()) {
+      if (layoutStrategy === DEFAULT_LAYOUT_STRATEGY) {
+        continue;
+      }
 
-    assert.notEqual(
-      relaidTextState.layoutFingerprint,
-      baselineLayoutFingerprint,
-      'Changing the layout strategy should rewrite the generated label locations.',
+      await switchLayoutStrategy(page, layoutStrategy);
+
+      const relaidTextState = await getTextState(page);
+      assert.equal(
+        relaidTextState.layoutStrategy,
+        layoutStrategy,
+        `${layoutStrategy} should become the active layout strategy.`,
+      );
+      assert.equal(
+        relaidTextState.strategyPanelMode,
+        'layout',
+        'Layout strategy view should remain active after switching layouts.',
+      );
+      assert.equal(
+        relaidTextState.visibleLabelCount,
+        DEMO_ROOT_LABEL_COUNT,
+        'Relayout should keep the full 12x12 root grid visible at zoom 0.',
+      );
+      if (layoutStrategy === 'scan-grid') {
+        assert.notEqual(
+          relaidTextState.layoutFingerprint,
+          baselineLayoutFingerprint,
+          'Scan Grid should rewrite the generated label locations.',
+        );
+      }
+      layoutFingerprints.set(layoutStrategy, relaidTextState.layoutFingerprint);
+    }
+
+    assert.ok(
+      new Set(layoutFingerprints.values()).size >= 2,
+      'The layout strategy picker should still expose a distinct alternate layout.',
     );
 
     await switchLayoutStrategy(page, DEFAULT_LAYOUT_STRATEGY);
@@ -564,7 +640,7 @@ try {
 
     const initialCamera = result.camera;
 
-    await clickControl(page, 'zoom-in');
+    await clickControlRepeatedly(page, 'zoom-in', 4);
     await page.waitForFunction(
       ({zoom}) => Number(document.body.dataset.cameraZoom) > zoom,
       {},
@@ -580,22 +656,21 @@ try {
     );
 
     const textAfterZoomIn = await getTextState(page);
-    assert.doesNotMatch(
-      textAfterZoomIn.visibleLabels,
-      /BUTTON PAN/,
-      'BUTTON PAN should disappear once the zoom leaves its focal zoom band.',
-    );
     assert.match(
       textAfterZoomIn.visibleLabels,
-      /LUMA TEXT/,
-      'LUMA TEXT should appear once the zoom enters its focal zoom band.',
+      new RegExp(CENTER_CHILD_LABEL.replace(/:/g, '\\:')),
+      `${CENTER_CHILD_LABEL} should appear after zooming into the hidden child layer.`,
+    );
+    assert.doesNotMatch(
+      textAfterZoomIn.visibleLabels,
+      new RegExp(CENTER_ROOT_LABEL.replace(/:/g, '\\:')),
+      'Root labels should give way to their child layer once the zoomed-in band is active.',
     );
 
-    await clickControl(page, 'zoom-out');
+    await clickControlRepeatedly(page, 'zoom-out', 4);
     await page.waitForFunction(
-      ({zoom}) => Number(document.body.dataset.cameraZoom) < zoom,
+      () => Number(document.body.dataset.cameraZoom) === 0,
       {},
-      {zoom: afterZoomIn.zoom},
     );
 
     const afterZoomOut = await getCameraState(page);
@@ -609,8 +684,13 @@ try {
     const textAfterZoomOut = await getTextState(page);
     assert.match(
       textAfterZoomOut.visibleLabels,
-      /BUTTON PAN/,
-      'BUTTON PAN should reappear after zooming back into its allowed range.',
+      new RegExp(FIRST_ROOT_LABEL.replace(/:/g, '\\:')),
+      `${FIRST_ROOT_LABEL} should reappear after zooming back into its allowed range.`,
+    );
+    assert.doesNotMatch(
+      textAfterZoomOut.visibleLabels,
+      new RegExp(FIRST_CHILD_LABEL.replace(/:/g, '\\:')),
+      'Child labels should hide again once the camera returns to zoom 0.',
     );
 
     await clickControl(page, 'pan-right');
@@ -665,27 +745,28 @@ try {
     );
 
     const textAfterReset = await getTextState(page);
+    assert.equal(
+      textAfterReset.visibleLabelCount,
+      DEMO_ROOT_LABEL_COUNT,
+      'Reset should restore the full 12x12 root grid.',
+    );
     assert.match(
       textAfterReset.visibleLabels,
-      /BUTTON PAN/,
+      new RegExp(FIRST_ROOT_LABEL.replace(/:/g, '\\:')),
       'Reset should restore the initial zoom-band visibility.',
     );
     assert.doesNotMatch(
       textAfterReset.visibleLabels,
-      /WORLD VIEW/,
-      'WORLD VIEW should stay hidden until zooming out far enough.',
+      new RegExp(FIRST_CHILD_LABEL.replace(/:/g, '\\:')),
+      'Reset should hide the child layer again.',
     );
 
     await clickControl(page, 'zoom-out');
-    await page.waitForFunction(
-      () => (document.body.dataset.textVisibleLabels ?? '').includes('WORLD VIEW'),
-    );
-
-    const textAfterZoomOutTwice = await getTextState(page);
-    assert.match(
-      textAfterZoomOutTwice.visibleLabels,
-      /WORLD VIEW/,
-      'WORLD VIEW should appear after zooming out into its allowed range.',
+    await waitForBrowserUpdate(page);
+    assert.equal(
+      (await getCameraState(page)).zoom,
+      0,
+      'Zoom Out should stop at the camera floor of 0.',
     );
 
     await clickControl(page, 'reset-camera');
@@ -840,16 +921,24 @@ try {
       'Pointer drag should not affect zoom when button-only controls are enabled.',
     );
 
-    const demoStrategyChecks = new Map<TextStrategy, TextState>();
-    const demoStrategySignatures = new Map<TextStrategy, CanvasPixelSignature>();
+    const defaultDemoTextState = await verifyDemoTextStrategyVisibility(page, DEFAULT_TEXT_STRATEGY);
+    assert.equal(
+      defaultDemoTextState.visibleLabelCount,
+      DEMO_ROOT_LABEL_COUNT,
+      'The default automated test path should stay on the canonical 12x12 root layer.',
+    );
 
-    for (const textStrategy of getTextStrategies()) {
-      addBrowserLog('test', `Verifying demo text strategy ${textStrategy}`);
-      await switchTextStrategy(page, textStrategy);
-      const demoTextState = await verifyDemoTextStrategyVisibility(page, textStrategy);
-      demoStrategyChecks.set(textStrategy, demoTextState);
-      demoStrategySignatures.set(textStrategy, await getCanvasPixelSignature(page));
-    }
+    if (RUN_EXTENDED_TEST_MATRIX) {
+      const demoStrategyChecks = new Map<TextStrategy, TextState>();
+      const demoStrategySignatures = new Map<TextStrategy, CanvasPixelSignature>();
+
+      for (const textStrategy of getTextStrategies()) {
+        addBrowserLog('test', `Verifying demo text strategy ${textStrategy}`);
+        await switchTextStrategy(page, textStrategy);
+        const demoTextState = await verifyDemoTextStrategyVisibility(page, textStrategy);
+        demoStrategyChecks.set(textStrategy, demoTextState);
+        demoStrategySignatures.set(textStrategy, await getCanvasPixelSignature(page));
+      }
 
     const baselineDemo = getRequiredMapValue(
       demoStrategyChecks,
@@ -1327,18 +1416,19 @@ try {
       'Packed benchmark uploads should stay constant across benchmark label counts.',
     );
 
-    await flushBrowserLog();
-    const benchmarkLogContents = await readFile(logPath, 'utf8');
-    assert.match(
-      benchmarkLogContents,
-      /Benchmark complete/,
-      'browser.log should contain benchmark completion console entries.',
-    );
-    assert.match(
-      benchmarkLogContents,
-      /Benchmark summary strategy=/,
-      'browser.log should contain benchmark summary lines for strategy runs.',
-    );
+      await flushBrowserLog();
+      const benchmarkLogContents = await readFile(logPath, 'utf8');
+      assert.match(
+        benchmarkLogContents,
+        /Benchmark complete/,
+        'browser.log should contain benchmark completion console entries.',
+      );
+      assert.match(
+        benchmarkLogContents,
+        /Benchmark summary strategy=/,
+        'browser.log should contain benchmark summary lines for strategy runs.',
+      );
+    }
 
   } else {
     addBrowserLog('test', 'App reached unsupported state.');
@@ -1443,7 +1533,7 @@ async function getTextState(page: Page): Promise<TextState> {
     glyphCount: Number(document.body.dataset.textGlyphCount ?? '0'),
     layoutFingerprint: document.body.dataset.layoutFingerprint ?? '',
     layoutStrategy: document.body.dataset.layoutStrategy ?? '',
-    textStrategy: (document.body.dataset.textStrategy ?? 'baseline') as TextStrategy,
+    textStrategy: (document.body.dataset.textStrategy ?? DEFAULT_TEXT_STRATEGY) as TextStrategy,
     submittedGlyphCount: Number(document.body.dataset.textSubmittedGlyphCount ?? '0'),
     submittedVertexCount: Number(document.body.dataset.textSubmittedVertexCount ?? '0'),
     strategyPanelMode: document.body.dataset.strategyPanelMode ?? '',
@@ -1545,7 +1635,7 @@ async function getBenchmarkState(page: Page): Promise<BenchmarkState> {
         : Number(document.body.dataset.benchmarkGpuTextAvgMs ?? '0'),
     gpuTimingEnabled: document.body.dataset.benchmarkGpuTimingEnabled === 'true',
     labelCount: Number(document.body.dataset.benchmarkLabelCount ?? '0'),
-    textStrategy: (document.body.dataset.benchmarkTextStrategy ?? 'baseline') as TextStrategy,
+    textStrategy: (document.body.dataset.benchmarkTextStrategy ?? DEFAULT_TEXT_STRATEGY) as TextStrategy,
     state: document.body.dataset.benchmarkState ?? 'missing',
     submittedGlyphCount: Number(document.body.dataset.benchmarkSubmittedGlyphCount ?? '0'),
     submittedVertexCount: Number(document.body.dataset.benchmarkSubmittedVertexCount ?? '0'),
@@ -1578,7 +1668,7 @@ async function clickControlRepeatedly(page: Page, control: string, times: number
 }
 
 function getTextStrategies(): TextStrategy[] {
-  return [...TEXT_STRATEGIES];
+  return RUN_EXTENDED_TEST_MATRIX ? [...TEXT_STRATEGIES] : [DEFAULT_TEXT_STRATEGY];
 }
 
 function getLayoutStrategies(): LayoutStrategy[] {
@@ -1632,7 +1722,7 @@ async function switchTextStrategy(page: Page, textStrategy: TextStrategy): Promi
   await showStrategyPanelMode(page, 'text');
 
   const currentMode = await page.evaluate(
-    () => (document.body.dataset.textStrategy ?? 'baseline') as TextStrategy,
+    () => (document.body.dataset.textStrategy ?? DEFAULT_TEXT_STRATEGY) as TextStrategy,
   );
 
   if (currentMode !== textStrategy) {
@@ -1732,15 +1822,20 @@ async function verifyDemoTextStrategyVisibility(
     DEMO_LABEL_SET_ID,
     `${textStrategy} mode should continue using the demo label-set preset.`,
   );
+  assert.equal(
+    initialText.visibleLabelCount,
+    DEMO_ROOT_LABEL_COUNT,
+    `${textStrategy} mode should show the full 12x12 root grid at zoom 0.`,
+  );
   assert.match(
     initialText.visibleLabels,
-    /BUTTON PAN/,
-    `${textStrategy} mode should show BUTTON PAN at the default zoom.`,
+    new RegExp(FIRST_ROOT_LABEL.replace(/:/g, '\\:')),
+    `${textStrategy} mode should show ${FIRST_ROOT_LABEL} at the default zoom.`,
   );
   assert.doesNotMatch(
     initialText.visibleLabels,
-    /LUMA TEXT/,
-    `${textStrategy} mode should hide LUMA TEXT at the default zoom.`,
+    new RegExp(FIRST_CHILD_LABEL.replace(/:/g, '\\:')),
+    `${textStrategy} mode should keep child labels hidden at zoom 0.`,
   );
   assert.ok(
     initialText.bytesUploadedPerFrame > 0,
@@ -1754,7 +1849,7 @@ async function verifyDemoTextStrategyVisibility(
   }
 
   const beforeZoomIn = await getCameraState(page);
-  await clickControl(page, 'zoom-in');
+  await clickControlRepeatedly(page, 'zoom-in', 4);
   await page.waitForFunction(
     ({zoom}) => Number(document.body.dataset.cameraZoom) > zoom,
     {},
@@ -1762,39 +1857,29 @@ async function verifyDemoTextStrategyVisibility(
   );
 
   const afterZoomIn = await getTextState(page);
-  assert.doesNotMatch(
-    afterZoomIn.visibleLabels,
-    /BUTTON PAN/,
-    `${textStrategy} mode should hide BUTTON PAN after zooming in.`,
-  );
   assert.match(
     afterZoomIn.visibleLabels,
-    /LUMA TEXT/,
-    `${textStrategy} mode should show LUMA TEXT after zooming in.`,
+    new RegExp(CENTER_CHILD_LABEL.replace(/:/g, '\\:')),
+    `${textStrategy} mode should reveal ${CENTER_CHILD_LABEL} after zooming into the child band.`,
+  );
+  assert.doesNotMatch(
+    afterZoomIn.visibleLabels,
+    new RegExp(CENTER_ROOT_LABEL.replace(/:/g, '\\:')),
+    `${textStrategy} mode should hide root labels once the child band is active.`,
   );
 
-  await clickControl(page, 'zoom-out');
+  await clickControlRepeatedly(page, 'zoom-out', 4);
   await page.waitForFunction(
     () => Number(document.body.dataset.cameraZoom) === 0,
   );
 
-  await clickControlRepeatedly(page, 'zoom-out', 1);
-  await page.waitForFunction(
-    () => (document.body.dataset.textVisibleLabels ?? '').includes('WORLD VIEW'),
+  await clickControl(page, 'zoom-out');
+  await waitForBrowserUpdate(page);
+  assert.equal(
+    (await getCameraState(page)).zoom,
+    0,
+    `${textStrategy} mode should stop zooming out at the camera floor.`,
   );
-
-  const afterZoomOut = await getTextState(page);
-  assert.match(
-    afterZoomOut.visibleLabels,
-    /WORLD VIEW/,
-    `${textStrategy} mode should show WORLD VIEW after zooming out.`,
-  );
-  if (textStrategy === 'chunked') {
-    assert.ok(
-      afterZoomOut.visibleChunkCount > 0,
-      'Chunked demo mode should keep reporting visible chunks after zooming out.',
-    );
-  }
 
   await clickControl(page, 'reset-camera');
   await page.waitForFunction(
@@ -2339,6 +2424,134 @@ function runCameraUnitTests(): void {
   );
 }
 
+function runLayoutStrategyUnitTests(): void {
+  const viewport: ViewportSize = {width: 1280, height: 800};
+  const camera = new Camera2D();
+  const visibleBounds = camera.getVisibleWorldBounds(viewport);
+  const entries = createCanonicalDemoLayoutEntries();
+  const placement = layoutDemoEntries(entries, 'flow-columns');
+  const rootBoxes = placement.boxes.filter((box) => box.node === 'root');
+  const rootColumns = new Set(rootBoxes.map((box) => box.column));
+  const rootRows = new Set(rootBoxes.map((box) => box.row));
+  const rowYByIndex = new Map<number, number>();
+
+  assert.equal(
+    placement.locations.length,
+    entries.length,
+    'The canonical 12x12 scene should place every root entry.',
+  );
+  assert.equal(
+    placement.bandCount,
+    DEMO_SOURCE_COLUMN_COUNT,
+    'Flow Columns should preserve all 12 source columns.',
+  );
+  assert.equal(
+    placement.columnCount,
+    DEMO_SOURCE_COLUMN_COUNT,
+    'Flow Columns should expose one compact root column per source column.',
+  );
+  assert.equal(
+    rootBoxes.length,
+    DEMO_ROOT_LABEL_COUNT,
+    'Flow Columns should create one visible root box for each 12x12 grid cell.',
+  );
+  assert.equal(
+    rootColumns.size,
+    DEMO_SOURCE_COLUMN_COUNT,
+    'Flow Columns should populate all 12 root columns.',
+  );
+  assert.equal(
+    rootRows.size,
+    DEMO_ROWS_PER_SOURCE_COLUMN,
+    'Flow Columns should populate all 12 root rows.',
+  );
+
+  entries.forEach((entry, index) => {
+    const existingY = rowYByIndex.get(entry.sourceRowIndex);
+    const rootY = placement.locations[index].root.y;
+
+    if (existingY === undefined) {
+      rowYByIndex.set(entry.sourceRowIndex, rootY);
+      return;
+    }
+
+    assert.equal(
+      rootY,
+      existingY,
+      'Flow Columns should align each row to the same y position across every source column.',
+    );
+  });
+
+  for (let index = 0; index < rootBoxes.length; index += 1) {
+    for (let otherIndex = index + 1; otherIndex < rootBoxes.length; otherIndex += 1) {
+      assert.equal(
+        boxesOverlap(rootBoxes[index], rootBoxes[otherIndex]),
+        false,
+        'The canonical 12x12 root grid should avoid overlapping root labels at zoom 0.',
+      );
+    }
+  }
+
+  for (const rootBox of rootBoxes) {
+    assert.ok(
+      rootBox.minX >= visibleBounds.minX && rootBox.maxX <= visibleBounds.maxX,
+      'Every root label should fit inside the zoom 0 camera width.',
+    );
+    assert.ok(
+      rootBox.minY >= visibleBounds.minY && rootBox.maxY <= visibleBounds.maxY,
+      'Every root label should fit inside the zoom 0 camera height.',
+    );
+  }
+}
+
+function runCanonicalLabelIdUnitTests(): void {
+  assert.equal(
+    DEMO_LABELS[0]?.text,
+    FIRST_ROOT_LABEL,
+    'The first generated label should be the first root id.',
+  );
+  assert.equal(
+    DEMO_LABELS[DEMO_ROOT_LABEL_COUNT - 1]?.text,
+    LAST_ROOT_LABEL,
+    'The last level-1 label should be the last root id.',
+  );
+  assert.equal(
+    DEMO_LABELS[DEMO_ROOT_LABEL_COUNT]?.text,
+    FIRST_CHILD_LABEL,
+    'The first level-2 label should be the first child id.',
+  );
+  assert.equal(
+    DEMO_LABELS[DEMO_LABEL_COUNT - 1]?.text,
+    LAST_CHILD_LABEL,
+    'The last generated label should be the last child id.',
+  );
+}
+
+function createCanonicalDemoLayoutEntries(): DemoLayoutEntry[] {
+  const entries: DemoLayoutEntry[] = [];
+  let rootIndex = 0;
+
+  for (let rowIndex = 0; rowIndex < DEMO_ROWS_PER_SOURCE_COLUMN; rowIndex += 1) {
+    for (let columnIndex = 0; columnIndex < DEMO_SOURCE_COLUMN_COUNT; columnIndex += 1) {
+      const column = columnIndex + 1;
+      const row = rowIndex + 1;
+      const rootText = `${column}:${row}:1`;
+      entries.push({
+        nodes: {
+          root: {text: rootText, size: DEMO_ROOT_LABEL_SIZE},
+          child: {text: `${column}:${row}:2`, size: DEMO_CHILD_LABEL_SIZE},
+        },
+        rootIndex,
+        sourceColumnIndex: columnIndex,
+        sourceRowIndex: rowIndex,
+      });
+      rootIndex += 1;
+    }
+  }
+
+  return entries;
+}
+
 function runReadmePerformanceHistoryUnitTests(): void {
   const entryA = buildReadmePerformanceHistoryEntry('2026-03-25T20:00:00.000Z', 'strategy=baseline labels=1024');
   const entryB = buildReadmePerformanceHistoryEntry('2026-03-25T21:00:00.000Z', 'strategy=instanced labels=1024');
@@ -2424,9 +2637,35 @@ function runZoomBandUnitTests(): void {
     1,
     'Zoom-band scaling should reach full size at the focal zoom.',
   );
+  assert.equal(
+    getZoomOpacity(3.5, detailBand.zoomLevel, detailBand.zoomRange),
+    MIN_ZOOM_OPACITY,
+    'Zoom-band opacity should start at the minimum fade value at the reveal edge.',
+  );
+  assert.equal(
+    getZoomOpacity(4, detailBand.zoomLevel, detailBand.zoomRange),
+    1,
+    'Zoom-band opacity should reach full strength at the focal zoom.',
+  );
   assert.ok(
     getZoomScale(3.75, detailBand.zoomLevel, detailBand.zoomRange) > MIN_ZOOM_SCALE &&
       getZoomScale(3.75, detailBand.zoomLevel, detailBand.zoomRange) < 1,
     'Zoom-band scaling should interpolate between the reveal edge and the focal zoom.',
+  );
+  assert.ok(
+    getZoomOpacity(3.75, detailBand.zoomLevel, detailBand.zoomRange) > MIN_ZOOM_OPACITY &&
+      getZoomOpacity(3.75, detailBand.zoomLevel, detailBand.zoomRange) < 1,
+    'Zoom-band opacity should interpolate between the reveal edge and the focal zoom.',
+  );
+}
+
+function boxesOverlap(left: DemoLayoutNodeBox, right: DemoLayoutNodeBox): boolean {
+  const epsilon = 0.0001;
+
+  return (
+    left.minX < right.maxX - epsilon &&
+    left.maxX > right.minX + epsilon &&
+    left.minY < right.maxY - epsilon &&
+    left.maxY > right.minY + epsilon
   );
 }

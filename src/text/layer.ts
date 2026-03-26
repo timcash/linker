@@ -8,18 +8,14 @@ import {layoutLabels} from './layout';
 import {
   getMaxVisibleZoom,
   getMinVisibleZoom,
+  getZoomOpacity,
   getZoomScale,
   isZoomVisible,
+  MIN_ZOOM_OPACITY,
   MIN_ZOOM_SCALE,
 } from './zoom';
-import type {
-  GlyphAtlas,
-  GlyphPlacement,
-  LabelDefinition,
-  TextLayerStats,
-  TextLayout,
-  TextStrategy,
-} from './types';
+import {DEFAULT_TEXT_STRATEGY} from './types';
+import type {GlyphAtlas, GlyphPlacement, LabelDefinition, TextLayerStats, TextLayout, TextStrategy} from './types';
 
 const BASELINE_TEXT_SHADER = /* wgsl */ `
 @group(0) @binding(0) var glyphAtlas: texture_2d<f32>;
@@ -230,6 +226,18 @@ fn getZoomScale(zoom: f32, zoomStyle: vec2<f32>) -> f32 {
   return ${MIN_ZOOM_SCALE} + (1.0 - ${MIN_ZOOM_SCALE}) * emphasis;
 }
 
+fn getZoomOpacity(zoom: f32, zoomStyle: vec2<f32>) -> f32 {
+  let zoomRange = max(zoomStyle.y, 0.0);
+
+  if (zoomRange <= 0.0001) {
+    return 1.0;
+  }
+
+  let emphasis = clamp(1.0 - abs(zoom - zoomStyle.x) / zoomRange, 0.0, 1.0);
+  let smoothedEmphasis = smoothstep(0.0, 1.0, emphasis);
+  return ${MIN_ZOOM_OPACITY} + (1.0 - ${MIN_ZOOM_OPACITY}) * smoothedEmphasis;
+}
+
 @vertex
 fn vertexMain(inputs: VertexInputs) -> FragmentInputs {
   var outputs: FragmentInputs;
@@ -238,6 +246,7 @@ fn vertexMain(inputs: VertexInputs) -> FragmentInputs {
     (camera.center.y - inputs.instanceAnchor.y) * camera.scale + camera.viewportSize.y * 0.5,
   );
   let zoomScale = getZoomScale(camera.zoom, inputs.instanceZoomStyle);
+  let zoomOpacity = getZoomOpacity(camera.zoom, inputs.instanceZoomStyle);
   let scaledOffset = inputs.instanceRect.xy * zoomScale;
   let scaledSize = inputs.instanceRect.zw * zoomScale;
   let rectMin = anchorScreen + scaledOffset;
@@ -257,7 +266,11 @@ fn vertexMain(inputs: VertexInputs) -> FragmentInputs {
 
   outputs.clipPosition = vec4<f32>(screenToClip(screenPosition), 0.0, 1.0);
   outputs.uv = inputs.instanceUvRect.xy + inputs.unitUv * (inputs.instanceUvRect.zw - inputs.instanceUvRect.xy);
-  outputs.color = select(vec4<f32>(0.0), inputs.instanceColor, visible);
+  outputs.color = select(
+    vec4<f32>(0.0),
+    vec4<f32>(inputs.instanceColor.rgb, inputs.instanceColor.a * zoomOpacity),
+    visible,
+  );
   return outputs;
 }
 
@@ -327,6 +340,18 @@ fn getZoomScale(zoom: f32, zoomStyle: vec2<f32>) -> f32 {
   return ${MIN_ZOOM_SCALE} + (1.0 - ${MIN_ZOOM_SCALE}) * emphasis;
 }
 
+fn getZoomOpacity(zoom: f32, zoomStyle: vec2<f32>) -> f32 {
+  let zoomRange = max(zoomStyle.y, 0.0);
+
+  if (zoomRange <= 0.0001) {
+    return 1.0;
+  }
+
+  let emphasis = clamp(1.0 - abs(zoom - zoomStyle.x) / zoomRange, 0.0, 1.0);
+  let smoothedEmphasis = smoothstep(0.0, 1.0, emphasis);
+  return ${MIN_ZOOM_OPACITY} + (1.0 - ${MIN_ZOOM_OPACITY}) * smoothedEmphasis;
+}
+
 @vertex
 fn vertexMain(inputs: VertexInputs) -> FragmentInputs {
   var outputs: FragmentInputs;
@@ -339,6 +364,7 @@ fn vertexMain(inputs: VertexInputs) -> FragmentInputs {
   let uv1 = glyph.uv1AndZoom.xy;
   let zoomStyle = glyph.uv1AndZoom.zw;
   let zoomScale = getZoomScale(camera.zoom, zoomStyle);
+  let zoomOpacity = getZoomOpacity(camera.zoom, zoomStyle);
   let anchorScreen = vec2<f32>(
     (anchor.x - camera.center.x) * camera.scale + camera.viewportSize.x * 0.5,
     (camera.center.y - anchor.y) * camera.scale + camera.viewportSize.y * 0.5,
@@ -347,7 +373,7 @@ fn vertexMain(inputs: VertexInputs) -> FragmentInputs {
 
   outputs.clipPosition = vec4<f32>(screenToClip(screenPosition), 0.0, 1.0);
   outputs.uv = uv0 + inputs.unitUv * (uv1 - uv0);
-  outputs.color = glyph.color;
+  outputs.color = vec4<f32>(glyph.color.rgb, glyph.color.a * zoomOpacity);
   return outputs;
 }
 
@@ -424,6 +450,18 @@ fn getZoomScale(zoom: f32, zoomStyle: vec2<f32>) -> f32 {
   return ${MIN_ZOOM_SCALE} + (1.0 - ${MIN_ZOOM_SCALE}) * emphasis;
 }
 
+fn getZoomOpacity(zoom: f32, zoomStyle: vec2<f32>) -> f32 {
+  let zoomRange = max(zoomStyle.y, 0.0);
+
+  if (zoomRange <= 0.0001) {
+    return 1.0;
+  }
+
+  let emphasis = clamp(1.0 - abs(zoom - zoomStyle.x) / zoomRange, 0.0, 1.0);
+  let smoothedEmphasis = smoothstep(0.0, 1.0, emphasis);
+  return ${MIN_ZOOM_OPACITY} + (1.0 - ${MIN_ZOOM_OPACITY}) * smoothedEmphasis;
+}
+
 @vertex
 fn vertexMain(inputs: VertexInputs) -> FragmentInputs {
   var outputs: FragmentInputs;
@@ -436,6 +474,7 @@ fn vertexMain(inputs: VertexInputs) -> FragmentInputs {
   let uv1 = glyph.uv1AndZoom.xy;
   let zoomStyle = glyph.uv1AndZoom.zw;
   let zoomScale = getZoomScale(camera.zoom, zoomStyle);
+  let zoomOpacity = getZoomOpacity(camera.zoom, zoomStyle);
   let anchorScreen = vec2<f32>(
     (anchor.x - camera.center.x) * camera.scale + camera.viewportSize.x * 0.5,
     (camera.center.y - anchor.y) * camera.scale + camera.viewportSize.y * 0.5,
@@ -444,7 +483,7 @@ fn vertexMain(inputs: VertexInputs) -> FragmentInputs {
 
   outputs.clipPosition = vec4<f32>(screenToClip(screenPosition), 0.0, 1.0);
   outputs.uv = uv0 + inputs.unitUv * (uv1 - uv0);
-  outputs.color = glyph.color;
+  outputs.color = vec4<f32>(glyph.color.rgb, glyph.color.a * zoomOpacity);
   return outputs;
 }
 
@@ -576,7 +615,7 @@ export class TextLayer {
   constructor(
     private readonly device: Device,
     labels: LabelDefinition[],
-    mode: TextStrategy = 'baseline',
+    mode: TextStrategy = DEFAULT_TEXT_STRATEGY,
   ) {
     const characterSet = getCharacterSetFromLabels(labels);
 
@@ -1673,6 +1712,7 @@ function inspectGlyph(
   }
 
   const zoomScale = getZoomScale(camera.zoom, glyph.zoomLevel, glyph.zoomRange);
+  const zoomOpacity = getZoomOpacity(camera.zoom, glyph.zoomLevel, glyph.zoomRange);
   const anchor = camera.worldToScreen({x: glyph.anchorX, y: glyph.anchorY}, viewport);
   const width = glyph.width * zoomScale;
   const height = glyph.height * zoomScale;
@@ -1693,6 +1733,7 @@ function inspectGlyph(
   return {
     ...glyph,
     bottom,
+    color: [glyph.color[0], glyph.color[1], glyph.color[2], glyph.color[3] * zoomOpacity],
     height,
     left,
     right,

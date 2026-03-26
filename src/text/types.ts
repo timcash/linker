@@ -12,6 +12,8 @@ export const TEXT_STRATEGIES = [
 
 export type TextStrategy = (typeof TEXT_STRATEGIES)[number];
 
+export const DEFAULT_TEXT_STRATEGY: TextStrategy = 'packed';
+
 export const TEXT_STRATEGY_OPTIONS = [
   {mode: 'baseline', label: 'Baseline'},
   {mode: 'instanced', label: 'Instanced'},

@@ -21,6 +21,7 @@ import {GridLayer} from './grid';
 import {FrameTelemetry, type FrameTelemetrySnapshot} from './perf';
 import {TextLayer} from './text/layer';
 import {
+  DEFAULT_TEXT_STRATEGY,
   TEXT_STRATEGIES,
   TEXT_STRATEGY_OPTIONS,
   type LabelDefinition,
@@ -934,7 +935,7 @@ function createStageChrome(root: HTMLElement): StageChromeElements {
   const stats = document.createElement('p');
   stats.className = 'status-stats';
   stats.textContent =
-    'layout Column Ramp  |  strategy Baseline  |  center 0.00, 0.00  |  zoom 0.00  |  scale 56.0 px/world';
+    'layout Flow Columns  |  strategy Packed  |  center 0.00, 0.00  |  zoom 0.00  |  scale 56.0 px/world';
   statusPanel.append(stats);
 
   const textStrategyButtonsMarkup = TEXT_STRATEGY_OPTIONS.map(
@@ -1179,7 +1180,7 @@ function isLayoutStrategy(value: string | null | undefined): value is LayoutStra
 }
 
 function parseTextStrategy(value: string | null): TextStrategy {
-  return isTextStrategy(value) ? value : 'baseline';
+  return isTextStrategy(value) ? value : DEFAULT_TEXT_STRATEGY;
 }
 
 function parseLayoutStrategy(value: string | null): LayoutStrategy {
@@ -1188,7 +1189,7 @@ function parseLayoutStrategy(value: string | null): LayoutStrategy {
 
 function syncTextStrategyQueryParam(textStrategy: TextStrategy): void {
   updateRouteSearchParams((searchParams) => {
-    if (textStrategy === 'baseline') {
+    if (textStrategy === DEFAULT_TEXT_STRATEGY) {
       searchParams.delete('textStrategy');
     } else {
       searchParams.set('textStrategy', textStrategy);

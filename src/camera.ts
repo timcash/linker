@@ -28,7 +28,7 @@ export type CameraSnapshot = {
 };
 
 const BASE_PIXELS_PER_WORLD_UNIT = 56;
-const MIN_ZOOM = -4;
+const MIN_ZOOM = 0;
 const MAX_ZOOM = 6;
 const WHEEL_SENSITIVITY = 0.0015;
 

@@ -67,20 +67,26 @@ Useful routes:
 
 - Demo route: `/`
 - Start in a specific layout strategy: `/?layoutStrategy=scan-grid`
-- Start in a specific text strategy: `/?textStrategy=chunked`
+- Start in the measured flow layout: `/?layoutStrategy=flow-columns`
+- Start in a specific text strategy: `/?textStrategy=packed`
 - Start at a specific camera view: `/?cameraCenterX=1.25&cameraCenterY=-2.5&cameraZoom=0.75`
 - Run a benchmark route: `/?labelSet=benchmark&benchmark=1&textStrategy=sdf-visible-index&labelCount=4096&benchmarkFrames=8`
 - Disable GPU timing explicitly: `/?gpuTiming=0`
 
-The default UI boots the demo label-set preset `demo-label-set-v1`, which is sourced from `src/data/demo-label-set.csv`.
+The default UI boots the canonical scene preset `scene-12x12-v1`, which is generated in `src/data/labels.ts`.
 
 ## Deterministic Assets
 
-- Demo label-set id: `demo-label-set-v1`
-- Demo label-set source: `src/data/demo-label-set.csv`
-- Demo layout strategies: `column-ramp` (default) and `scan-grid`
-- Demo label-set default layout: `12` left-to-right columns with `1..12` top-level roots
-- Demo hierarchy depth: every top-level root generates `2` nested zoom-in levels
+- Demo label-set id: `scene-12x12-v1`
+- Demo label-set source: `src/data/labels.ts`
+- Demo layout strategies: `column-ramp`, `scan-grid`, and `flow-columns` (default)
+- Demo label-set shape: `12 x 12 x 2` labels
+- Demo label format: `column:row:level`
+- Demo label-set default layout: `12` source columns with `12` top-level roots per column
+- Demo hierarchy depth: every top-level root generates `1` hidden zoom-in child at the same location
+- Demo camera zoom floor: `0`
+- Demo text-strategy default: `packed`
+- Demo label zooming: zoom `0` shows the full `12 x 12` root grid, and the child layer appears only after zooming in
 - Benchmark label-set id: `static-benchmark-label-set-v2`
 - Benchmark label counts: `1024`, `4096`, `16384`
 - Benchmark route template:
@@ -96,10 +102,12 @@ Never replace the benchmark label set with random or unstable generation.
 The text layer now uses a focal `zoom-band` model instead of hard `minZoom` / `maxZoom` fields.
 
 - each label carries `size`, `zoomLevel`, and `zoomRange`
-- a label is visible when `abs(camera.zoom - zoomLevel) <= zoomRange`
+- a label is submitted when `abs(camera.zoom - zoomLevel) <= zoomRange`
+- label opacity now fades from the band edge toward the focal zoom
 - glyph size scales at runtime from `0.72` at the band edge to `1.0` at the focal zoom
 - shared zoom helpers live in `src/text/zoom.ts`
-- benchmark and demo label builders derive their bands from `createZoomBand(...)`
+- benchmark label builders derive their bands from `createZoomBand(...)`
+- the canonical demo scene uses explicit zoom anchors so the camera floor can stay at `0`
 
 If you change zoom visibility, touch both sides:
 
@@ -168,14 +176,16 @@ Practical guidance:
 - use `chunked` when testing the current best CPU-side visibility path
 - use `sdf-instanced` when you want the instanced path with smoother SDF text shading
 - use `sdf-visible-index` when you want indexed submission plus smoother SDF text shading
-- use `packed` when isolating the cost of near-zero per-frame upload with full-set submission
+- use `packed` as the default path for the canonical `12 x 12` scene
 
 ## Layout Strategies
 
 - `column-ramp`
-  The default demo layout. Preserves the original `12`-column stepped arrangement that fans out from the CSV root order.
+  Rewrites the demo hierarchy into a fixed `12 x 12` source-column ramp.
 - `scan-grid`
   Rewrites the same CSV-sourced hierarchy into a scan-grid arrangement without changing the text inventory, zoom windows, or colors.
+- `flow-columns`
+  The default demo layout. Keeps the full `12 x 12` root grid visible at zoom `0`, while the hidden child layer shares the same anchors and only appears after zooming in.
 
 ## Testing
 
@@ -186,13 +196,15 @@ What the test suite checks:
 - app boot reaches `ready` without unexpected browser errors
 - the `stage-canvas` fills the viewport
 - the four UI panels are present and positioned correctly
-- the default demo route uses the shared preset `demo-label-set-v1`
-- all render-panel buttons switch strategies correctly
-- zoom-band visibility behaves correctly for every text strategy
-- each strategy survives a large-scale `4096` label zoom sweep with visible and fully hidden phases
-- benchmark routes use the shared preset `static-benchmark-label-set-v2`
-- benchmark summaries are collected for `1024`, `4096`, and `16384` labels
+- the default demo route uses the shared preset `scene-12x12-v1`
+- the default route uses the `packed` text strategy
+- zoom `0` shows the full `12 x 12` root grid
+- the hidden child layer appears after zooming in
 - `browser.log` and `browser.png` are written on each run
+
+Optional extended matrix:
+
+- run `LINKER_EXTENDED_TEST_MATRIX=1 npm test` to add the full text-strategy and benchmark comparison sweep back on top of the default canonical-scene test path
 
 Benchmark route template:
 
@@ -230,38 +242,27 @@ Quality gate:
 - `npm run build`
 - `npm test`
 
-## Text CSV File Example
+## Canonical Label Ids
 
-The demo label set is sourced from `src/data/demo-label-set.csv`.
+The default scene is generated, not loaded from a CSV file.
 
-The file format is intentionally simple: one text item per line.
+Every label id uses `column:row:level`, with all values `1`-based.
 
-```csv
-WORLD VIEW
-BUTTON PAN
-STATUS PANEL
-DETAILS PANEL
-RENDER PANEL
-CAMERA PANEL
-STAGE CANVAS
-GRID LAYER
-TEXT LAYER
-FRAME TELEMETRY
-GPU SAMPLE
-CPU SAMPLE
-```
+Examples:
+
+- `1:1:1` = first column, first row, root level
+- `12:12:1` = last root label in the visible zoom-0 grid
+- `1:1:2` = first hidden child label
+- `12:12:2` = last hidden child label
 
 Notes:
 
-- empty lines are ignored
-- wrapping single or double quotes are stripped
-- each CSV row becomes a top-level root label in the demo hierarchy
-- the demo layout fills `12` left-to-right columns with `1..12` roots per column
-- every top-level root automatically gets `2` nested zoom-in labels
-- if the CSV has fewer than `78` root rows, fallback labels are used
-- if the CSV has more than `78` root rows, extra rows are ignored
+- the canonical scene fills `12` source columns with `12` roots per column
+- every root has exactly `1` child at the same anchor
+- zoom `0` shows the full level-`1` grid
+- zooming in swaps visibility to the level-`2` grid
 
-The parsing and placement logic lives in `src/data/labels.ts`.
+The canonical scene generation and placement logic lives in `src/data/labels.ts`.
 
 ## luma.gl Quick Start
 
@@ -300,32 +301,6 @@ If you want to add another text strategy, the shortest path is:
 ## Performance History
 
 This section is auto-appended by `npm test` and keeps only the 3 most recent benchmark snapshots.
-
-### 2026-03-26T00:15:13.178Z
-
-```text
-strategy=baseline labels=1024 glyphs=19968 cpuFrame=4.100ms cpuSamples=12 cpuText=3.708ms cpuDraw=0.292ms gpu=2.245ms gpuSamples=12 gpuText=1.800ms uploaded=1493568B visibleLabels=402 visibleGlyphs=7779 visibleVertices=46674 submittedGlyphs=7779 submittedVertices=46674 visibleChunks=0 labelSetPreset=static-benchmark-label-set-v2
-strategy=instanced labels=1024 glyphs=19968 cpuFrame=3.338ms cpuSamples=13 cpuText=1.808ms cpuDraw=1.446ms gpu=2.306ms gpuSamples=13 gpuText=1.848ms uploaded=373408B visibleLabels=402 visibleGlyphs=7779 visibleVertices=31116 submittedGlyphs=7779 submittedVertices=31116 visibleChunks=0 labelSetPreset=static-benchmark-label-set-v2
-strategy=packed labels=1024 glyphs=19968 cpuFrame=1.125ms cpuSamples=12 cpuText=0.742ms cpuDraw=0.275ms gpu=2.727ms gpuSamples=12 gpuText=2.233ms uploaded=32B visibleLabels=402 visibleGlyphs=7779 visibleVertices=31116 submittedGlyphs=19968 submittedVertices=79872 visibleChunks=0 labelSetPreset=static-benchmark-label-set-v2
-strategy=visible-index labels=1024 glyphs=19968 cpuFrame=1.292ms cpuSamples=12 cpuText=0.883ms cpuDraw=0.275ms gpu=2.293ms gpuSamples=12 gpuText=1.803ms uploaded=31148B visibleLabels=402 visibleGlyphs=7779 visibleVertices=31116 submittedGlyphs=7779 submittedVertices=31116 visibleChunks=0 labelSetPreset=static-benchmark-label-set-v2
-strategy=chunked labels=1024 glyphs=19968 cpuFrame=1.425ms cpuSamples=12 cpuText=0.992ms cpuDraw=0.317ms gpu=2.090ms gpuSamples=12 gpuText=1.640ms uploaded=31148B visibleLabels=402 visibleGlyphs=7779 visibleVertices=31116 submittedGlyphs=7779 submittedVertices=31116 visibleChunks=12 labelSetPreset=static-benchmark-label-set-v2
-strategy=sdf-instanced labels=1024 glyphs=19968 cpuFrame=1.858ms cpuSamples=12 cpuText=1.425ms cpuDraw=0.308ms gpu=2.317ms gpuSamples=12 gpuText=1.817ms uploaded=373424B visibleLabels=402 visibleGlyphs=7779 visibleVertices=31116 submittedGlyphs=7779 submittedVertices=31116 visibleChunks=0 labelSetPreset=static-benchmark-label-set-v2
-strategy=sdf-visible-index labels=1024 glyphs=19968 cpuFrame=1.300ms cpuSamples=12 cpuText=0.875ms cpuDraw=0.325ms gpu=2.491ms gpuSamples=12 gpuText=1.917ms uploaded=31164B visibleLabels=402 visibleGlyphs=7779 visibleVertices=31116 submittedGlyphs=7779 submittedVertices=31116 visibleChunks=0 labelSetPreset=static-benchmark-label-set-v2
-strategy=baseline labels=4096 glyphs=79872 cpuFrame=5.075ms cpuSamples=12 cpuText=4.658ms cpuDraw=0.308ms gpu=3.218ms gpuSamples=12 gpuText=2.796ms uploaded=1738752B visibleLabels=557 visibleGlyphs=9056 visibleVertices=54336 submittedGlyphs=9056 submittedVertices=54336 visibleChunks=0 labelSetPreset=static-benchmark-label-set-v2
-strategy=instanced labels=4096 glyphs=79872 cpuFrame=3.300ms cpuSamples=12 cpuText=2.875ms cpuDraw=0.300ms gpu=2.761ms gpuSamples=12 gpuText=2.328ms uploaded=434704B visibleLabels=557 visibleGlyphs=9056 visibleVertices=36224 submittedGlyphs=9056 submittedVertices=36224 visibleChunks=0 labelSetPreset=static-benchmark-label-set-v2
-strategy=packed labels=4096 glyphs=79872 cpuFrame=2.083ms cpuSamples=12 cpuText=1.667ms cpuDraw=0.308ms gpu=3.149ms gpuSamples=12 gpuText=2.614ms uploaded=32B visibleLabels=557 visibleGlyphs=9056 visibleVertices=36224 submittedGlyphs=79872 submittedVertices=319488 visibleChunks=0 labelSetPreset=static-benchmark-label-set-v2
-strategy=visible-index labels=4096 glyphs=79872 cpuFrame=2.567ms cpuSamples=12 cpuText=2.175ms cpuDraw=0.292ms gpu=2.749ms gpuSamples=12 gpuText=2.322ms uploaded=36256B visibleLabels=557 visibleGlyphs=9056 visibleVertices=36224 submittedGlyphs=9056 submittedVertices=36224 visibleChunks=0 labelSetPreset=static-benchmark-label-set-v2
-strategy=chunked labels=4096 glyphs=79872 cpuFrame=2.142ms cpuSamples=12 cpuText=1.783ms cpuDraw=0.267ms gpu=2.202ms gpuSamples=12 gpuText=1.774ms uploaded=36256B visibleLabels=557 visibleGlyphs=9056 visibleVertices=36224 submittedGlyphs=9056 submittedVertices=36224 visibleChunks=18 labelSetPreset=static-benchmark-label-set-v2
-strategy=sdf-instanced labels=4096 glyphs=79872 cpuFrame=3.042ms cpuSamples=12 cpuText=2.667ms cpuDraw=0.283ms gpu=2.478ms gpuSamples=12 gpuText=2.023ms uploaded=434720B visibleLabels=557 visibleGlyphs=9056 visibleVertices=36224 submittedGlyphs=9056 submittedVertices=36224 visibleChunks=0 labelSetPreset=static-benchmark-label-set-v2
-strategy=sdf-visible-index labels=4096 glyphs=79872 cpuFrame=2.042ms cpuSamples=12 cpuText=1.625ms cpuDraw=0.325ms gpu=2.410ms gpuSamples=12 gpuText=1.947ms uploaded=36272B visibleLabels=557 visibleGlyphs=9056 visibleVertices=36224 submittedGlyphs=9056 submittedVertices=36224 visibleChunks=0 labelSetPreset=static-benchmark-label-set-v2
-strategy=baseline labels=16384 glyphs=319488 cpuFrame=9.917ms cpuSamples=12 cpuText=9.483ms cpuDraw=0.292ms gpu=3.103ms gpuSamples=12 gpuText=2.617ms uploaded=1738752B visibleLabels=557 visibleGlyphs=9056 visibleVertices=54336 submittedGlyphs=9056 submittedVertices=54336 visibleChunks=0 labelSetPreset=static-benchmark-label-set-v2
-strategy=instanced labels=16384 glyphs=319488 cpuFrame=6.225ms cpuSamples=12 cpuText=5.858ms cpuDraw=0.275ms gpu=2.936ms gpuSamples=12 gpuText=2.549ms uploaded=434704B visibleLabels=557 visibleGlyphs=9056 visibleVertices=36224 submittedGlyphs=9056 submittedVertices=36224 visibleChunks=0 labelSetPreset=static-benchmark-label-set-v2
-strategy=packed labels=16384 glyphs=319488 cpuFrame=4.983ms cpuSamples=12 cpuText=4.600ms cpuDraw=0.292ms gpu=4.334ms gpuSamples=12 gpuText=3.942ms uploaded=32B visibleLabels=557 visibleGlyphs=9056 visibleVertices=36224 submittedGlyphs=319488 submittedVertices=1277952 visibleChunks=0 labelSetPreset=static-benchmark-label-set-v2
-strategy=visible-index labels=16384 glyphs=319488 cpuFrame=5.017ms cpuSamples=12 cpuText=4.658ms cpuDraw=0.275ms gpu=2.961ms gpuSamples=12 gpuText=2.497ms uploaded=36256B visibleLabels=557 visibleGlyphs=9056 visibleVertices=36224 submittedGlyphs=9056 submittedVertices=36224 visibleChunks=0 labelSetPreset=static-benchmark-label-set-v2
-strategy=chunked labels=16384 glyphs=319488 cpuFrame=2.975ms cpuSamples=12 cpuText=2.600ms cpuDraw=0.267ms gpu=2.767ms gpuSamples=12 gpuText=2.349ms uploaded=36256B visibleLabels=557 visibleGlyphs=9056 visibleVertices=36224 submittedGlyphs=9056 submittedVertices=36224 visibleChunks=18 labelSetPreset=static-benchmark-label-set-v2
-strategy=sdf-instanced labels=16384 glyphs=319488 cpuFrame=5.483ms cpuSamples=12 cpuText=5.117ms cpuDraw=0.258ms gpu=2.538ms gpuSamples=12 gpuText=2.147ms uploaded=434720B visibleLabels=557 visibleGlyphs=9056 visibleVertices=36224 submittedGlyphs=9056 submittedVertices=36224 visibleChunks=0 labelSetPreset=static-benchmark-label-set-v2
-strategy=sdf-visible-index labels=16384 glyphs=319488 cpuFrame=5.775ms cpuSamples=12 cpuText=5.367ms cpuDraw=0.267ms gpu=2.989ms gpuSamples=12 gpuText=2.545ms uploaded=36272B visibleLabels=557 visibleGlyphs=9056 visibleVertices=36224 submittedGlyphs=9056 submittedVertices=36224 visibleChunks=0 labelSetPreset=static-benchmark-label-set-v2
-```
 
 ### 2026-03-26T00:16:18.215Z
 
