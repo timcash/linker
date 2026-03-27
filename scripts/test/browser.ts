@@ -8,6 +8,7 @@ import {
   DEFAULT_LAYOUT_STRATEGY,
   DEFAULT_TEXT_STRATEGY,
   DEMO_LABEL_SET_ID,
+  FIRST_ROOT_LABEL,
   type BenchmarkState,
   type CameraQueryState,
   type CameraState,
@@ -41,9 +42,19 @@ export async function readAppResult(page: Page): Promise<ReadyResult | NonReadyR
         innerWidth: window.innerWidth,
         innerHeight: window.innerHeight,
         camera: {
+          canMoveDown: document.body.dataset.cameraCanMoveDown === 'true',
+          canMoveLeft: document.body.dataset.cameraCanMoveLeft === 'true',
+          canMoveRight: document.body.dataset.cameraCanMoveRight === 'true',
+          canMoveUp: document.body.dataset.cameraCanMoveUp === 'true',
+          canZoomIn: document.body.dataset.cameraCanZoomIn === 'true',
+          canZoomOut: document.body.dataset.cameraCanZoomOut === 'true',
+          column: Number(document.body.dataset.cameraColumn ?? '0'),
           centerX: Number(document.body.dataset.cameraCenterX ?? '0'),
           centerY: Number(document.body.dataset.cameraCenterY ?? '0'),
+          label: document.body.dataset.cameraLabel ?? '',
+          layer: Number(document.body.dataset.cameraLayer ?? '0'),
           zoom: Number(document.body.dataset.cameraZoom ?? '0'),
+          row: Number(document.body.dataset.cameraRow ?? '0'),
           scale: Number(document.body.dataset.cameraScale ?? '0'),
           lineCount: Number(document.body.dataset.gridLineCount ?? '0'),
           minorSpacing: Number(document.body.dataset.gridMinorSpacing ?? '0'),
@@ -77,9 +88,19 @@ export async function readAppResult(page: Page): Promise<ReadyResult | NonReadyR
 
 export async function getCameraState(page: Page): Promise<CameraState> {
   return page.evaluate(() => ({
+    canMoveDown: document.body.dataset.cameraCanMoveDown === 'true',
+    canMoveLeft: document.body.dataset.cameraCanMoveLeft === 'true',
+    canMoveRight: document.body.dataset.cameraCanMoveRight === 'true',
+    canMoveUp: document.body.dataset.cameraCanMoveUp === 'true',
+    canZoomIn: document.body.dataset.cameraCanZoomIn === 'true',
+    canZoomOut: document.body.dataset.cameraCanZoomOut === 'true',
+    column: Number(document.body.dataset.cameraColumn ?? '0'),
     centerX: Number(document.body.dataset.cameraCenterX ?? '0'),
     centerY: Number(document.body.dataset.cameraCenterY ?? '0'),
+    label: document.body.dataset.cameraLabel ?? '',
+    layer: Number(document.body.dataset.cameraLayer ?? '0'),
     zoom: Number(document.body.dataset.cameraZoom ?? '0'),
+    row: Number(document.body.dataset.cameraRow ?? '0'),
     scale: Number(document.body.dataset.cameraScale ?? '0'),
     lineCount: Number(document.body.dataset.gridLineCount ?? '0'),
     minorSpacing: Number(document.body.dataset.gridMinorSpacing ?? '0'),
@@ -90,6 +111,7 @@ export async function getCameraState(page: Page): Promise<CameraState> {
 export async function getCameraQueryState(page: Page): Promise<CameraQueryState> {
   return page.evaluate(() => {
     const url = new URL(window.location.href);
+    const labelValue = url.searchParams.get('cameraLabel');
     const centerXValue = url.searchParams.get('cameraCenterX');
     const centerYValue = url.searchParams.get('cameraCenterY');
     const zoomValue = url.searchParams.get('cameraZoom');
@@ -98,6 +120,7 @@ export async function getCameraQueryState(page: Page): Promise<CameraQueryState>
     const zoom = zoomValue === null ? null : Number(zoomValue);
 
     return {
+      label: labelValue,
       centerX: Number.isFinite(centerX) ? centerX : null,
       centerY: Number.isFinite(centerY) ? centerY : null,
       zoom: Number.isFinite(zoom) ? zoom : null,
@@ -280,16 +303,23 @@ export async function clickControlRepeatedly(
 
 export async function waitForCameraReset(page: Page): Promise<void> {
   await page.waitForFunction(
-    () =>
-      Number(document.body.dataset.cameraCenterX) === 0 &&
-      Number(document.body.dataset.cameraCenterY) === 0 &&
-      Number(document.body.dataset.cameraZoom) === 0,
+    (label) => document.body.dataset.cameraLabel === label,
+    {},
+    FIRST_ROOT_LABEL,
   );
 }
 
 export async function resetCamera(page: Page): Promise<void> {
   await clickControl(page, 'reset-camera');
   await waitForCameraReset(page);
+}
+
+export async function waitForCameraLabel(page: Page, label: string): Promise<void> {
+  await page.waitForFunction(
+    (expectedLabel) => document.body.dataset.cameraLabel === expectedLabel,
+    {},
+    label,
+  );
 }
 
 export async function selectToggleValue<TValue extends string>(
@@ -442,26 +472,21 @@ export async function verifyDemoTextStrategyVisibility(
     );
   }
 
-  const beforeZoomIn = await getCameraState(page);
-  await clickControlRepeatedly(page, 'zoom-in', 4);
-  await page.waitForFunction(
-    ({zoom}) => Number(document.body.dataset.cameraZoom) > zoom,
-    {},
-    {zoom: beforeZoomIn.zoom},
-  );
+  await clickControl(page, 'zoom-in');
+  await waitForCameraLabel(page, '1:1:2');
 
   const afterZoomIn = await getTextState(page);
   assertDemoChildLayerVisible(afterZoomIn, `${textStrategy} mode after zooming into the child band`);
 
-  await clickControlRepeatedly(page, 'zoom-out', 4);
-  await page.waitForFunction(() => Number(document.body.dataset.cameraZoom) === 0);
+  await clickControl(page, 'zoom-out');
+  await waitForCameraLabel(page, FIRST_ROOT_LABEL);
 
   await clickControl(page, 'zoom-out');
   await waitForBrowserUpdate(page);
   assert.equal(
-    (await getCameraState(page)).zoom,
-    0,
-    `${textStrategy} mode should stop zooming out at the camera floor.`,
+    (await getCameraState(page)).label,
+    FIRST_ROOT_LABEL,
+    `${textStrategy} mode should stop zooming out at the root layer.`,
   );
 
   await resetCamera(page);

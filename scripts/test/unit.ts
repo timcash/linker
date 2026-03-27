@@ -7,6 +7,12 @@ import {
   type DemoLayoutNodeBox,
 } from '../../src/data/demo-layout';
 import {getDemoLinks} from '../../src/data/links';
+import {
+  createLabelNavigationIndex,
+  getLabelNavigationNode,
+  getLabelNavigationTarget,
+  hasLabelNavigationTarget,
+} from '../../src/label-navigation';
 import {sampleLineCurve} from '../../src/line/curves';
 import {DEMO_LABELS} from '../../src/data/labels';
 import {
@@ -59,6 +65,79 @@ export function runCameraUnitTests(): void {
   assert.ok(
     Math.abs(worldAfterZoom.y - worldBeforeZoom.y) < 0.0001,
     'Zooming around a screen point should preserve world Y at the anchor.',
+  );
+}
+
+export function runLabelNavigationUnitTests(): void {
+  const navigationIndex = createLabelNavigationIndex(DEMO_LABELS);
+
+  assert.ok(navigationIndex, 'Demo labels should build a navigation index.');
+
+  if (!navigationIndex) {
+    return;
+  }
+
+  const firstRootNode = getLabelNavigationNode(navigationIndex, FIRST_ROOT_LABEL);
+  assert.ok(firstRootNode, 'The first root label should exist in the navigation index.');
+  assert.equal(firstRootNode?.column, 1, '1:1:1 should report column 1.');
+  assert.equal(firstRootNode?.row, 1, '1:1:1 should report row 1.');
+  assert.equal(firstRootNode?.layer, 1, '1:1:1 should report layer 1.');
+  assert.equal(firstRootNode?.label.text, FIRST_ROOT_LABEL, 'The navigation node should reference the matching label.');
+
+  assert.equal(
+    getLabelNavigationTarget(navigationIndex, FIRST_ROOT_LABEL, 'pan-right')?.key,
+    '2:1:1',
+    'Right should advance to the next column on the same row and layer.',
+  );
+  assert.equal(
+    getLabelNavigationTarget(navigationIndex, '2:2:1', 'pan-up')?.key,
+    '2:1:1',
+    'Up should move to the visually higher row.',
+  );
+  assert.equal(
+    getLabelNavigationTarget(navigationIndex, '2:2:1', 'pan-down')?.key,
+    '2:3:1',
+    'Down should move to the visually lower row.',
+  );
+  assert.equal(
+    getLabelNavigationTarget(navigationIndex, '2:2:1', 'zoom-in')?.key,
+    '2:2:2',
+    'Zoom In should move to the next layer in the same cell.',
+  );
+  assert.equal(
+    getLabelNavigationTarget(navigationIndex, '2:2:2', 'zoom-out')?.key,
+    '2:2:1',
+    'Zoom Out should move to the previous layer in the same cell.',
+  );
+  assert.equal(
+    getLabelNavigationTarget(navigationIndex, FIRST_ROOT_LABEL, 'pan-left')?.key,
+    FIRST_ROOT_LABEL,
+    'Missing left neighbors should no-op.',
+  );
+  assert.equal(
+    getLabelNavigationTarget(navigationIndex, FIRST_ROOT_LABEL, 'zoom-out')?.key,
+    FIRST_ROOT_LABEL,
+    'Zoom Out should no-op at the root layer.',
+  );
+  assert.equal(
+    getLabelNavigationTarget(navigationIndex, LAST_CHILD_LABEL, 'pan-right')?.key,
+    LAST_CHILD_LABEL,
+    'Missing right neighbors should no-op.',
+  );
+  assert.equal(
+    hasLabelNavigationTarget(navigationIndex, FIRST_ROOT_LABEL, 'pan-left'),
+    false,
+    'The first root label should not advertise a left move.',
+  );
+  assert.equal(
+    hasLabelNavigationTarget(navigationIndex, FIRST_ROOT_LABEL, 'zoom-out'),
+    false,
+    'The first root label should not advertise a zoom-out move.',
+  );
+  assert.equal(
+    hasLabelNavigationTarget(navigationIndex, FIRST_ROOT_LABEL, 'zoom-in'),
+    true,
+    'The first root label should advertise a zoom-in move.',
   );
 }
 
@@ -387,6 +466,11 @@ export function runCanonicalLabelIdUnitTests(): void {
     'The first generated label should be the first root id.',
   );
   assert.equal(
+    DEMO_LABELS[0]?.navigation?.key,
+    FIRST_ROOT_LABEL,
+    'The first generated label should retain its navigation key.',
+  );
+  assert.equal(
     DEMO_LABELS[DEMO_ROOT_LABEL_COUNT - 1]?.text,
     LAST_ROOT_LABEL,
     'The last level-1 label should be the last root id.',
@@ -400,6 +484,11 @@ export function runCanonicalLabelIdUnitTests(): void {
     DEMO_LABELS[DEMO_LABEL_COUNT - 1]?.text,
     LAST_CHILD_LABEL,
     'The last generated label should be the last child id.',
+  );
+  assert.equal(
+    DEMO_LABELS[DEMO_LABEL_COUNT - 1]?.navigation?.key,
+    LAST_CHILD_LABEL,
+    'The last generated label should retain its navigation key.',
   );
 }
 

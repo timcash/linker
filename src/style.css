@@ -76,6 +76,18 @@ body {
   justify-self: stretch;
 }
 
+.selection-box {
+  position: absolute;
+  z-index: 1;
+  pointer-events: none;
+  border: 1.5px solid rgb(125 211 252 / 78%);
+  border-radius: 14px;
+  background: rgb(125 211 252 / 8%);
+  box-shadow:
+    0 0 0 1px rgb(125 211 252 / 22%) inset,
+    0 0 22px rgb(56 189 248 / 18%);
+}
+
 .status-panel,
 .strategy-mode-panel,
 .render-panel,

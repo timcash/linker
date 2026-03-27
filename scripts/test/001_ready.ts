@@ -5,6 +5,7 @@ import {
   DEMO_LABEL_COUNT,
   DEMO_LABEL_SET_ID,
   ERROR_PING_TOKEN,
+  FIRST_ROOT_LABEL,
   INTENTIONAL_ERROR_MARKER,
   type BrowserTestContext,
   type ReadyResult,
@@ -95,6 +96,7 @@ export async function runReadyStep(
     DEMO_LABEL_SET_ID,
     'Demo route should report the fixed canonical 12x12 label-set preset.',
   );
+  assert.equal(result.camera.label, FIRST_ROOT_LABEL, 'Default route should focus the first root label.');
   assertDemoRootLayerVisible(result.text, 'Zoom 0');
   assert.ok(
     result.text.visibleGlyphCount > 0,
@@ -102,7 +104,7 @@ export async function runReadyStep(
   );
   assert.deepEqual(
     await getCameraQueryState(page),
-    {centerX: null, centerY: null, zoom: null},
+    {label: null, centerX: null, centerY: null, zoom: null},
     'Default route should omit camera query params.',
   );
 

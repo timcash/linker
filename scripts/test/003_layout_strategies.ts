@@ -2,8 +2,8 @@ import assert from 'node:assert/strict';
 
 import {
   DEFAULT_LAYOUT_STRATEGY,
-  DEMO_ROOT_LABEL_COUNT,
   type BrowserTestContext,
+  assertDemoRootLayerVisible,
   getLayoutStrategies,
   getTextState,
   showStrategyPanelMode,
@@ -68,10 +68,9 @@ export async function runLayoutStrategiesStep(
     'layout',
     'Layout strategy view should remain active after opening the layout panel.',
   );
-  assert.equal(
-    layoutTextState.visibleLabelCount,
-    DEMO_ROOT_LABEL_COUNT,
-    'The remaining layout strategy should keep the full 12x12 root grid visible at zoom 0.',
+  assertDemoRootLayerVisible(
+    layoutTextState,
+    'The remaining layout strategy should preserve root-layer visibility at the current camera focus.',
   );
   assert.equal(
     layoutTextState.layoutFingerprint,

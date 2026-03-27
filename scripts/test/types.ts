@@ -38,9 +38,19 @@ export type NonReadyResult = {
 };
 
 export type CameraState = {
+  canMoveDown: boolean;
+  canMoveLeft: boolean;
+  canMoveRight: boolean;
+  canMoveUp: boolean;
+  canZoomIn: boolean;
+  canZoomOut: boolean;
+  column: number;
   centerX: number;
   centerY: number;
+  label: string;
+  layer: number;
   zoom: number;
+  row: number;
   scale: number;
   lineCount: number;
   minorSpacing: number;
@@ -48,6 +58,7 @@ export type CameraState = {
 };
 
 export type CameraQueryState = {
+  label: string | null;
   centerX: number | null;
   centerY: number | null;
   zoom: number | null;

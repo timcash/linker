@@ -2,6 +2,13 @@ import type {WorldPoint} from '../camera';
 import type {LinkDefinition, LinkPoint, LineStrategy} from './types';
 
 type Vec2 = WorldPoint;
+type SampleLinePointStrategy =
+  | LineStrategy
+  | 'arc-links'
+  | 'cubic-links'
+  | 'fan-links'
+  | 'orbit-links';
+
 const CUBIC_ARC_HANDLE_RATIO = 0.5522847498307936;
 
 export function sampleLineCurve(
@@ -27,7 +34,7 @@ export function sampleLineCurve(
 
 function sampleLinePoint(
   link: LinkDefinition,
-  strategy: LineStrategy,
+  strategy: SampleLinePointStrategy,
   t: number,
 ): Vec2 {
   switch (strategy) {

@@ -4,7 +4,7 @@ import {DynamicTexture, GPUGeometry, Model} from '@luma.gl/engine';
 import {type Camera2D, type ViewportSize} from '../camera';
 import {buildGlyphAtlas} from './atlas';
 import {getCharacterSetFromLabels} from './charset';
-import {layoutLabels} from './layout';
+import {layoutLabels, measureLabelBounds} from './layout';
 import {
   getMaxVisibleZoom,
   getMinVisibleZoom,
@@ -15,7 +15,14 @@ import {
   MIN_ZOOM_SCALE,
 } from './zoom';
 import {DEFAULT_TEXT_STRATEGY} from './types';
-import type {GlyphAtlas, GlyphPlacement, LabelDefinition, TextLayerStats, TextLayout, TextStrategy} from './types';
+import type {
+  GlyphAtlas,
+  GlyphPlacement,
+  LabelDefinition,
+  TextLayerStats,
+  TextLayout,
+  TextStrategy,
+} from './types';
 
 const BASELINE_TEXT_SHADER = /* wgsl */ `
 @group(0) @binding(0) var glyphAtlas: texture_2d<f32>;
@@ -677,6 +684,34 @@ export class TextLayer {
     this.strategy.update(camera, viewport);
   }
 
+  getLabelScreenBounds(
+    label: LabelDefinition,
+    camera: Camera2D,
+    viewport: ViewportSize,
+  ): {bottom: number; height: number; left: number; right: number; top: number; width: number} | null {
+    const bounds = measureLabelBounds(label, this.getActiveResources().atlas);
+
+    if (!isZoomVisible(camera.zoom, bounds.zoomLevel, bounds.zoomRange)) {
+      return null;
+    }
+
+    const zoomScale = getZoomScale(camera.zoom, bounds.zoomLevel, bounds.zoomRange);
+    const anchor = camera.worldToScreen({x: bounds.anchorX, y: bounds.anchorY}, viewport);
+    const left = anchor.x + bounds.minX * zoomScale;
+    const top = anchor.y + bounds.minY * zoomScale;
+    const right = anchor.x + bounds.maxX * zoomScale;
+    const bottom = anchor.y + bounds.maxY * zoomScale;
+
+    return {
+      bottom,
+      height: bottom - top,
+      left,
+      right,
+      top,
+      width: right - left,
+    };
+  }
+
   private createStrategy(mode: TextStrategy): TextLayerStrategy {
     switch (mode) {
       case 'instanced':
@@ -713,6 +748,12 @@ export class TextLayer {
       default:
         return new BaselineTextStrategy(this.device, this.resources.bitmap);
     }
+  }
+
+  private getActiveResources(): PreparedTextResources {
+    return this.mode === 'sdf-instanced' || this.mode === 'sdf-visible-index'
+      ? this.resources.sdf
+      : this.resources.bitmap;
   }
 }
 

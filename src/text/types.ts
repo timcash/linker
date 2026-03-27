@@ -31,9 +31,30 @@ export type LabelLocation = {
   y: number;
 };
 
+export type LabelNavigation = {
+  key: string;
+  column: number;
+  row: number;
+  layer: number;
+};
+
+export type LabelBounds = {
+  anchorX: number;
+  anchorY: number;
+  labelKey: string;
+  labelText: string;
+  maxX: number;
+  maxY: number;
+  minX: number;
+  minY: number;
+  zoomLevel: number;
+  zoomRange: number;
+};
+
 export type LabelDefinition = {
   color?: RgbaColor;
   location: LabelLocation;
+  navigation?: LabelNavigation;
   size: number;
   text: string;
   zoomLevel: number;

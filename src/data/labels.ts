@@ -134,9 +134,18 @@ function createDemoRootLabel(
   entry: DemoLabelEntry,
   locations: DemoHierarchyLocations,
 ): LabelDefinition {
+  const column = entry.layoutEntry.sourceColumnIndex + 1;
+  const row = entry.layoutEntry.sourceRowIndex + 1;
+
   return {
     text: entry.hierarchyTexts.root,
     location: locations.root,
+    navigation: {
+      key: entry.hierarchyTexts.root,
+      column,
+      row,
+      layer: 1,
+    },
     size: entry.rootWindow.size,
     zoomLevel: entry.rootWindow.zoomLevel,
     zoomRange: entry.rootWindow.zoomRange,
@@ -148,9 +157,18 @@ function createDemoChildLabel(
   entry: DemoLabelEntry,
   locations: DemoHierarchyLocations,
 ): LabelDefinition {
+  const column = entry.layoutEntry.sourceColumnIndex + 1;
+  const row = entry.layoutEntry.sourceRowIndex + 1;
+
   return {
     text: entry.hierarchyTexts.child,
     location: locations.child,
+    navigation: {
+      key: entry.hierarchyTexts.child,
+      column,
+      row,
+      layer: 2,
+    },
     size: entry.childWindow.size,
     zoomLevel: entry.childWindow.zoomLevel,
     zoomRange: entry.childWindow.zoomRange,

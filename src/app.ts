@@ -19,6 +19,15 @@ import {
   getStaticBenchmarkLabels,
 } from './data/static-benchmark';
 import {GridLayer} from './grid';
+import {
+  createLabelNavigationIndex,
+  getLabelNavigationNode,
+  getLabelNavigationTarget,
+  hasLabelNavigationTarget,
+  resolveLabelNavigationKey,
+  type LabelNavigationIndex,
+  type LabelNavigationNode,
+} from './label-navigation';
 import {LineLayer} from './line/layer';
 import {
   DEFAULT_LINE_STRATEGY,
@@ -109,6 +118,7 @@ type StageConfig = {
   benchmarkEnabled: boolean;
   gpuTimingEnabled: boolean;
   initialCamera: CameraView;
+  initialCameraLabel: string | null;
   labelSetKind: LabelSetKind;
   labelSetPreset: string;
   layoutStrategy: LayoutStrategy;
@@ -146,6 +156,7 @@ type StageChromeElements = {
   canvas: HTMLCanvasElement;
   launchBanner: HTMLDivElement;
   renderPanel: HTMLElement;
+  selectionBox: HTMLDivElement;
   stage: HTMLDivElement;
   statusPanel: HTMLElement;
   stats: HTMLParagraphElement;
@@ -169,7 +180,9 @@ export async function startApp(root: HTMLElement): Promise<AppHandle> {
 }
 
 class LumaStageController {
+  private activeDemoLabelKey: string | null = null;
   private device: Device | null = null;
+  private demoNavigationIndex: LabelNavigationIndex | null = null;
   private frameId = 0;
   private backgroundModel: Model | null = null;
   private benchmarkStarted = false;
@@ -197,11 +210,16 @@ class LumaStageController {
     this.layoutStrategy = config.layoutStrategy;
     this.lineStrategy = config.lineStrategy;
     this.textStrategy = config.textStrategy;
-    this.camera.setView(
-      config.initialCamera.centerX,
-      config.initialCamera.centerY,
-      config.initialCamera.zoom,
-    );
+
+    if (config.labelSetKind === 'demo') {
+      this.setDemoNavigationLabels(config.labels, config.initialCameraLabel, false);
+    } else {
+      this.camera.setView(
+        config.initialCamera.centerX,
+        config.initialCamera.centerY,
+        config.initialCamera.zoom,
+      );
+    }
   }
 
   async start(): Promise<void> {
@@ -269,10 +287,11 @@ class LumaStageController {
       this.updateLayoutStrategyButtons();
       this.updateStrategyModeButtons();
       this.updateStrategyPanel();
+      this.updateCameraControlButtons();
       this.chrome.launchBanner.hidden = true;
       this.chrome.canvas.hidden = false;
       this.setState('ready');
-      syncCameraQueryParams(this.camera.getSnapshot());
+      this.syncCurrentCameraQueryParams();
       this.updateStatus();
       this.render();
 
@@ -327,6 +346,7 @@ class LumaStageController {
       const textStartedAt = performance.now();
       this.textLayer.update(this.camera, viewport);
       const textCpuMs = performance.now() - textStartedAt;
+      this.updateSelectionBox(viewport);
 
       const drawStartedAt = performance.now();
       const framebuffer = this.device
@@ -382,10 +402,43 @@ class LumaStageController {
   };
 
   private applyControlAction(action: string): void {
+    if (!isControlAction(action)) {
+      return;
+    }
+
+    const cameraChanged = this.isDemoLabelCameraEnabled()
+      ? this.applyDemoControlAction(action)
+      : this.applyNumericControlAction(action);
+
+    if (cameraChanged) {
+      this.syncCurrentCameraQueryParams();
+    }
+
+    this.updateCameraControlButtons();
+  }
+
+  private applyDemoControlAction(action: ControlAction): boolean {
+    const navigationIndex = this.demoNavigationIndex;
+    const currentKey = this.activeDemoLabelKey;
+
+    if (!navigationIndex || !currentKey) {
+      return false;
+    }
+
+    const targetNode = getLabelNavigationTarget(navigationIndex, currentKey, action);
+
+    if (!targetNode || targetNode.key === currentKey) {
+      return false;
+    }
+
+    return this.setActiveDemoLabelKey(targetNode.key);
+  }
+
+  private applyNumericControlAction(action: ControlAction): boolean {
     const viewport = this.getViewportSize();
     const panX = viewport.width * 0.16;
     const panY = viewport.height * 0.16;
-    let cameraChanged = true;
+    const before = this.camera.getSnapshot();
 
     switch (action) {
       case 'pan-up':
@@ -409,14 +462,79 @@ class LumaStageController {
       case 'reset-camera':
         this.camera.reset();
         break;
-      default:
-        cameraChanged = false;
-        break;
     }
 
-    if (cameraChanged) {
-      syncCameraQueryParams(this.camera.getSnapshot());
+    const after = this.camera.getSnapshot();
+
+    return (
+      before.centerX !== after.centerX ||
+      before.centerY !== after.centerY ||
+      before.zoom !== after.zoom
+    );
+  }
+
+  private setDemoNavigationLabels(
+    labels: LabelDefinition[],
+    requestedLabelKey: string | null,
+    syncQuery: boolean,
+  ): void {
+    const navigationIndex = createLabelNavigationIndex(labels);
+
+    if (!navigationIndex) {
+      throw new Error('Demo label set is missing label navigation metadata.');
     }
+
+    this.demoNavigationIndex = navigationIndex;
+
+    const resolvedKey = resolveLabelNavigationKey(
+      navigationIndex,
+      requestedLabelKey ?? this.activeDemoLabelKey ?? navigationIndex.defaultKey,
+    );
+
+    this.setActiveDemoLabelKey(resolvedKey);
+    this.updateCameraControlButtons();
+
+    if (syncQuery) {
+      this.syncCurrentCameraQueryParams();
+    }
+  }
+
+  private setActiveDemoLabelKey(labelKey: string): boolean {
+    const node = getLabelNavigationNode(this.demoNavigationIndex, labelKey);
+
+    if (!node) {
+      return false;
+    }
+
+    const before = this.camera.getSnapshot();
+
+    this.activeDemoLabelKey = node.key;
+    this.camera.setView(node.label.location.x, node.label.location.y, node.label.zoomLevel);
+
+    const after = this.camera.getSnapshot();
+
+    return (
+      before.centerX !== after.centerX ||
+      before.centerY !== after.centerY ||
+      before.zoom !== after.zoom
+    );
+  }
+
+  private getActiveDemoNavigationNode(): LabelNavigationNode | null {
+    return getLabelNavigationNode(this.demoNavigationIndex, this.activeDemoLabelKey);
+  }
+
+  private isDemoLabelCameraEnabled(): boolean {
+    return this.config.labelSetKind === 'demo' && this.demoNavigationIndex !== null;
+  }
+
+  private syncCurrentCameraQueryParams(): void {
+    if (this.isDemoLabelCameraEnabled() && this.demoNavigationIndex && this.activeDemoLabelKey) {
+      syncDemoCameraQueryParams(this.activeDemoLabelKey, this.demoNavigationIndex.defaultKey);
+      return;
+    }
+
+    syncNumericCameraQueryParams(this.camera.getSnapshot());
   }
 
   private getViewportSize(): ViewportSize {
@@ -549,6 +667,7 @@ class LumaStageController {
     this.config.links = getDemoLinks(mode);
     this.lineLayer.setLinks(this.config.links);
     this.textLayer.setLayoutLabels(this.config.labels);
+    this.setDemoNavigationLabels(this.config.labels, this.activeDemoLabelKey, true);
     this.benchmarkSummary = null;
     document.body.dataset.benchmarkError = '';
     document.body.dataset.benchmarkState = this.config.benchmarkEnabled ? 'pending' : 'disabled';
@@ -654,6 +773,56 @@ class LumaStageController {
       layoutStrategyPanel.hidden =
         this.strategyPanelMode !== 'layout' || this.config.labelSetKind !== 'demo';
     }
+  }
+
+  private updateCameraControlButtons(): void {
+    if (!this.isDemoLabelCameraEnabled() || !this.demoNavigationIndex || !this.activeDemoLabelKey) {
+      for (const button of this.actionButtons) {
+        button.disabled = false;
+      }
+
+      return;
+    }
+
+    for (const button of this.actionButtons) {
+      const action = button.dataset.control;
+
+      if (!isControlAction(action)) {
+        button.disabled = false;
+        continue;
+      }
+
+      button.disabled = !hasLabelNavigationTarget(this.demoNavigationIndex, this.activeDemoLabelKey, action);
+    }
+  }
+
+  private updateSelectionBox(viewport: ViewportSize): void {
+    const activeNode = this.getActiveDemoNavigationNode();
+
+    if (!activeNode || !this.textLayer) {
+      this.chrome.selectionBox.hidden = true;
+      return;
+    }
+
+    const bounds = this.textLayer.getLabelScreenBounds(activeNode.label, this.camera, viewport);
+
+    if (!bounds || bounds.width <= 0 || bounds.height <= 0) {
+      this.chrome.selectionBox.hidden = true;
+      return;
+    }
+
+    const outlinePadding = 8;
+    const left = bounds.left - outlinePadding;
+    const top = bounds.top - outlinePadding;
+    const width = bounds.width + outlinePadding * 2;
+    const height = bounds.height + outlinePadding * 2;
+
+    this.chrome.selectionBox.hidden = false;
+    this.chrome.selectionBox.dataset.label = activeNode.key;
+    this.chrome.selectionBox.style.left = `${left.toFixed(2)}px`;
+    this.chrome.selectionBox.style.top = `${top.toFixed(2)}px`;
+    this.chrome.selectionBox.style.width = `${width.toFixed(2)}px`;
+    this.chrome.selectionBox.style.height = `${height.toFixed(2)}px`;
   }
 
   private installInteractionHandlers(): void {
@@ -870,6 +1039,7 @@ class LumaStageController {
 
   private updateStatus(): void {
     const snapshot = this.camera.getSnapshot();
+    const activeDemoNode = this.getActiveDemoNavigationNode();
     const gridStats = this.gridLayer?.getStats();
     const lineStats = this.lineLayer?.getStats();
     const perf = this.frameTelemetry?.getSnapshot();
@@ -902,11 +1072,45 @@ class LumaStageController {
     const visibleLabels = textStats
       ? formatVisibleLabelSample(textStats.visibleLabels, textStats.visibleLabelCount)
       : '';
+    const cameraCanMoveLeft =
+      activeDemoNode && this.demoNavigationIndex
+        ? hasLabelNavigationTarget(this.demoNavigationIndex, activeDemoNode.key, 'pan-left')
+        : false;
+    const cameraCanMoveRight =
+      activeDemoNode && this.demoNavigationIndex
+        ? hasLabelNavigationTarget(this.demoNavigationIndex, activeDemoNode.key, 'pan-right')
+        : false;
+    const cameraCanMoveUp =
+      activeDemoNode && this.demoNavigationIndex
+        ? hasLabelNavigationTarget(this.demoNavigationIndex, activeDemoNode.key, 'pan-up')
+        : false;
+    const cameraCanMoveDown =
+      activeDemoNode && this.demoNavigationIndex
+        ? hasLabelNavigationTarget(this.demoNavigationIndex, activeDemoNode.key, 'pan-down')
+        : false;
+    const cameraCanZoomIn =
+      activeDemoNode && this.demoNavigationIndex
+        ? hasLabelNavigationTarget(this.demoNavigationIndex, activeDemoNode.key, 'zoom-in')
+        : false;
+    const cameraCanZoomOut =
+      activeDemoNode && this.demoNavigationIndex
+        ? hasLabelNavigationTarget(this.demoNavigationIndex, activeDemoNode.key, 'zoom-out')
+        : false;
 
     document.body.dataset.cameraCenterX = snapshot.centerX.toFixed(4);
     document.body.dataset.cameraCenterY = snapshot.centerY.toFixed(4);
+    document.body.dataset.cameraColumn = activeDemoNode ? String(activeDemoNode.column) : '';
+    document.body.dataset.cameraLabel = activeDemoNode?.key ?? '';
+    document.body.dataset.cameraLayer = activeDemoNode ? String(activeDemoNode.layer) : '';
+    document.body.dataset.cameraRow = activeDemoNode ? String(activeDemoNode.row) : '';
     document.body.dataset.cameraZoom = snapshot.zoom.toFixed(4);
     document.body.dataset.cameraScale = snapshot.pixelsPerWorldUnit.toFixed(4);
+    document.body.dataset.cameraCanMoveDown = String(cameraCanMoveDown);
+    document.body.dataset.cameraCanMoveLeft = String(cameraCanMoveLeft);
+    document.body.dataset.cameraCanMoveRight = String(cameraCanMoveRight);
+    document.body.dataset.cameraCanMoveUp = String(cameraCanMoveUp);
+    document.body.dataset.cameraCanZoomIn = String(cameraCanZoomIn);
+    document.body.dataset.cameraCanZoomOut = String(cameraCanZoomOut);
     document.body.dataset.labelSetKind = this.config.labelSetKind;
     document.body.dataset.labelSetPreset = this.config.labelSetPreset;
     document.body.dataset.labelSetCount = String(this.config.labels.length);
@@ -960,6 +1164,7 @@ class LumaStageController {
     this.setBenchmarkDatasets();
 
     this.chrome.stats.textContent = [
+      activeDemoNode ? `label ${activeDemoNode.key}` : null,
       `center ${snapshot.centerX.toFixed(2)}, ${snapshot.centerY.toFixed(2)}`,
       `zoom ${snapshot.zoom.toFixed(2)}`,
       textStats
@@ -1003,6 +1208,12 @@ function createStageChrome(root: HTMLElement): StageChromeElements {
   canvas.dataset.testid = 'gpu-canvas';
   canvas.setAttribute('aria-label', 'luma.gl WebGPU canvas');
   canvas.hidden = true;
+
+  const selectionBox = document.createElement('div');
+  selectionBox.className = 'selection-box';
+  selectionBox.dataset.testid = 'selection-box';
+  selectionBox.setAttribute('aria-hidden', 'true');
+  selectionBox.hidden = true;
 
   const statusPanel = document.createElement('aside');
   statusPanel.className = 'status-panel';
@@ -1088,7 +1299,7 @@ function createStageChrome(root: HTMLElement): StageChromeElements {
     </div>
   `;
 
-  stage.append(canvas, statusPanel, strategyModePanel, renderPanel, cameraPanel, launchBanner);
+  stage.append(canvas, selectionBox, statusPanel, strategyModePanel, renderPanel, cameraPanel, launchBanner);
   root.replaceChildren(stage);
 
   return {
@@ -1096,6 +1307,7 @@ function createStageChrome(root: HTMLElement): StageChromeElements {
     canvas,
     launchBanner,
     renderPanel,
+    selectionBox,
     stage,
     statusPanel,
     stats,
@@ -1245,6 +1457,18 @@ function isLayoutStrategy(value: string | null | undefined): value is LayoutStra
   return LAYOUT_STRATEGIES.includes(value as LayoutStrategy);
 }
 
+function isControlAction(value: string | null | undefined): value is ControlAction {
+  return (
+    value === 'pan-up' ||
+    value === 'pan-down' ||
+    value === 'pan-left' ||
+    value === 'pan-right' ||
+    value === 'zoom-in' ||
+    value === 'zoom-out' ||
+    value === 'reset-camera'
+  );
+}
+
 function parseTextStrategy(value: string | null): TextStrategy {
   return isTextStrategy(value) ? value : DEFAULT_TEXT_STRATEGY;
 }
@@ -1287,11 +1511,26 @@ function syncLayoutStrategyQueryParam(layoutStrategy: LayoutStrategy): void {
   });
 }
 
-function syncCameraQueryParams(camera: CameraView): void {
+function syncNumericCameraQueryParams(camera: CameraView): void {
   updateRouteSearchParams((searchParams) => {
+    searchParams.delete('cameraLabel');
     syncCameraNumberQueryParam(searchParams, 'cameraCenterX', camera.centerX);
     syncCameraNumberQueryParam(searchParams, 'cameraCenterY', camera.centerY);
     syncCameraNumberQueryParam(searchParams, 'cameraZoom', camera.zoom);
+  });
+}
+
+function syncDemoCameraQueryParams(labelKey: string, defaultLabelKey: string): void {
+  updateRouteSearchParams((searchParams) => {
+    searchParams.delete('cameraCenterX');
+    searchParams.delete('cameraCenterY');
+    searchParams.delete('cameraZoom');
+
+    if (labelKey === defaultLabelKey) {
+      searchParams.delete('cameraLabel');
+    } else {
+      searchParams.set('cameraLabel', labelKey);
+    }
   });
 }
 
@@ -1361,6 +1600,7 @@ function readStageConfig(search: string): StageConfig {
       centerY: parseFiniteNumber(params.get('cameraCenterY'), 0),
       zoom: parseFiniteNumber(params.get('cameraZoom'), 0),
     },
+    initialCameraLabel: params.get('cameraLabel'),
     labelSetKind,
     labelSetPreset: labelSetKind === 'benchmark' ? STATIC_BENCHMARK_LABEL_SET_ID : DEMO_LABEL_SET_ID,
     layoutStrategy,

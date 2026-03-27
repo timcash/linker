@@ -14,6 +14,7 @@ import {
   type BrowserTestContext,
   runCameraUnitTests,
   runCanonicalLabelIdUnitTests,
+  runLabelNavigationUnitTests,
   runLinkPointUnitTests,
   runLayoutStrategyUnitTests,
   runRoundedStepCurveUnitTests,
@@ -27,6 +28,7 @@ const screenshotPath = path.resolve(process.cwd(), 'browser.png');
 export function runStaticUnitTests(): void {
   runCameraUnitTests();
   runCanonicalLabelIdUnitTests();
+  runLabelNavigationUnitTests();
   runLinkPointUnitTests();
   runLayoutStrategyUnitTests();
   runRoundedStepCurveUnitTests();

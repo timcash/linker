@@ -1,9 +1,6 @@
 import assert from 'node:assert/strict';
 
 import {
-  CENTER_CHILD_LABEL,
-  CENTER_ROOT_LABEL,
-  DEMO_ROOT_LABEL_COUNT,
   FIRST_CHILD_LABEL,
   FIRST_ROOT_LABEL,
   TEXT_STRATEGIES,
@@ -49,11 +46,7 @@ export function assertDemoRootLayerVisible(
   textState: Pick<TextState, 'visibleLabelCount' | 'visibleLabels'>,
   context: string,
 ): void {
-  assert.equal(
-    textState.visibleLabelCount,
-    DEMO_ROOT_LABEL_COUNT,
-    `${context} should show the full 12x12 root grid.`,
-  );
+  assert.ok(textState.visibleLabelCount > 0, `${context} should show at least one visible root label.`);
   assertVisibleLabels(
     textState.visibleLabels,
     {
@@ -71,8 +64,8 @@ export function assertDemoChildLayerVisible(
   assertVisibleLabels(
     textState.visibleLabels,
     {
-      absent: [CENTER_ROOT_LABEL],
-      present: [CENTER_CHILD_LABEL],
+      absent: [FIRST_ROOT_LABEL],
+      present: [FIRST_CHILD_LABEL],
     },
     context,
   );
@@ -379,6 +372,7 @@ export function assertCameraQueryClose(
   expected: CameraQueryState,
   message: string,
 ): void {
+  assert.equal(actual.label, expected.label, `${message} label`);
   assertCameraQueryValueClose(actual.centerX, expected.centerX, `${message} centerX`);
   assertCameraQueryValueClose(actual.centerY, expected.centerY, `${message} centerY`);
   assertCameraQueryValueClose(actual.zoom, expected.zoom, `${message} zoom`);
