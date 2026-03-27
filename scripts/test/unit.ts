@@ -6,6 +6,7 @@ import {
   type DemoLayoutEntry,
   type DemoLayoutNodeBox,
 } from '../../src/data/demo-layout';
+import {getDemoLinks} from '../../src/data/links';
 import {DEMO_LABELS} from '../../src/data/labels';
 import {
   MIN_ZOOM_OPACITY,
@@ -140,6 +141,56 @@ export function runLayoutStrategyUnitTests(): void {
   }
 }
 
+export function runLinkPointUnitTests(): void {
+  const entries = createCanonicalDemoLayoutEntries();
+  const placement = layoutDemoEntries(entries, 'flow-columns');
+  const links = getDemoLinks('flow-columns');
+  const rootBoxByLabel = new Map<string, DemoLayoutNodeBox>();
+
+  entries.forEach((entry, index) => {
+    const rootBox = placement.boxes.find((box) => box.entryIndex === index && box.node === 'root');
+
+    if (!rootBox) {
+      return;
+    }
+
+    rootBoxByLabel.set(entry.nodes.root.text, rootBox);
+  });
+
+  const horizontalLink = links.find((link) => {
+    const startBox = getRequiredRootBox(rootBoxByLabel, '1:2:1');
+    const endBox = getRequiredRootBox(rootBoxByLabel, '2:2:1');
+
+    return (
+      Math.abs(link.start.x - startBox.maxX) < 0.0001 &&
+      Math.abs(link.start.y - getBoxCenterY(startBox)) < 0.0001 &&
+      Math.abs(link.end.x - endBox.minX) < 0.0001 &&
+      Math.abs(link.end.y - getBoxCenterY(endBox)) < 0.0001
+    );
+  });
+
+  assert.ok(
+    horizontalLink,
+    'Horizontal demo links should connect from the source right-center to the target left-center.',
+  );
+
+  const startVerticalBox = getRequiredRootBox(rootBoxByLabel, '3:1:1');
+  const endVerticalBox = getRequiredRootBox(rootBoxByLabel, '3:2:1');
+  const verticalLink = links.find((link) => {
+    return (
+      Math.abs(link.start.x - getBoxCenterX(startVerticalBox)) < 0.0001 &&
+      Math.abs(link.start.y - startVerticalBox.minY) < 0.0001 &&
+      Math.abs(link.end.x - getBoxCenterX(endVerticalBox)) < 0.0001 &&
+      Math.abs(link.end.y - endVerticalBox.maxY) < 0.0001
+    );
+  });
+
+  assert.ok(
+    verticalLink,
+    'Vertical demo links should connect from the lower label bottom-center to the upper label top-center.',
+  );
+}
+
 export function runCanonicalLabelIdUnitTests(): void {
   assert.equal(
     DEMO_LABELS[0]?.text,
@@ -165,7 +216,6 @@ export function runCanonicalLabelIdUnitTests(): void {
 
 function createCanonicalDemoLayoutEntries(): DemoLayoutEntry[] {
   const entries: DemoLayoutEntry[] = [];
-  let rootIndex = 0;
 
   for (let rowIndex = 0; rowIndex < DEMO_ROWS_PER_SOURCE_COLUMN; rowIndex += 1) {
     for (let columnIndex = 0; columnIndex < DEMO_SOURCE_COLUMN_COUNT; columnIndex += 1) {
@@ -177,15 +227,31 @@ function createCanonicalDemoLayoutEntries(): DemoLayoutEntry[] {
           root: {text: rootText, size: DEMO_ROOT_LABEL_SIZE},
           child: {text: `${column}:${row}:2`, size: DEMO_CHILD_LABEL_SIZE},
         },
-        rootIndex,
         sourceColumnIndex: columnIndex,
         sourceRowIndex: rowIndex,
       });
-      rootIndex += 1;
     }
   }
 
   return entries;
+}
+
+function getRequiredRootBox(
+  rootBoxByLabel: Map<string, DemoLayoutNodeBox>,
+  label: string,
+): DemoLayoutNodeBox {
+  const box = rootBoxByLabel.get(label);
+
+  assert.ok(box, `Expected a root box for ${label}.`);
+  return box;
+}
+
+function getBoxCenterX(box: DemoLayoutNodeBox): number {
+  return (box.minX + box.maxX) * 0.5;
+}
+
+function getBoxCenterY(box: DemoLayoutNodeBox): number {
+  return (box.minY + box.maxY) * 0.5;
 }
 
 export function runZoomBandUnitTests(): void {

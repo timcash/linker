@@ -14,6 +14,7 @@ import {
   type BrowserTestContext,
   runCameraUnitTests,
   runCanonicalLabelIdUnitTests,
+  runLinkPointUnitTests,
   runLayoutStrategyUnitTests,
   runZoomBandUnitTests,
 } from './shared';
@@ -24,6 +25,7 @@ const screenshotPath = path.resolve(process.cwd(), 'browser.png');
 export function runStaticUnitTests(): void {
   runCameraUnitTests();
   runCanonicalLabelIdUnitTests();
+  runLinkPointUnitTests();
   runLayoutStrategyUnitTests();
   runZoomBandUnitTests();
 }

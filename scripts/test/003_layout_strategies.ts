@@ -7,11 +7,11 @@ import {
   getLayoutStrategies,
   getTextState,
   showStrategyPanelMode,
-  switchLayoutStrategy,
 } from './shared';
 
 type LayoutPanelUiState = {
   layoutStrategyPanelVisible: boolean;
+  lineStrategyPanelVisible: boolean;
   strategyPanelLabelText: string;
   textStrategyPanelVisible: boolean;
 };
@@ -25,6 +25,7 @@ export async function runLayoutStrategiesStep(
 
   const layoutPanelUiState = await context.page.evaluate((): LayoutPanelUiState => {
     const layoutStrategyPanel = document.querySelector('[data-testid="layout-strategy-panel"]');
+    const lineStrategyPanel = document.querySelector('[data-testid="line-strategy-panel"]');
     const strategyPanelLabel = document.querySelector('[data-testid="strategy-panel-label"]');
     const textStrategyPanel = document.querySelector('[data-testid="text-strategy-panel"]');
 
@@ -33,6 +34,10 @@ export async function runLayoutStrategiesStep(
         layoutStrategyPanel instanceof HTMLElement &&
         !layoutStrategyPanel.hidden &&
         window.getComputedStyle(layoutStrategyPanel).display !== 'none',
+      lineStrategyPanelVisible:
+        lineStrategyPanel instanceof HTMLElement &&
+        !lineStrategyPanel.hidden &&
+        window.getComputedStyle(lineStrategyPanel).display !== 'none',
       strategyPanelLabelText:
         strategyPanelLabel instanceof HTMLElement ? strategyPanelLabel.textContent ?? '' : '',
       textStrategyPanelVisible:
@@ -43,59 +48,44 @@ export async function runLayoutStrategiesStep(
   });
 
   assert.equal(layoutPanelUiState.layoutStrategyPanelVisible, true, 'Layout strategy panel should appear when selected.');
+  assert.equal(layoutPanelUiState.lineStrategyPanelVisible, false, 'Line strategy panel should hide while layout strategy view is active.');
   assert.equal(layoutPanelUiState.textStrategyPanelVisible, false, 'Text strategy panel should hide while layout strategy view is active.');
   assert.equal(layoutPanelUiState.strategyPanelLabelText, 'Layout Strategy', 'Render panel should rename itself for layout strategies.');
-
-  const layoutFingerprints = new Map<string, string>([
-    [DEFAULT_LAYOUT_STRATEGY, baselineLayoutFingerprint],
-  ]);
-
-  for (const layoutStrategy of getLayoutStrategies()) {
-    if (layoutStrategy === DEFAULT_LAYOUT_STRATEGY) {
-      continue;
-    }
-
-    await switchLayoutStrategy(context.page, layoutStrategy);
-
-    const relaidTextState = await getTextState(context.page);
-    assert.equal(
-      relaidTextState.layoutStrategy,
-      layoutStrategy,
-      `${layoutStrategy} should become the active layout strategy.`,
-    );
-    assert.equal(
-      relaidTextState.strategyPanelMode,
-      'layout',
-      'Layout strategy view should remain active after switching layouts.',
-    );
-    assert.equal(
-      relaidTextState.visibleLabelCount,
-      DEMO_ROOT_LABEL_COUNT,
-      'Relayout should keep the full 12x12 root grid visible at zoom 0.',
-    );
-    if (layoutStrategy === 'scan-grid') {
-      assert.notEqual(
-        relaidTextState.layoutFingerprint,
-        baselineLayoutFingerprint,
-        'Scan Grid should rewrite the generated label locations.',
-      );
-    }
-    layoutFingerprints.set(layoutStrategy, relaidTextState.layoutFingerprint);
-  }
-
-  assert.ok(
-    new Set(layoutFingerprints.values()).size >= 2,
-    'The layout strategy picker should still expose a distinct alternate layout.',
+  assert.deepEqual(
+    getLayoutStrategies(),
+    [DEFAULT_LAYOUT_STRATEGY],
+    'Only Flow Columns should remain available as a layout strategy.',
   );
 
-  await switchLayoutStrategy(context.page, DEFAULT_LAYOUT_STRATEGY);
+  const layoutTextState = await getTextState(context.page);
+  assert.equal(
+    layoutTextState.layoutStrategy,
+    DEFAULT_LAYOUT_STRATEGY,
+    'The demo should continue using Flow Columns as the active layout strategy.',
+  );
+  assert.equal(
+    layoutTextState.strategyPanelMode,
+    'layout',
+    'Layout strategy view should remain active after opening the layout panel.',
+  );
+  assert.equal(
+    layoutTextState.visibleLabelCount,
+    DEMO_ROOT_LABEL_COUNT,
+    'The remaining layout strategy should keep the full 12x12 root grid visible at zoom 0.',
+  );
+  assert.equal(
+    layoutTextState.layoutFingerprint,
+    baselineLayoutFingerprint,
+    'Opening the layout panel should not relayout the scene when only Flow Columns is available.',
+  );
+
   await showStrategyPanelMode(context.page, 'text');
 
   const restoredTextState = await getTextState(context.page);
   assert.equal(
     restoredTextState.layoutStrategy,
     DEFAULT_LAYOUT_STRATEGY,
-    'Switching back should restore the default layout strategy.',
+    'Returning to the text strategy view should keep the default layout strategy active.',
   );
   assert.equal(
     restoredTextState.strategyPanelMode,
@@ -105,6 +95,6 @@ export async function runLayoutStrategiesStep(
   assert.equal(
     restoredTextState.layoutFingerprint,
     baselineLayoutFingerprint,
-    'Restoring the default layout strategy should restore the original label locations.',
+    'Returning to text strategy view should preserve the original label locations.',
   );
 }

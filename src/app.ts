@@ -3,6 +3,7 @@ import {Geometry, Model} from '@luma.gl/engine';
 import {webgpuAdapter} from '@luma.gl/webgpu';
 
 import {Camera2D, type CameraSnapshot, type ViewportSize} from './camera';
+import {getDemoLinks} from './data/links';
 import {DEMO_LABEL_SET_ID} from './data/demo-meta';
 import {
   DEFAULT_LAYOUT_STRATEGY,
@@ -18,6 +19,14 @@ import {
   getStaticBenchmarkLabels,
 } from './data/static-benchmark';
 import {GridLayer} from './grid';
+import {LineLayer} from './line/layer';
+import {
+  DEFAULT_LINE_STRATEGY,
+  LINE_STRATEGIES,
+  LINE_STRATEGY_OPTIONS,
+  type LineDefinition,
+  type LineStrategy,
+} from './line/types';
 import {FrameTelemetry, type FrameTelemetrySnapshot} from './perf';
 import {TextLayer} from './text/layer';
 import {
@@ -87,7 +96,7 @@ const BENCHMARK_CAMERA_TRACE: ControlAction[] = [
 ];
 
 type AppState = 'loading' | 'ready' | 'unsupported' | 'error';
-type StrategyPanelMode = 'text' | 'layout';
+type StrategyPanelMode = 'text' | 'line' | 'layout';
 
 type ControlAction =
   | 'pan-up'
@@ -110,6 +119,8 @@ type StageConfig = {
   layoutStrategy: LayoutStrategy;
   labelTargetCount: number;
   labels: LabelDefinition[];
+  lineStrategy: LineStrategy;
+  links: LineDefinition[];
   textStrategy: TextStrategy;
 };
 
@@ -172,14 +183,17 @@ class LumaStageController {
   private benchmarkSummary: StageBenchmarkSummary | null = null;
   private frameTelemetry: FrameTelemetry | null = null;
   private gridLayer: GridLayer | null = null;
+  private lineLayer: LineLayer | null = null;
   private textLayer: TextLayer | null = null;
   private readonly camera = new Camera2D();
   private readonly actionButtons: HTMLButtonElement[] = [];
   private readonly layoutStrategyButtons: HTMLButtonElement[] = [];
+  private readonly lineStrategyButtons: HTMLButtonElement[] = [];
   private readonly strategyModeButtons: HTMLButtonElement[] = [];
   private readonly textStrategyButtons: HTMLButtonElement[] = [];
   private destroyed = false;
   private layoutStrategy: LayoutStrategy;
+  private lineStrategy: LineStrategy;
   private strategyPanelMode: StrategyPanelMode = 'text';
   private textStrategy: TextStrategy;
 
@@ -188,6 +202,7 @@ class LumaStageController {
     private readonly config: StageConfig,
   ) {
     this.layoutStrategy = config.layoutStrategy;
+    this.lineStrategy = config.lineStrategy;
     this.textStrategy = config.textStrategy;
     this.camera.setView(
       config.initialCamera.centerX,
@@ -252,16 +267,18 @@ class LumaStageController {
       });
 
       this.gridLayer = new GridLayer(this.device);
+      this.lineLayer = new LineLayer(this.device, this.config.links, this.lineStrategy);
       this.textLayer = new TextLayer(this.device, this.config.labels, this.textStrategy);
       await this.textLayer.ready;
       this.installInteractionHandlers();
       this.updateTextStrategyButtons();
+      this.updateLineStrategyButtons();
       this.updateLayoutStrategyButtons();
       this.updateStrategyModeButtons();
       this.updateStrategyPanel();
 
       this.chrome.detail.textContent =
-        'Text strategies compare upload and submission paths. Layout strategies rewrite the world locations of the CSV-sourced demo hierarchy while camera input stays button-only so zoom traces and benchmarks remain deterministic.';
+        'Text strategies compare upload and submission paths. Line strategies compare curved network-edge paths. The demo uses the Flow Columns layout while camera input stays button-only so zoom traces and benchmarks remain deterministic.';
       this.chrome.launchBanner.hidden = true;
       this.chrome.canvas.hidden = false;
       this.setState('ready');
@@ -288,6 +305,7 @@ class LumaStageController {
     this.removeInteractionHandlers();
     this.backgroundModel?.destroy();
     this.gridLayer?.destroy();
+    this.lineLayer?.destroy();
     this.textLayer?.destroy();
     this.frameTelemetry?.destroy();
     this.device?.destroy();
@@ -300,6 +318,7 @@ class LumaStageController {
       !this.device ||
       !this.backgroundModel ||
       !this.gridLayer ||
+      !this.lineLayer ||
       !this.textLayer
     ) {
       return;
@@ -312,6 +331,8 @@ class LumaStageController {
       const gridStartedAt = performance.now();
       this.gridLayer.update(this.camera, viewport);
       const gridCpuMs = performance.now() - gridStartedAt;
+
+      this.lineLayer.update(this.camera, viewport);
 
       const textStartedAt = performance.now();
       this.textLayer.update(this.camera, viewport);
@@ -333,6 +354,7 @@ class LumaStageController {
 
       this.backgroundModel.draw(renderPass);
       this.gridLayer.draw(renderPass);
+      this.lineLayer.draw(renderPass);
 
       if (!splitTextGpuPass) {
         this.textLayer.draw(renderPass);
@@ -444,6 +466,20 @@ class LumaStageController {
     }
   };
 
+  private handleLineStrategyButtonClick = (event: MouseEvent): void => {
+    const button = event.currentTarget;
+
+    if (!(button instanceof HTMLButtonElement)) {
+      return;
+    }
+
+    const lineStrategy = button.dataset.lineStrategy;
+
+    if (isLineStrategy(lineStrategy)) {
+      this.setLineStrategy(lineStrategy);
+    }
+  };
+
   private handleLayoutStrategyButtonClick = (event: MouseEvent): void => {
     const button = event.currentTarget;
 
@@ -467,7 +503,7 @@ class LumaStageController {
 
     const mode = button.dataset.strategyPanelMode;
 
-    if (mode === 'text' || mode === 'layout') {
+    if (mode === 'text' || mode === 'line' || mode === 'layout') {
       this.setStrategyPanelMode(mode);
     }
   };
@@ -487,9 +523,30 @@ class LumaStageController {
     this.updateStatus();
   }
 
+  private setLineStrategy(mode: LineStrategy): void {
+    if (
+      !this.lineLayer ||
+      this.config.labelSetKind !== 'demo' ||
+      mode === this.lineStrategy ||
+      document.body.dataset.benchmarkState === 'running'
+    ) {
+      return;
+    }
+
+    this.lineStrategy = mode;
+    this.lineLayer.setMode(mode);
+    this.benchmarkSummary = null;
+    document.body.dataset.benchmarkError = '';
+    document.body.dataset.benchmarkState = this.config.benchmarkEnabled ? 'pending' : 'disabled';
+    syncLineStrategyQueryParam(mode);
+    this.updateLineStrategyButtons();
+    this.updateStatus();
+  }
+
   private setLayoutStrategy(mode: LayoutStrategy): void {
     if (
       !this.textLayer ||
+      !this.lineLayer ||
       this.config.labelSetKind !== 'demo' ||
       mode === this.layoutStrategy ||
       document.body.dataset.benchmarkState === 'running'
@@ -499,6 +556,8 @@ class LumaStageController {
 
     this.layoutStrategy = mode;
     this.config.labels = getDemoLabels(mode);
+    this.config.links = getDemoLinks(mode);
+    this.lineLayer.setLinks(this.config.links);
     this.textLayer.setLayoutLabels(this.config.labels);
     this.benchmarkSummary = null;
     document.body.dataset.benchmarkError = '';
@@ -509,7 +568,7 @@ class LumaStageController {
   }
 
   private setStrategyPanelMode(mode: StrategyPanelMode): void {
-    if (mode === 'layout' && this.config.labelSetKind !== 'demo') {
+    if ((mode === 'layout' || mode === 'line') && this.config.labelSetKind !== 'demo') {
       return;
     }
 
@@ -533,6 +592,16 @@ class LumaStageController {
     }
   }
 
+  private updateLineStrategyButtons(): void {
+    const buttons = this.chrome.renderPanel.querySelectorAll<HTMLButtonElement>('[data-line-strategy]');
+
+    for (const button of buttons) {
+      const isActive = button.dataset.lineStrategy === this.lineStrategy;
+      button.dataset.active = String(isActive);
+      button.setAttribute('aria-pressed', String(isActive));
+    }
+  }
+
   private updateLayoutStrategyButtons(): void {
     const buttons = this.chrome.renderPanel.querySelectorAll<HTMLButtonElement>('[data-layout-strategy]');
 
@@ -549,8 +618,8 @@ class LumaStageController {
 
     for (const button of buttons) {
       const mode = button.dataset.strategyPanelMode;
-      const isLayoutMode = mode === 'layout';
-      const isDisabled = isLayoutMode && this.config.labelSetKind !== 'demo';
+      const requiresDemoLabelSet = mode === 'layout' || mode === 'line';
+      const isDisabled = requiresDemoLabelSet && this.config.labelSetKind !== 'demo';
       const isActive = mode === this.strategyPanelMode;
 
       button.disabled = isDisabled;
@@ -563,6 +632,9 @@ class LumaStageController {
     const textStrategyPanel = this.chrome.renderPanel.querySelector<HTMLElement>(
       '[data-testid="text-strategy-panel"]',
     );
+    const lineStrategyPanel = this.chrome.renderPanel.querySelector<HTMLElement>(
+      '[data-testid="line-strategy-panel"]',
+    );
     const layoutStrategyPanel = this.chrome.renderPanel.querySelector<HTMLElement>(
       '[data-testid="layout-strategy-panel"]',
     );
@@ -572,11 +644,20 @@ class LumaStageController {
 
     if (panelLabel) {
       panelLabel.textContent =
-        this.strategyPanelMode === 'layout' ? 'Layout Strategy' : 'Text Strategy';
+        this.strategyPanelMode === 'layout'
+          ? 'Layout Strategy'
+          : this.strategyPanelMode === 'line'
+          ? 'Line Strategy'
+          : 'Text Strategy';
     }
 
     if (textStrategyPanel) {
       textStrategyPanel.hidden = this.strategyPanelMode !== 'text';
+    }
+
+    if (lineStrategyPanel) {
+      lineStrategyPanel.hidden =
+        this.strategyPanelMode !== 'line' || this.config.labelSetKind !== 'demo';
     }
 
     if (layoutStrategyPanel) {
@@ -592,6 +673,9 @@ class LumaStageController {
     this.textStrategyButtons.push(
       ...this.chrome.renderPanel.querySelectorAll<HTMLButtonElement>('[data-text-strategy]'),
     );
+    this.lineStrategyButtons.push(
+      ...this.chrome.renderPanel.querySelectorAll<HTMLButtonElement>('[data-line-strategy]'),
+    );
     this.layoutStrategyButtons.push(
       ...this.chrome.renderPanel.querySelectorAll<HTMLButtonElement>('[data-layout-strategy]'),
     );
@@ -605,6 +689,10 @@ class LumaStageController {
 
     for (const button of this.textStrategyButtons) {
       button.addEventListener('click', this.handleStrategyButtonClick);
+    }
+
+    for (const button of this.lineStrategyButtons) {
+      button.addEventListener('click', this.handleLineStrategyButtonClick);
     }
 
     for (const button of this.layoutStrategyButtons) {
@@ -625,6 +713,10 @@ class LumaStageController {
       button.removeEventListener('click', this.handleStrategyButtonClick);
     }
 
+    for (const button of this.lineStrategyButtons) {
+      button.removeEventListener('click', this.handleLineStrategyButtonClick);
+    }
+
     for (const button of this.layoutStrategyButtons) {
       button.removeEventListener('click', this.handleLayoutStrategyButtonClick);
     }
@@ -635,6 +727,7 @@ class LumaStageController {
 
     this.actionButtons.length = 0;
     this.textStrategyButtons.length = 0;
+    this.lineStrategyButtons.length = 0;
     this.layoutStrategyButtons.length = 0;
     this.strategyModeButtons.length = 0;
   }
@@ -794,6 +887,7 @@ class LumaStageController {
   private updateStatus(): void {
     const snapshot = this.camera.getSnapshot();
     const gridStats = this.gridLayer?.getStats();
+    const lineStats = this.lineLayer?.getStats();
     const perf = this.frameTelemetry?.getSnapshot();
     const textStats = this.textLayer?.getStats();
     const lineCount = gridStats ? gridStats.verticalLines + gridStats.horizontalLines : 0;
@@ -801,6 +895,7 @@ class LumaStageController {
     const majorSpacing = gridStats ? formatSpacing(gridStats.majorSpacing) : 'n/a';
     const labelCount = textStats ? textStats.labelCount : 0;
     const glyphCount = textStats ? textStats.glyphCount : 0;
+    const activeLineStrategy = lineStats ? lineStats.lineStrategy : this.lineStrategy;
     const activeTextStrategy = textStats ? textStats.textStrategy : this.textStrategy;
     const activeLayoutStrategy =
       this.config.labelSetKind === 'demo' ? this.layoutStrategy : 'benchmark-static';
@@ -808,7 +903,11 @@ class LumaStageController {
       this.config.labelSetKind === 'demo'
         ? getLayoutStrategyLabel(this.layoutStrategy)
         : 'Benchmark Static';
+    const lineStrategyLabel = getLineStrategyLabel(activeLineStrategy);
     const textStrategyLabel = getTextStrategyLabel(activeTextStrategy);
+    const lineLinkCount = lineStats ? lineStats.lineLinkCount : this.config.links.length;
+    const visibleLinkCount = lineStats ? lineStats.lineVisibleLinkCount : 0;
+    const submittedLineVertexCount = lineStats ? lineStats.submittedVertexCount : 0;
     const bytesUploadedPerFrame = textStats ? textStats.bytesUploadedPerFrame : 0;
     const submittedGlyphCount = textStats ? textStats.submittedGlyphCount : 0;
     const submittedVertexCount = textStats ? textStats.submittedVertexCount : 0;
@@ -834,6 +933,12 @@ class LumaStageController {
     document.body.dataset.layoutStrategy = activeLayoutStrategy;
     document.body.dataset.layoutStrategyLabel = layoutStrategyLabel;
     document.body.dataset.strategyPanelMode = this.strategyPanelMode;
+    document.body.dataset.lineStrategy = activeLineStrategy;
+    document.body.dataset.lineStrategyLabel = lineStrategyLabel;
+    document.body.dataset.lineLinkCount = String(lineLinkCount);
+    document.body.dataset.lineVisibleLinkCount = String(visibleLinkCount);
+    document.body.dataset.lineSubmittedVertexCount = String(submittedLineVertexCount);
+    document.body.dataset.lineCurveFingerprint = lineStats?.curveFingerprint ?? '0:0:0:0:0:0:0';
     document.body.dataset.textStrategy = activeTextStrategy;
     document.body.dataset.textStrategyLabel = textStrategyLabel;
     document.body.dataset.textBytesUploadedPerFrame = String(bytesUploadedPerFrame);
@@ -872,12 +977,14 @@ class LumaStageController {
     this.chrome.stats.textContent = [
       `label set ${this.config.labelSetKind} (${this.config.labels.length} labels)`,
       `layout ${layoutStrategyLabel}`,
-      `strategy ${textStrategyLabel}`,
+      `text ${textStrategyLabel}`,
+      `links ${lineStrategyLabel}`,
       `center ${snapshot.centerX.toFixed(2)}, ${snapshot.centerY.toFixed(2)}`,
       `zoom ${snapshot.zoom.toFixed(2)}`,
       `scale ${snapshot.pixelsPerWorldUnit.toFixed(1)} px/world`,
       gridStats ? `grid ${lineCount} lines` : 'grid 0 lines',
       gridStats ? `spacing ${minorSpacing} / ${majorSpacing}` : 'spacing n/a',
+      `link-set ${visibleLinkCount} visible / ${lineLinkCount} total / ${submittedLineVertexCount} vertices`,
       textStats
         ? `text ${labelCount} labels / ${visibleLabelCount} visible labels / ${visibleGlyphCount} visible glyphs`
         : 'text 0 labels',
@@ -929,18 +1036,22 @@ function createStageChrome(root: HTMLElement): StageChromeElements {
   statusPanel.dataset.testid = 'status-panel';
   statusPanel.innerHTML = `
     <div class="status-eyebrow">Linker / Luma</div>
-    <h1>Text Strategy Lab</h1>
+    <h1>Network Mapping Lab</h1>
   `;
 
   const stats = document.createElement('p');
   stats.className = 'status-stats';
   stats.textContent =
-    'layout Flow Columns  |  strategy Packed  |  center 0.00, 0.00  |  zoom 0.00  |  scale 56.0 px/world';
+    'layout Flow Columns  |  text Packed  |  links Arc Links  |  center 0.00, 0.00  |  zoom 0.00  |  scale 56.0 px/world';
   statusPanel.append(stats);
 
   const textStrategyButtonsMarkup = TEXT_STRATEGY_OPTIONS.map(
     ({mode, label}) =>
       `<button type="button" class="control-button" data-text-strategy="${mode}" aria-pressed="false">${label}</button>`,
+  ).join('');
+  const lineStrategyButtonsMarkup = LINE_STRATEGY_OPTIONS.map(
+    ({mode, label}) =>
+      `<button type="button" class="control-button" data-line-strategy="${mode}" aria-pressed="false">${label}</button>`,
   ).join('');
   const layoutStrategyButtonsMarkup = LAYOUT_STRATEGY_OPTIONS.map(
     ({mode, label}) =>
@@ -948,6 +1059,7 @@ function createStageChrome(root: HTMLElement): StageChromeElements {
   ).join('');
   const strategyModeButtonsMarkup = `
     <button type="button" class="control-button" data-strategy-panel-mode="text" aria-pressed="false">Text Strategy</button>
+    <button type="button" class="control-button" data-strategy-panel-mode="line" aria-pressed="false">Line Strategy</button>
     <button type="button" class="control-button" data-strategy-panel-mode="layout" aria-pressed="false">Layout Strategy</button>
   `;
 
@@ -995,6 +1107,9 @@ function createStageChrome(root: HTMLElement): StageChromeElements {
     <div class="panel-label" data-testid="strategy-panel-label">Text Strategy</div>
     <div class="control-row" data-testid="text-strategy-panel">
       ${textStrategyButtonsMarkup}
+    </div>
+    <div class="control-row" data-testid="line-strategy-panel" hidden>
+      ${lineStrategyButtonsMarkup}
     </div>
     <div class="control-row" data-testid="layout-strategy-panel" hidden>
       ${layoutStrategyButtonsMarkup}
@@ -1150,6 +1265,12 @@ function getTextStrategyLabel(textStrategy: TextStrategy): string {
   );
 }
 
+function getLineStrategyLabel(lineStrategy: LineStrategy): string {
+  return (
+    LINE_STRATEGY_OPTIONS.find((option) => option.mode === lineStrategy)?.label ?? lineStrategy
+  );
+}
+
 function getLayoutStrategyLabel(layoutStrategy: LayoutStrategy): string {
   return (
     LAYOUT_STRATEGY_OPTIONS.find((option) => option.mode === layoutStrategy)?.label ?? layoutStrategy
@@ -1175,12 +1296,20 @@ function isTextStrategy(value: string | null | undefined): value is TextStrategy
   return TEXT_STRATEGIES.includes(value as TextStrategy);
 }
 
+function isLineStrategy(value: string | null | undefined): value is LineStrategy {
+  return LINE_STRATEGIES.includes(value as LineStrategy);
+}
+
 function isLayoutStrategy(value: string | null | undefined): value is LayoutStrategy {
   return LAYOUT_STRATEGIES.includes(value as LayoutStrategy);
 }
 
 function parseTextStrategy(value: string | null): TextStrategy {
   return isTextStrategy(value) ? value : DEFAULT_TEXT_STRATEGY;
+}
+
+function parseLineStrategy(value: string | null): LineStrategy {
+  return isLineStrategy(value) ? value : DEFAULT_LINE_STRATEGY;
 }
 
 function parseLayoutStrategy(value: string | null): LayoutStrategy {
@@ -1193,6 +1322,16 @@ function syncTextStrategyQueryParam(textStrategy: TextStrategy): void {
       searchParams.delete('textStrategy');
     } else {
       searchParams.set('textStrategy', textStrategy);
+    }
+  });
+}
+
+function syncLineStrategyQueryParam(lineStrategy: LineStrategy): void {
+  updateRouteSearchParams((searchParams) => {
+    if (lineStrategy === DEFAULT_LINE_STRATEGY) {
+      searchParams.delete('lineStrategy');
+    } else {
+      searchParams.set('lineStrategy', lineStrategy);
     }
   });
 }
@@ -1259,6 +1398,7 @@ function readStageConfig(search: string): StageConfig {
   const params = new URLSearchParams(search);
   const labelSetKind: LabelSetKind = params.get('labelSet') === 'benchmark' ? 'benchmark' : 'demo';
   const layoutStrategy = parseLayoutStrategy(params.get('layoutStrategy'));
+  const lineStrategy = parseLineStrategy(params.get('lineStrategy'));
   const labelTargetCount =
     labelSetKind === 'benchmark'
       ? parseBoundedInteger(params.get('labelCount'), DEFAULT_BENCHMARK_LABEL_COUNT, 64, 16384)
@@ -1285,6 +1425,8 @@ function readStageConfig(search: string): StageConfig {
     layoutStrategy,
     labelTargetCount,
     labels,
+    lineStrategy,
+    links: labelSetKind === 'benchmark' ? [] : getDemoLinks(layoutStrategy),
     textStrategy: parseTextStrategy(params.get('textStrategy')),
   };
 }

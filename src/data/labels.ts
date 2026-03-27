@@ -89,7 +89,6 @@ export function getDemoLayoutEntries(): DemoLayoutEntry[] {
 
 function createDemoLabelEntries(): DemoLabelEntry[] {
   const entries: DemoLabelEntry[] = [];
-  let rootIndex = 0;
 
   for (let rowIndex = 0; rowIndex < DEMO_ROWS_PER_SOURCE_COLUMN; rowIndex += 1) {
     for (let columnIndex = 0; columnIndex < DEMO_SOURCE_COLUMN_COUNT; columnIndex += 1) {
@@ -109,15 +108,12 @@ function createDemoLabelEntries(): DemoLabelEntry[] {
               size: DEMO_CHILD_WINDOW.size,
             },
           },
-          rootIndex,
           sourceColumnIndex: columnIndex,
           sourceRowIndex: rowIndex,
         },
         palette: DEMO_COLUMN_PALETTES[columnIndex % DEMO_COLUMN_PALETTES.length],
         rootWindow: DEMO_ROOT_WINDOW,
       });
-
-      rootIndex += 1;
     }
   }
 

@@ -6,6 +6,11 @@ import {
   LAYOUT_STRATEGIES,
   type LayoutStrategy,
 } from '../../src/data/demo-layout';
+import {
+  DEFAULT_LINE_STRATEGY,
+  LINE_STRATEGIES,
+  type LineStrategy,
+} from '../../src/line/types';
 import {DEMO_LABEL_SET_ID} from '../../src/data/demo-meta';
 import {
   STATIC_BENCHMARK_COUNTS,
@@ -48,7 +53,16 @@ export type CameraQueryState = {
   zoom: number | null;
 };
 
-export type StrategyPanelMode = 'text' | 'layout';
+export type StrategyPanelMode = 'text' | 'line' | 'layout';
+
+export type LineState = {
+  curveFingerprint: string;
+  lineLinkCount: number;
+  lineStrategy: LineStrategy;
+  lineVisibleLinkCount: number;
+  strategyPanelMode: string;
+  submittedVertexCount: number;
+};
 
 export type TextState = {
   bytesUploadedPerFrame: number;
@@ -143,16 +157,18 @@ export type BrowserTestContext = {
 };
 
 export {
+  DEFAULT_LINE_STRATEGY,
   DEFAULT_LAYOUT_STRATEGY,
   DEFAULT_TEXT_STRATEGY,
   DEMO_LABEL_SET_ID,
+  LINE_STRATEGIES,
   LAYOUT_STRATEGIES,
   STATIC_BENCHMARK_COUNTS,
   STATIC_BENCHMARK_LABEL_SET_ID,
   TEXT_STRATEGIES,
 };
 
-export type {TextStrategy};
+export type {LineStrategy, TextStrategy};
 
 export const ERROR_PING_TOKEN = 'ERROR_PING_TEST';
 export const INTENTIONAL_ERROR_MARKER = '[intentional-error-ping]';
@@ -245,6 +261,10 @@ export const LARGE_SCALE_CAMERA_TRACE: readonly CameraTraceStep[] = [
 
 export function getLayoutStrategies(): LayoutStrategy[] {
   return [...LAYOUT_STRATEGIES];
+}
+
+export function getLineStrategies(): LineStrategy[] {
+  return [...LINE_STRATEGIES];
 }
 
 export function isSdfTextStrategy(textStrategy: TextStrategy): boolean {

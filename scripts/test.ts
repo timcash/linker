@@ -8,6 +8,7 @@ import {runPanelsStep} from './test/002_panels';
 import {runLayoutStrategiesStep} from './test/003_layout_strategies';
 import {runCameraControlsStep} from './test/004_camera_controls';
 import {runInputGuardsStep} from './test/005_input_guards';
+import {runLineStrategiesStep} from './test/006_line_strategies';
 import {runExtendedMatrixStep} from './test/900_extended_matrix';
 import {RUN_EXTENDED_TEST_MATRIX, type BrowserTestContext} from './test/shared';
 
@@ -23,6 +24,7 @@ try {
 
   if (readyResult !== null) {
     await runPanelsStep(context);
+    await runLineStrategiesStep(context);
     await runLayoutStrategiesStep(context);
     await runCameraControlsStep(context);
     await runInputGuardsStep(context);

@@ -2,21 +2,16 @@ import type {LabelLocation} from '../text/types';
 
 const DEMO_COLUMN_SPACING = 1.86;
 const DEMO_ROW_SPACING = 1.02;
-const DEMO_SCAN_GRID_COLUMN_COUNT = 12;
-const DEMO_SCAN_GRID_COLUMN_SPACING = 1.8;
-const DEMO_SCAN_GRID_ROW_SPACING = 0.96;
 const DEMO_LAYOUT_REFERENCE_PIXELS_PER_WORLD_UNIT = 56;
 const DEMO_LAYOUT_ESTIMATED_ADVANCE_PX = 24;
 const DEMO_LAYOUT_ESTIMATED_HEIGHT_PX = 94;
 const DEMO_LAYOUT_ESTIMATED_PADDING_PX = 18;
 const DEMO_LAYOUT_TOP_EXTENT_RATIO = 0.7;
 
-export const LAYOUT_STRATEGIES = ['column-ramp', 'scan-grid', 'flow-columns'] as const;
+export const LAYOUT_STRATEGIES = ['flow-columns'] as const;
 export type LayoutStrategy = (typeof LAYOUT_STRATEGIES)[number];
 
 export const LAYOUT_STRATEGY_OPTIONS = [
-  {mode: 'column-ramp', label: 'Column Ramp'},
-  {mode: 'scan-grid', label: 'Scan Grid'},
   {mode: 'flow-columns', label: 'Flow Columns'},
 ] as const satisfies ReadonlyArray<{mode: LayoutStrategy; label: string}>;
 
@@ -31,7 +26,6 @@ export type DemoLayoutNodeSpec = {
 
 export type DemoLayoutEntry = {
   nodes: Record<DemoLayoutNodeKey, DemoLayoutNodeSpec>;
-  rootIndex: number;
   sourceColumnIndex: number;
   sourceRowIndex: number;
 };
@@ -64,30 +58,10 @@ type DemoNodeBounds = {
 
 export function layoutDemoEntries(
   entries: DemoLayoutEntry[],
-  layoutStrategy: LayoutStrategy,
+  _layoutStrategy: LayoutStrategy,
 ): DemoLayoutPlacement {
-  switch (layoutStrategy) {
-    case 'scan-grid':
-      return createFormulaPlacement(entries, 'scan-grid');
-    case 'flow-columns':
-      return createFlowColumnsPlacement(entries);
-    case 'column-ramp':
-    default:
-      return createFormulaPlacement(entries, 'column-ramp');
-  }
-}
-
-function createFormulaPlacement(
-  entries: DemoLayoutEntry[],
-  layoutStrategy: 'column-ramp' | 'scan-grid',
-): DemoLayoutPlacement {
-  const locations = entries.map((entry) =>
-    layoutStrategy === 'scan-grid'
-      ? createScanGridLocations(entry.rootIndex, entries.length)
-      : createColumnRampLocations(entry.sourceColumnIndex, entry.sourceRowIndex),
-  );
-
-  return createPlacement(entries, locations, getSourceColumnCount(entries));
+  void _layoutStrategy;
+  return createFlowColumnsPlacement(entries);
 }
 
 function createFlowColumnsPlacement(entries: DemoLayoutEntry[]): DemoLayoutPlacement {
@@ -140,35 +114,6 @@ function createPlacement(
   };
 }
 
-function createColumnRampLocations(columnIndex: number, rowIndex: number): DemoHierarchyLocations {
-  const root = {
-    x: getCenteredX(columnIndex, 12, DEMO_COLUMN_SPACING),
-    y: getCenteredY(rowIndex, 12, DEMO_ROW_SPACING),
-  };
-
-  return {
-    root,
-    child: root,
-  };
-}
-
-function createScanGridLocations(rootIndex: number, totalEntries: number): DemoHierarchyLocations {
-  const columnIndex = rootIndex % DEMO_SCAN_GRID_COLUMN_COUNT;
-  const rowIndex = Math.floor(rootIndex / DEMO_SCAN_GRID_COLUMN_COUNT);
-  const totalRows = Math.max(1, Math.ceil(totalEntries / DEMO_SCAN_GRID_COLUMN_COUNT));
-  const root = {
-    x: getCenteredX(columnIndex, DEMO_SCAN_GRID_COLUMN_COUNT, DEMO_SCAN_GRID_COLUMN_SPACING),
-    y:
-      getCenteredY(rowIndex, totalRows, DEMO_SCAN_GRID_ROW_SPACING) +
-      (columnIndex % 2 === 0 ? 0.04 : -0.04),
-  };
-
-  return {
-    root,
-    child: root,
-  };
-}
-
 function createNodeBox(
   location: LabelLocation,
   bounds: DemoNodeBounds,
@@ -210,10 +155,6 @@ function getCenteredX(index: number, total: number, spacing: number): number {
 
 function getCenteredY(index: number, total: number, spacing: number): number {
   return ((total - 1) * spacing) * 0.5 - index * spacing;
-}
-
-function getSourceColumnCount(entries: DemoLayoutEntry[]): number {
-  return getSortedUnique(entries.map((entry) => entry.sourceColumnIndex)).length;
 }
 
 function getSortedUnique(values: number[]): number[] {

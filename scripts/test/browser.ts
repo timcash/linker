@@ -4,6 +4,7 @@ import type {Page} from 'puppeteer';
 
 import {
   BROWSER_UPDATE_FRAME_COUNT,
+  DEFAULT_LINE_STRATEGY,
   DEFAULT_LAYOUT_STRATEGY,
   DEFAULT_TEXT_STRATEGY,
   DEMO_LABEL_SET_ID,
@@ -11,6 +12,8 @@ import {
   type CameraQueryState,
   type CameraState,
   type CanvasPixelSignature,
+  type LineState,
+  type LineStrategy,
   type NonReadyResult,
   type ReadyResult,
   type StrategyPanelMode,
@@ -118,6 +121,17 @@ export async function getTextState(page: Page): Promise<TextState> {
     visibleLabelCount: Number(document.body.dataset.textVisibleLabelCount ?? '0'),
     visibleLabels: document.body.dataset.textVisibleLabels ?? '',
     visibleGlyphCount: Number(document.body.dataset.textVisibleGlyphCount ?? '0'),
+  }));
+}
+
+export async function getLineState(page: Page): Promise<LineState> {
+  return page.evaluate(() => ({
+    curveFingerprint: document.body.dataset.lineCurveFingerprint ?? '',
+    lineLinkCount: Number(document.body.dataset.lineLinkCount ?? '0'),
+    lineStrategy: (document.body.dataset.lineStrategy ?? DEFAULT_LINE_STRATEGY) as LineStrategy,
+    lineVisibleLinkCount: Number(document.body.dataset.lineVisibleLinkCount ?? '0'),
+    strategyPanelMode: document.body.dataset.strategyPanelMode ?? '',
+    submittedVertexCount: Number(document.body.dataset.lineSubmittedVertexCount ?? '0'),
   }));
 }
 
@@ -348,6 +362,26 @@ export async function switchTextStrategy(
     datasetKey: 'textStrategy',
     expectedValue: textStrategy,
     missingMessage: `Missing text strategy button ${selector}`,
+    selector,
+  });
+}
+
+export async function switchLineStrategy(
+  page: Page,
+  lineStrategy: LineStrategy,
+): Promise<void> {
+  await showStrategyPanelMode(page, 'line');
+
+  const currentMode = await page.evaluate(
+    () => (document.body.dataset.lineStrategy ?? DEFAULT_LINE_STRATEGY) as LineStrategy,
+  );
+  const selector = `button[data-line-strategy="${lineStrategy}"]`;
+
+  await selectToggleValue(page, {
+    currentValue: currentMode,
+    datasetKey: 'lineStrategy',
+    expectedValue: lineStrategy,
+    missingMessage: `Missing line strategy button ${selector}`,
     selector,
   });
 }
