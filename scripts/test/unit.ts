@@ -7,6 +7,7 @@ import {
   type DemoLayoutNodeBox,
 } from '../../src/data/demo-layout';
 import {getDemoLinks} from '../../src/data/links';
+import {sampleLineCurve} from '../../src/line/curves';
 import {DEMO_LABELS} from '../../src/data/labels';
 import {
   MIN_ZOOM_OPACITY,
@@ -173,6 +174,16 @@ export function runLinkPointUnitTests(): void {
     horizontalLink,
     'Horizontal demo links should connect from the source right-center to the target left-center.',
   );
+  assert.equal(
+    horizontalLink?.startLinkPoint,
+    'right-center',
+    'Horizontal demo links should retain the source right-center link-point.',
+  );
+  assert.equal(
+    horizontalLink?.endLinkPoint,
+    'left-center',
+    'Horizontal demo links should retain the target left-center link-point.',
+  );
 
   const startVerticalBox = getRequiredRootBox(rootBoxByLabel, '3:1:1');
   const endVerticalBox = getRequiredRootBox(rootBoxByLabel, '3:2:1');
@@ -189,6 +200,184 @@ export function runLinkPointUnitTests(): void {
     verticalLink,
     'Vertical demo links should connect from the lower label bottom-center to the upper label top-center.',
   );
+  assert.equal(
+    verticalLink?.startLinkPoint,
+    'bottom-center',
+    'Vertical demo links should retain the source bottom-center link-point.',
+  );
+  assert.equal(
+    verticalLink?.endLinkPoint,
+    'top-center',
+    'Vertical demo links should retain the target top-center link-point.',
+  );
+
+  const firstDiagonalStartBox = getRequiredRootBox(rootBoxByLabel, '1:1:1');
+  const firstDiagonalEndBox = getRequiredRootBox(rootBoxByLabel, '2:2:1');
+  const diagonalLink = links.find((link) => {
+    return (
+      Math.abs(link.start.x - firstDiagonalStartBox.maxX) < 0.0001 &&
+      Math.abs(link.start.y - getBoxCenterY(firstDiagonalStartBox)) < 0.0001 &&
+      Math.abs(link.end.x - firstDiagonalEndBox.minX) < 0.0001 &&
+      Math.abs(link.end.y - getBoxCenterY(firstDiagonalEndBox)) < 0.0001
+    );
+  });
+
+  assert.ok(
+    diagonalLink,
+    'Diagonal demo links should include 1:1:1 to 2:2:1 using right-center to left-center link-points.',
+  );
+  assert.equal(
+    diagonalLink?.startLinkPoint,
+    'right-center',
+    'Diagonal demo links should retain the source right-center link-point.',
+  );
+  assert.equal(
+    diagonalLink?.endLinkPoint,
+    'left-center',
+    'Diagonal demo links should retain the target left-center link-point.',
+  );
+
+  const firstFanoutEndBox = getRequiredRootBox(rootBoxByLabel, '2:3:1');
+  const fanoutLink = links.find((link) => {
+    return (
+      Math.abs(link.start.x - firstDiagonalStartBox.maxX) < 0.0001 &&
+      Math.abs(link.start.y - getBoxCenterY(firstDiagonalStartBox)) < 0.0001 &&
+      Math.abs(link.end.x - firstFanoutEndBox.minX) < 0.0001 &&
+      Math.abs(link.end.y - getBoxCenterY(firstFanoutEndBox)) < 0.0001
+    );
+  });
+
+  assert.ok(
+    fanoutLink,
+    'Demo links should include 1:1:1 to 2:3:1 using right-center to left-center link-points across columns.',
+  );
+  assert.equal(
+    fanoutLink?.startLinkPoint,
+    'right-center',
+    'Cross-column fanout demo links should retain the source right-center link-point.',
+  );
+  assert.equal(
+    fanoutLink?.endLinkPoint,
+    'left-center',
+    'Cross-column fanout demo links should retain the target left-center link-point.',
+  );
+
+  assert.deepEqual(
+    horizontalLink?.color,
+    diagonalLink?.color,
+    'Distance-1 links should share the same color across different link families.',
+  );
+  assert.deepEqual(
+    horizontalLink?.color,
+    fanoutLink?.color,
+    'All distance-1 links should share the same color.',
+  );
+  assert.notDeepEqual(
+    verticalLink?.color,
+    horizontalLink?.color,
+    'Distance-0 links should use a different color than distance-1 links.',
+  );
+
+  const firstSpineStartBox = getRequiredRootBox(rootBoxByLabel, '1:1:1');
+  const firstSpineEndBox = getRequiredRootBox(rootBoxByLabel, '12:1:1');
+  const spineLink = links.find((link) => {
+    return (
+      Math.abs(link.start.x - firstSpineStartBox.maxX) < 0.0001 &&
+      Math.abs(link.start.y - getBoxCenterY(firstSpineStartBox)) < 0.0001 &&
+      Math.abs(link.end.x - firstSpineEndBox.minX) < 0.0001 &&
+      Math.abs(link.end.y - getBoxCenterY(firstSpineEndBox)) < 0.0001
+    );
+  });
+
+  assert.ok(
+    spineLink,
+    'Demo links should include a same-row spine link from 1:1:1 to 12:1:1.',
+  );
+  assert.notDeepEqual(
+    spineLink?.color,
+    horizontalLink?.color,
+    'Distance-11 links should use a different color than distance-1 links.',
+  );
+  assert.notDeepEqual(
+    spineLink?.color,
+    verticalLink?.color,
+    'Distance-11 links should use a different color than distance-0 links.',
+  );
+}
+
+export function runRoundedStepCurveUnitTests(): void {
+  const links = getDemoLinks('flow-columns');
+  const diagonalLink = links.find((link) => {
+    return (
+      link.startLinkPoint === 'right-center' &&
+      link.endLinkPoint === 'left-center' &&
+      link.start.x < link.end.x &&
+      link.start.y > link.end.y
+    );
+  });
+
+  assert.ok(
+    diagonalLink,
+    'Expected a diagonal demo link that leaves from right-center and enters through left-center.',
+  );
+
+  if (!diagonalLink) {
+    return;
+  }
+
+  const roundedStepPoints = sampleLineCurve(diagonalLink, 'rounded-step-links', 20);
+
+  assert.equal(
+    roundedStepPoints.length > 4,
+    true,
+    'Rounded step links should sample extra points for the two rounded corners.',
+  );
+
+  const firstPoint = roundedStepPoints[0];
+  const lastPoint = roundedStepPoints[roundedStepPoints.length - 1];
+
+  assert.ok(firstPoint, 'Rounded step links should keep the source point.');
+  assert.ok(lastPoint, 'Rounded step links should keep the target point.');
+  assert.ok(
+    firstPoint && Math.abs(firstPoint.x - diagonalLink.start.x) < 0.0001,
+    'Rounded step links should start at the source link-point.',
+  );
+  assert.ok(
+    lastPoint && Math.abs(lastPoint.x - diagonalLink.end.x) < 0.0001,
+    'Rounded step links should end at the target link-point.',
+  );
+
+  const minX = Math.min(diagonalLink.start.x, diagonalLink.end.x);
+  const maxX = Math.max(diagonalLink.start.x, diagonalLink.end.x);
+  const minY = Math.min(diagonalLink.start.y, diagonalLink.end.y);
+  const maxY = Math.max(diagonalLink.start.y, diagonalLink.end.y);
+
+  roundedStepPoints.forEach((point, index) => {
+    assert.ok(
+      point.x >= minX - 0.0001 && point.x <= maxX + 0.0001,
+      'Rounded step links should stay within the source/target X bounds.',
+    );
+    assert.ok(
+      point.y >= minY - 0.0001 && point.y <= maxY + 0.0001,
+      'Rounded step links should stay within the source/target Y bounds.',
+    );
+
+    if (index === 0) {
+      return;
+    }
+
+    const previous = roundedStepPoints[index - 1];
+
+    assert.ok(previous, 'Rounded step curve checks require the previous sampled point.');
+    assert.ok(
+      previous && point.x >= previous.x - 0.0001,
+      'Rounded step links should progress monotonically across X for the diagonal demo link.',
+    );
+    assert.ok(
+      previous && point.y <= previous.y + 0.0001,
+      'Rounded step links should progress monotonically across Y for the diagonal demo link.',
+    );
+  });
 }
 
 export function runCanonicalLabelIdUnitTests(): void {

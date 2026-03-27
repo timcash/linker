@@ -76,7 +76,6 @@ body {
 }
 
 .status-panel,
-.details-panel,
 .strategy-mode-panel,
 .render-panel,
 .camera-panel {
@@ -99,31 +98,14 @@ body {
   max-width: min(28rem, calc(50vw - 36px));
 }
 
-.top-right-stack {
+.strategy-mode-panel {
   grid-area: details;
   align-self: start;
   justify-self: end;
-  z-index: 2;
-  display: grid;
-  gap: 16px;
-  margin: 24px;
-  width: min(24rem, calc(50vw - 36px));
-}
-
-.top-right-stack > .details-panel,
-.top-right-stack > .strategy-mode-panel {
-  margin: 0;
-  width: 100%;
-}
-
-.details-panel {
-  display: grid;
-  gap: 10px;
-}
-
-.strategy-mode-panel {
   display: grid;
   gap: 12px;
+  margin: 24px;
+  width: min(24rem, calc(50vw - 36px));
 }
 
 .render-panel {
@@ -173,13 +155,6 @@ body {
   font-size: 0.72rem;
   letter-spacing: 0.18em;
   text-transform: uppercase;
-}
-
-.details-copy {
-  margin: 0;
-  color: var(--muted);
-  font-size: 0.9rem;
-  line-height: 1.6;
 }
 
 .control-row {
@@ -339,7 +314,7 @@ body {
     padding: 16px 18px;
   }
 
-  .details-panel,
+  .strategy-mode-panel,
   .render-panel,
   .camera-panel {
     margin: 16px;

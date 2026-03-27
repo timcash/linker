@@ -11,9 +11,6 @@ type ReadyUiState = {
   cameraBottomGap: number;
   cameraPanelVisible: boolean;
   cameraRightGap: number;
-  detailsPanelVisible: boolean;
-  detailsRightGap: number;
-  detailsTopGap: number;
   layoutStrategyButtonModes: string[];
   layoutStrategyPanelVisible: boolean;
   lineStrategyButtonModes: string[];
@@ -38,7 +35,6 @@ export async function runPanelsStep(context: BrowserTestContext): Promise<void> 
   const readyUiState = await context.page.evaluate((): ReadyUiState => {
     const message = document.querySelector('[data-testid="app-message"]');
     const cameraPanel = document.querySelector('[data-testid="camera-panel"]');
-    const detailsPanel = document.querySelector('[data-testid="details-panel"]');
     const renderPanel = document.querySelector('[data-testid="render-panel"]');
     const layoutStrategyPanel = document.querySelector('[data-testid="layout-strategy-panel"]');
     const lineStrategyPanel = document.querySelector('[data-testid="line-strategy-panel"]');
@@ -59,7 +55,6 @@ export async function runPanelsStep(context: BrowserTestContext): Promise<void> 
       ...document.querySelectorAll<HTMLButtonElement>('button[data-strategy-panel-mode]'),
     ];
     const cameraRect = cameraPanel instanceof HTMLElement ? cameraPanel.getBoundingClientRect() : null;
-    const detailsRect = detailsPanel instanceof HTMLElement ? detailsPanel.getBoundingClientRect() : null;
     const renderRect = renderPanel instanceof HTMLElement ? renderPanel.getBoundingClientRect() : null;
     const statusRect = statusPanel instanceof HTMLElement ? statusPanel.getBoundingClientRect() : null;
     const strategyModeRect =
@@ -71,9 +66,6 @@ export async function runPanelsStep(context: BrowserTestContext): Promise<void> 
       cameraPanelVisible:
         cameraPanel instanceof HTMLElement &&
         window.getComputedStyle(cameraPanel).display !== 'none',
-      detailsPanelVisible:
-        detailsPanel instanceof HTMLElement &&
-        window.getComputedStyle(detailsPanel).display !== 'none',
       strategyModePanelVisible:
         strategyModePanel instanceof HTMLElement &&
         window.getComputedStyle(strategyModePanel).display !== 'none',
@@ -93,7 +85,6 @@ export async function runPanelsStep(context: BrowserTestContext): Promise<void> 
         window.getComputedStyle(textStrategyPanel).display !== 'none',
       cameraRightGap: cameraRect ? Math.round(window.innerWidth - cameraRect.right) : -1,
       cameraBottomGap: cameraRect ? Math.round(window.innerHeight - cameraRect.bottom) : -1,
-      detailsRightGap: detailsRect ? Math.round(window.innerWidth - detailsRect.right) : -1,
       layoutStrategyButtonModes: layoutStrategyButtons.map((button) => button.dataset.layoutStrategy ?? ''),
       lineStrategyButtonModes: lineStrategyButtons.map((button) => button.dataset.lineStrategy ?? ''),
       strategyModeButtonModes: strategyModeButtons.map((button) => button.dataset.strategyPanelMode ?? ''),
@@ -105,7 +96,6 @@ export async function runPanelsStep(context: BrowserTestContext): Promise<void> 
       renderBottomGap: renderRect ? Math.round(window.innerHeight - renderRect.bottom) : -1,
       statusLeftGap: statusRect ? Math.round(statusRect.left) : -1,
       statusTopGap: statusRect ? Math.round(statusRect.top) : -1,
-      detailsTopGap: detailsRect ? Math.round(detailsRect.top) : -1,
     };
   });
 
@@ -120,7 +110,6 @@ export async function runPanelsStep(context: BrowserTestContext): Promise<void> 
     'Ready state should remove the startup message from layout.',
   );
   assert.equal(readyUiState.cameraPanelVisible, true, 'Camera panel should be visible.');
-  assert.equal(readyUiState.detailsPanelVisible, true, 'Details panel should be visible.');
   assert.equal(readyUiState.strategyModePanelVisible, true, 'Strategy view panel should be visible.');
   assert.equal(readyUiState.renderPanelVisible, true, 'Render panel should be visible.');
   assert.equal(readyUiState.textStrategyPanelVisible, true, 'Text strategy panel should be visible.');
@@ -156,20 +145,12 @@ export async function runPanelsStep(context: BrowserTestContext): Promise<void> 
     'Status panel should sit near the top edge.',
   );
   assert.ok(
-    readyUiState.detailsRightGap >= 0 && readyUiState.detailsRightGap <= 32,
-    'Details panel should sit near the right edge.',
-  );
-  assert.ok(
-    readyUiState.detailsTopGap >= 0 && readyUiState.detailsTopGap <= 32,
-    'Details panel should sit near the top edge.',
-  );
-  assert.ok(
     readyUiState.strategyModeRightGap >= 0 && readyUiState.strategyModeRightGap <= 32,
     'Strategy view panel should sit near the right edge.',
   );
   assert.ok(
-    readyUiState.strategyModeTopGap > readyUiState.detailsTopGap,
-    'Strategy view panel should sit below the details panel.',
+    readyUiState.strategyModeTopGap >= 0 && readyUiState.strategyModeTopGap <= 32,
+    'Strategy view panel should sit near the top edge.',
   );
   assert.ok(
     readyUiState.renderLeftGap >= 0 && readyUiState.renderLeftGap <= 32,

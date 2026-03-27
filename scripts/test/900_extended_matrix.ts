@@ -265,12 +265,12 @@ export async function runExtendedMatrixStep(
   assert.match(
     benchmarkLogContents,
     /Benchmark complete/,
-    'browser.log should contain benchmark completion console entries.',
+    'test.log should contain benchmark completion console entries.',
   );
   assert.match(
     benchmarkLogContents,
     /Benchmark summary strategy=/,
-    'browser.log should contain benchmark summary lines for strategy runs.',
+    'test.log should contain benchmark summary lines for strategy runs.',
   );
 }
 

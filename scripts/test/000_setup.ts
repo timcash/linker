@@ -1,4 +1,4 @@
-import {writeFile} from 'node:fs/promises';
+import {appendFile, writeFile} from 'node:fs/promises';
 import path from 'node:path';
 
 import puppeteer, {
@@ -16,10 +16,11 @@ import {
   runCanonicalLabelIdUnitTests,
   runLinkPointUnitTests,
   runLayoutStrategyUnitTests,
+  runRoundedStepCurveUnitTests,
   runZoomBandUnitTests,
 } from './shared';
 
-const logPath = path.resolve(process.cwd(), 'browser.log');
+const logPath = path.resolve(process.cwd(), 'test.log');
 const screenshotPath = path.resolve(process.cwd(), 'browser.png');
 
 export function runStaticUnitTests(): void {
@@ -27,19 +28,30 @@ export function runStaticUnitTests(): void {
   runCanonicalLabelIdUnitTests();
   runLinkPointUnitTests();
   runLayoutStrategyUnitTests();
+  runRoundedStepCurveUnitTests();
   runZoomBandUnitTests();
 }
 
 export async function createBrowserTestContext(): Promise<BrowserTestContext> {
-  await writeFile(logPath, '', 'utf8');
+  if (process.env.LINKER_APPEND_TEST_LOG !== '1') {
+    await writeFile(logPath, '', 'utf8');
+  }
 
   const browserLogLines: string[] = [];
+  let flushedLineCount = 0;
   const addBrowserLog = (kind: string, message: string): void => {
     const timestamp = new Date().toISOString();
     browserLogLines.push(`[${timestamp}] [${kind}] ${message}`);
   };
   const flushBrowserLog = async (): Promise<void> => {
-    await writeFile(logPath, `${browserLogLines.join('\n')}\n`, 'utf8');
+    const pendingLines = browserLogLines.slice(flushedLineCount);
+
+    if (pendingLines.length === 0) {
+      return;
+    }
+
+    await appendFile(logPath, `${pendingLines.join('\n')}\n`, 'utf8');
+    flushedLineCount = browserLogLines.length;
   };
 
   const server = await createServer({

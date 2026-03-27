@@ -5,7 +5,7 @@ import {type Camera2D, type ScreenPoint, type ViewportSize} from '../camera';
 import {getZoomOpacity, isZoomVisible} from '../text/zoom';
 import {sampleLineCurve} from './curves';
 import {DEFAULT_LINE_STRATEGY} from './types';
-import type {LineDefinition, LineLayerStats, LineStrategy} from './types';
+import type {LinkDefinition, LineLayerStats, LineStrategy} from './types';
 
 const LINE_SHADER = /* wgsl */ `
 struct VertexInputs {
@@ -62,13 +62,13 @@ export class LineLayer {
   private colorBuffer;
   private model: Model;
   private capacity = 6;
-  private links: LineDefinition[];
+  private links: LinkDefinition[];
   private mode: LineStrategy;
   private stats: LineLayerStats;
 
   constructor(
     private readonly device: Device,
-    links: LineDefinition[],
+    links: LinkDefinition[],
     mode: LineStrategy = DEFAULT_LINE_STRATEGY,
   ) {
     this.links = links;
@@ -111,7 +111,7 @@ export class LineLayer {
     return this.stats;
   }
 
-  setLinks(links: LineDefinition[]): void {
+  setLinks(links: LinkDefinition[]): void {
     this.links = links;
     this.stats = createEmptyLineLayerStats(this.links, this.mode);
   }
@@ -176,7 +176,7 @@ export class LineLayer {
 }
 
 function buildLineMesh(
-  links: LineDefinition[],
+  links: LinkDefinition[],
   mode: LineStrategy,
   camera: Camera2D,
   viewport: ViewportSize,
@@ -335,6 +335,10 @@ function getLineSegmentCount(mode: LineStrategy): number {
   switch (mode) {
     case 'orbit-links':
       return 28;
+    case 'rounded-step-links':
+      return 20;
+    case 'cubic-links':
+      return 24;
     case 'fan-links':
       return 24;
     case 'arc-links':
@@ -385,7 +389,7 @@ function createEmptyLineMesh(): LineMesh {
 }
 
 function createEmptyLineLayerStats(
-  links: LineDefinition[],
+  links: LinkDefinition[],
   mode: LineStrategy,
 ): LineLayerStats {
   return {
@@ -398,7 +402,7 @@ function createEmptyLineLayerStats(
 }
 
 function createLineLayerStats(
-  links: LineDefinition[],
+  links: LinkDefinition[],
   mode: LineStrategy,
   mesh: LineMesh,
 ): LineLayerStats {

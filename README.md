@@ -35,8 +35,15 @@ Useful commands:
 
 Test artifacts:
 
-- `npm test` writes `browser.log` and `browser.png`.
-- Extended matrix runs log benchmark summaries to `browser.log`.
+- `npm test` writes `test.log` and `browser.png`.
+- `test.log` includes the captured `npm` output, `eslint` output, test harness output, and browser logs such as console messages, page errors, failed requests, and 4xx/5xx responses.
+- Extended matrix runs log benchmark summaries to `test.log`.
+
+Reviewing test output:
+
+- Open `test.log` to inspect the full combined test run after `npm test`.
+- Open `browser.png` to review the final browser state captured at the end of the run.
+- When a test fails, start with the last lines of `test.log`, then scan upward for `test.failure`, `pageerror`, `console.error`, `requestfailed`, and `response.error`.
 
 ## Public Surface
 
@@ -55,7 +62,7 @@ Useful routes:
 - Demo route: `/`
 - Demo with the Flow Columns layout: `/?layoutStrategy=flow-columns`
 - Demo with a specific `text-strategy`: `/?textStrategy=packed`
-- Demo with a specific `line-strategy`: `/?lineStrategy=orbit-links`
+- Demo with a specific `line-strategy`: `/?lineStrategy=rounded-step-links`
 - Demo with a seeded camera: `/?cameraCenterX=1.25&cameraCenterY=-2.5&cameraZoom=0.75`
 - Benchmark route: `/?labelSet=benchmark&benchmark=1&textStrategy=sdf-visible-index&labelCount=4096&benchmarkFrames=8`
 - Disable GPU timing explicitly: `/?gpuTiming=0`
@@ -67,8 +74,8 @@ Use these words consistently:
 - `luma-stage`: fullscreen runtime surface that owns the canvas, panels, and render loop
 - `stage-canvas`: fullscreen WebGPU canvas behind the UI
 - `line-layer`: curved network-edge rendering layer
-- `link-point`: top-center, right-center, bottom-center, or left-center label anchor used by the line-layer
-- `line-strategy`: selectable curved network-edge path such as `arc-links` or `orbit-links`
+- `link-point`: top-center, right-center, bottom-center, or left-center label anchor retained on each `link`; same-column links use top/bottom anchors and cross-column links use left/right anchors
+- `line-strategy`: selectable curved network-edge path such as `arc-links` or `rounded-step-links`
 - `network-mapping-strategy`: umbrella term for the selectable `text-strategy` and `line-strategy` controls
 - `text-layer`: atlas-backed label rendering layer
 - `text-strategy`: selectable label-rendering path such as `baseline` or `chunked`
@@ -90,7 +97,8 @@ Canonical demo scene:
 - Default `text-strategy`: `packed`
 - Default `line-strategy`: `arc-links`
 - Demo shape: `12 x 12 x 2` labels
-- Demo link-set size: `81` links
+- Demo link-set size: `147` links
+- Demo link colors: grouped by column-distance so every distance-`0`, distance-`1`, and longer-span link family shares a consistent color
 - Label id format: `column:row:level`
 - Every root has exactly one hidden child at the same anchor
 - Zoom `0` shows the full `12 x 12` root grid
@@ -154,12 +162,16 @@ Practical guidance:
 ## Line Strategies
 
 - `arc-links`: midpoint arc with a stable center lift for the clearest default network-edge shape
+- `rounded-step-links`: monotonic stepped route with cubic-rounded corners for diagram-style link-point to link-point mapping
+- `cubic-links`: balanced cubic Bezier curve with mirrored handles for a smoother general-purpose sweep
 - `fan-links`: source-biased cubic curve that fans outward from the link origin before settling onto the target
 - `orbit-links`: opposing-handle cubic curve that creates a more pronounced orbital sweep between labels
 
 Practical guidance:
 
 - Use `arc-links` for the cleanest default link-set read.
+- Use `rounded-step-links` when you want the line-layer to leave a label, turn once, and enter the target without overshooting above or below the source and target band.
+- Use `cubic-links` when you want a classic symmetric cubic curve between link-points.
 - Use `fan-links` when you want directionality to feel biased toward the source side.
 - Use `orbit-links` when you want the strongest curve separation between long links.
 
@@ -172,8 +184,7 @@ Practical guidance:
 The page uses a fullscreen CSS grid with the `stage-canvas` behind the UI.
 
 - `status-panel`: top-left; app state, camera state, grid counts, link-set counts, visible label counts, upload size, and frame telemetry
-- `details-panel`: top-right; operator-facing explanation of what the stage is testing
-- `strategy-mode-panel`: top-right below `details-panel`; toggles between text, line, and layout controls
+- `strategy-mode-panel`: top-right; toggles between text, line, and layout controls
 - `render-panel`: bottom-left; active text, line, or layout strategy controls
 - `camera-panel`: bottom-right; deterministic pan, zoom, and reset controls
 - `stage-canvas`: fullscreen WebGPU canvas rendered behind all panels
@@ -186,7 +197,7 @@ Default suite coverage:
 
 - app boot reaches `ready` without unexpected browser errors
 - `stage-canvas` fills the viewport
-- all five UI panels are present and positioned correctly
+- the four UI panels are present and positioned correctly
 - the default route uses `scene-12x12-v1`, the `packed` `text-strategy`, and the `arc-links` `line-strategy`
 - line strategy view exposes the deterministic demo link-set and distinct curve fingerprints for each line strategy
 - zoom `0` shows the full root grid
@@ -196,7 +207,7 @@ Default suite coverage:
 Extended matrix:
 
 - Run `LINKER_EXTENDED_TEST_MATRIX=1 npm test` to add the full network-mapping-strategy demo sweep, large-scale visibility sweep, and benchmark comparison matrix.
-- Benchmark summaries are written to `browser.log`.
+- Benchmark summaries are written to `test.log`.
 
 GPU timing notes:
 

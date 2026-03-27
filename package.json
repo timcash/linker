@@ -8,7 +8,8 @@
     "build": "tsc && vite build",
     "lint": "eslint .",
     "preview": "vite preview",
-    "test": "npm run lint && tsx scripts/test.ts"
+    "test": "tsx scripts/run-test.ts",
+    "test:browser": "tsx scripts/test.ts"
   },
   "dependencies": {
     "@luma.gl/core": "9.3.0-alpha.10",

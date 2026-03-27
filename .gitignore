@@ -1,4 +1,4 @@
-browser.log
+test.log
 dist
 node_modules
 vite.dev.log

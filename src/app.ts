@@ -24,7 +24,7 @@ import {
   DEFAULT_LINE_STRATEGY,
   LINE_STRATEGIES,
   LINE_STRATEGY_OPTIONS,
-  type LineDefinition,
+  type LinkDefinition,
   type LineStrategy,
 } from './line/types';
 import {FrameTelemetry, type FrameTelemetrySnapshot} from './perf';
@@ -120,7 +120,7 @@ type StageConfig = {
   labelTargetCount: number;
   labels: LabelDefinition[];
   lineStrategy: LineStrategy;
-  links: LineDefinition[];
+  links: LinkDefinition[];
   textStrategy: TextStrategy;
 };
 
@@ -149,8 +149,6 @@ type StageBenchmarkSummary = {
 type StageChromeElements = {
   cameraPanel: HTMLElement;
   canvas: HTMLCanvasElement;
-  detail: HTMLParagraphElement;
-  detailsPanel: HTMLElement;
   launchBanner: HTMLDivElement;
   renderPanel: HTMLElement;
   stage: HTMLDivElement;
@@ -276,9 +274,6 @@ class LumaStageController {
       this.updateLayoutStrategyButtons();
       this.updateStrategyModeButtons();
       this.updateStrategyPanel();
-
-      this.chrome.detail.textContent =
-        'Text strategies compare upload and submission paths. Line strategies compare curved network-edge paths. The demo uses the Flow Columns layout while camera input stays button-only so zoom traces and benchmarks remain deterministic.';
       this.chrome.launchBanner.hidden = true;
       this.chrome.canvas.hidden = false;
       this.setState('ready');
@@ -861,27 +856,21 @@ class LumaStageController {
 
     this.setState('error');
     this.chrome.canvas.hidden = true;
-    this.chrome.detail.hidden = false;
     this.chrome.launchBanner.hidden = false;
     this.chrome.launchBanner.innerHTML = `
       <strong>Startup Failed</strong>
       <p>${escapeHtml(message)}</p>
     `;
-    this.chrome.detail.textContent =
-      'The stage failed after entering the WebGPU path. Check the console and runtime error details.';
   }
 
   private showUnsupported(message: string): void {
     this.setState('unsupported');
     this.chrome.canvas.hidden = true;
-    this.chrome.detail.hidden = false;
     this.chrome.launchBanner.hidden = false;
     this.chrome.launchBanner.innerHTML = `
       <strong>WebGPU Required</strong>
       <p>${escapeHtml(message)}</p>
     `;
-    this.chrome.detail.textContent =
-      'This build intentionally does not fall back to WebGL. It only boots with a working WebGPU implementation.';
   }
 
   private updateStatus(): void {
@@ -911,6 +900,7 @@ class LumaStageController {
     const bytesUploadedPerFrame = textStats ? textStats.bytesUploadedPerFrame : 0;
     const submittedGlyphCount = textStats ? textStats.submittedGlyphCount : 0;
     const submittedVertexCount = textStats ? textStats.submittedVertexCount : 0;
+    const submittedTotalVertexCount = submittedVertexCount + submittedLineVertexCount;
     const visibleChunkCount = textStats ? textStats.visibleChunkCount : 0;
     const visibleLabelCount = textStats ? textStats.visibleLabelCount : 0;
     const visibleGlyphCount = textStats ? textStats.visibleGlyphCount : 0;
@@ -975,25 +965,13 @@ class LumaStageController {
     this.setBenchmarkDatasets();
 
     this.chrome.stats.textContent = [
-      `label set ${this.config.labelSetKind} (${this.config.labels.length} labels)`,
-      `layout ${layoutStrategyLabel}`,
-      `text ${textStrategyLabel}`,
-      `links ${lineStrategyLabel}`,
       `center ${snapshot.centerX.toFixed(2)}, ${snapshot.centerY.toFixed(2)}`,
       `zoom ${snapshot.zoom.toFixed(2)}`,
-      `scale ${snapshot.pixelsPerWorldUnit.toFixed(1)} px/world`,
-      gridStats ? `grid ${lineCount} lines` : 'grid 0 lines',
-      gridStats ? `spacing ${minorSpacing} / ${majorSpacing}` : 'spacing n/a',
-      `link-set ${visibleLinkCount} visible / ${lineLinkCount} total / ${submittedLineVertexCount} vertices`,
       textStats
-        ? `text ${labelCount} labels / ${visibleLabelCount} visible labels / ${visibleGlyphCount} visible glyphs`
-        : 'text 0 labels',
-      textStats && visibleChunkCount > 0 ? `chunks ${visibleChunkCount}` : null,
-      textStats
-        ? `draw ${submittedGlyphCount} glyphs / ${submittedVertexCount} vertices / ${formatBytes(bytesUploadedPerFrame)}`
-        : 'draw 0 glyphs',
-      textStats ? `glyphs ${glyphCount}` : 'glyphs 0',
-      perf ? formatPerfSummary(perf, this.config.gpuTimingEnabled) : 'perf pending',
+        ? `glyphs ${visibleGlyphCount} visible / ${glyphCount} total`
+        : 'glyphs 0 visible / 0 total',
+      `vertices ${submittedTotalVertexCount}`,
+      perf ? formatPerfSummary(perf, this.config.gpuTimingEnabled) : 'cpu 0.00 ms / gpu pending',
     ].filter(Boolean).join('  |  ');
   }
 
@@ -1042,7 +1020,7 @@ function createStageChrome(root: HTMLElement): StageChromeElements {
   const stats = document.createElement('p');
   stats.className = 'status-stats';
   stats.textContent =
-    'layout Flow Columns  |  text Packed  |  links Arc Links  |  center 0.00, 0.00  |  zoom 0.00  |  scale 56.0 px/world';
+    'center 0.00, 0.00  |  zoom 0.00  |  glyphs 0 visible / 0 total  |  vertices 0  |  cpu 0.00 ms frame / 0.00 ms text / gpu pending';
   statusPanel.append(stats);
 
   const textStrategyButtonsMarkup = TEXT_STRATEGY_OPTIONS.map(
@@ -1063,15 +1041,6 @@ function createStageChrome(root: HTMLElement): StageChromeElements {
     <button type="button" class="control-button" data-strategy-panel-mode="layout" aria-pressed="false">Layout Strategy</button>
   `;
 
-  const detailsPanel = document.createElement('aside');
-  detailsPanel.className = 'details-panel';
-  detailsPanel.dataset.testid = 'details-panel';
-
-  const detailLabel = document.createElement('div');
-  detailLabel.className = 'panel-label';
-  detailLabel.textContent = 'Details';
-  detailsPanel.append(detailLabel);
-
   const launchBanner = document.createElement('div');
   launchBanner.className = 'launch-banner';
   launchBanner.dataset.testid = 'app-message';
@@ -1079,11 +1048,6 @@ function createStageChrome(root: HTMLElement): StageChromeElements {
     <strong>Preparing WebGPU</strong>
     <p>Initializing a luma-stage and fullscreen WebGPU canvas.</p>
   `;
-
-  const detail = document.createElement('p');
-  detail.className = 'details-copy';
-  detail.textContent = 'Checking browser WebGPU support and creating the luma.gl device.';
-  detailsPanel.append(detail);
 
   const strategyModePanel = document.createElement('aside');
   strategyModePanel.className = 'strategy-mode-panel';
@@ -1094,10 +1058,6 @@ function createStageChrome(root: HTMLElement): StageChromeElements {
       ${strategyModeButtonsMarkup}
     </div>
   `;
-
-  const topRightStack = document.createElement('div');
-  topRightStack.className = 'top-right-stack';
-  topRightStack.append(detailsPanel, strategyModePanel);
 
   const renderPanel = document.createElement('aside');
   renderPanel.className = 'render-panel';
@@ -1133,14 +1093,12 @@ function createStageChrome(root: HTMLElement): StageChromeElements {
     </div>
   `;
 
-  stage.append(canvas, statusPanel, topRightStack, renderPanel, cameraPanel, launchBanner);
+  stage.append(canvas, statusPanel, strategyModePanel, renderPanel, cameraPanel, launchBanner);
   root.replaceChildren(stage);
 
   return {
     cameraPanel,
     canvas,
-    detail,
-    detailsPanel,
     launchBanner,
     renderPanel,
     stage,
@@ -1175,23 +1133,11 @@ function formatPerfSummary(perf: FrameTelemetrySnapshot, gpuTimingEnabled: boole
       ? `gpu ${formatMs(perf.gpuFrameAvgMs)} frame`
       : `gpu ${formatMs(perf.gpuFrameAvgMs)} frame / ${formatMs(perf.gpuTextAvgMs)} text`;
 
-  return `perf cpu ${cpuFrame} frame / ${cpuText} text / ${gpuSummary}`;
+  return `cpu ${cpuFrame} frame / ${cpuText} text / ${gpuSummary}`;
 }
 
 function formatMs(value: number): string {
   return `${value.toFixed(2)} ms`;
-}
-
-function formatBytes(value: number): string {
-  if (value >= 1024 * 1024) {
-    return `${(value / (1024 * 1024)).toFixed(2)} MB`;
-  }
-
-  if (value >= 1024) {
-    return `${(value / 1024).toFixed(1)} KB`;
-  }
-
-  return `${value} B`;
 }
 
 function formatSpacing(value: number): string {

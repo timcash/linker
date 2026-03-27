@@ -64,7 +64,7 @@ export async function runReadyStep(
   assert.equal(
     logContents.includes(`${INTENTIONAL_ERROR_MARKER} Error: Uncaught Error: ${ERROR_PING_TOKEN}`),
     true,
-    'browser.log should contain the intentional error ping marker.',
+    'test.log should contain the intentional error ping marker.',
   );
 
   const unexpectedPageErrors = pageErrors.filter(
