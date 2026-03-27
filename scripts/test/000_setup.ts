@@ -21,6 +21,7 @@ import {
 } from './shared';
 
 const logPath = path.resolve(process.cwd(), 'test.log');
+const errorLogPath = path.resolve(process.cwd(), 'error.log');
 const screenshotPath = path.resolve(process.cwd(), 'browser.png');
 
 export function runStaticUnitTests(): void {
@@ -36,12 +37,26 @@ export async function createBrowserTestContext(): Promise<BrowserTestContext> {
   if (process.env.LINKER_APPEND_TEST_LOG !== '1') {
     await writeFile(logPath, '', 'utf8');
   }
+  if (process.env.LINKER_APPEND_ERROR_LOG !== '1') {
+    await writeFile(errorLogPath, '', 'utf8');
+  }
 
   const browserLogLines: string[] = [];
   let flushedLineCount = 0;
+  let errorLogWriteQueue = Promise.resolve();
   const addBrowserLog = (kind: string, message: string): void => {
     const timestamp = new Date().toISOString();
     browserLogLines.push(`[${timestamp}] [${kind}] ${message}`);
+  };
+  const addErrorLog = (kind: string, message: string): void => {
+    const timestamp = new Date().toISOString();
+    errorLogWriteQueue = errorLogWriteQueue.then(() =>
+      appendFile(
+        errorLogPath,
+        `[${timestamp}] [${kind}] ${formatErrorLogMessage(message)}\n`,
+        'utf8',
+      ),
+    );
   };
   const flushBrowserLog = async (): Promise<void> => {
     const pendingLines = browserLogLines.slice(flushedLineCount);
@@ -52,6 +67,9 @@ export async function createBrowserTestContext(): Promise<BrowserTestContext> {
 
     await appendFile(logPath, `${pendingLines.join('\n')}\n`, 'utf8');
     flushedLineCount = browserLogLines.length;
+  };
+  const flushErrorLog = async (): Promise<void> => {
+    await errorLogWriteQueue;
   };
 
   const server = await createServer({
@@ -88,7 +106,12 @@ export async function createBrowserTestContext(): Promise<BrowserTestContext> {
     const suffix = location.url
       ? ` (${location.url}:${location.lineNumber ?? 0}:${location.columnNumber ?? 0})`
       : '';
-    addBrowserLog(`console.${message.type()}`, `${message.text()}${suffix}`);
+    const fullMessage = `${message.text()}${suffix}`;
+    const kind = `console.${message.type()}`;
+    addBrowserLog(kind, fullMessage);
+    if (message.type() === 'error') {
+      addErrorLog(kind, fullMessage);
+    }
   });
 
   page.on('pageerror', (error) => {
@@ -96,35 +119,43 @@ export async function createBrowserTestContext(): Promise<BrowserTestContext> {
     const message = pageErrorValue.stack ?? pageErrorValue.message;
     pageErrors.push(message);
     if (message.includes(ERROR_PING_TOKEN)) {
-      addBrowserLog('pageerror.intentional', `${INTENTIONAL_ERROR_MARKER} ${message}`);
+      const intentionalMessage = `${INTENTIONAL_ERROR_MARKER} ${message}`;
+      addBrowserLog('pageerror.intentional', intentionalMessage);
+      addErrorLog('pageerror.intentional', intentionalMessage);
       return;
     }
 
     addBrowserLog('pageerror', message);
+    addErrorLog('pageerror', message);
   });
 
   page.on('error', (error) => {
-    addBrowserLog('error', error.stack ?? error.message);
+    const message = error.stack ?? error.message;
+    addBrowserLog('error', message);
+    addErrorLog('error', message);
   });
 
   page.on('requestfailed', (request: HTTPRequest) => {
     const failure = request.failure();
-    addBrowserLog(
-      'requestfailed',
-      `${request.method()} ${request.url()}${failure ? ` :: ${failure.errorText}` : ''}`,
-    );
+    const message = `${request.method()} ${request.url()}${failure ? ` :: ${failure.errorText}` : ''}`;
+    addBrowserLog('requestfailed', message);
+    addErrorLog('requestfailed', message);
   });
 
   page.on('response', (response: HTTPResponse) => {
     if (response.status() >= 400) {
-      addBrowserLog('response.error', `${response.status()} ${response.url()}`);
+      const message = `${response.status()} ${response.url()}`;
+      addBrowserLog('response.error', message);
+      addErrorLog('response.error', message);
     }
   });
 
   return {
     addBrowserLog,
+    addErrorLog,
     browser,
     flushBrowserLog,
+    flushErrorLog,
     logPath,
     page,
     pageErrors,
@@ -145,10 +176,12 @@ export async function destroyBrowserTestContext(
     await writeFile(context.screenshotPath, screenshot);
     context.addBrowserLog('artifact', `Saved screenshot to ${context.screenshotPath}`);
   } catch (error) {
+    const message = `Failed to save screenshot: ${error instanceof Error ? error.message : String(error)}`;
     context.addBrowserLog(
       'artifact.error',
-      `Failed to save screenshot: ${error instanceof Error ? error.message : String(error)}`,
+      message,
     );
+    context.addErrorLog('artifact.error', message);
   }
 
   try {
@@ -158,7 +191,18 @@ export async function destroyBrowserTestContext(
       `Failed to write browser log: ${error instanceof Error ? error.message : String(error)}`,
     );
   }
+  try {
+    await context.flushErrorLog();
+  } catch (error) {
+    console.error(
+      `Failed to write error log: ${error instanceof Error ? error.message : String(error)}`,
+    );
+  }
 
   await context.browser.close();
   await context.server.close();
+}
+
+function formatErrorLogMessage(message: string): string {
+  return message.replace(/\r?\n/g, '\\n');
 }

@@ -35,15 +35,52 @@ Useful commands:
 
 Test artifacts:
 
-- `npm test` writes `test.log` and `browser.png`.
+- `npm test` writes `test.log`, `error.log`, and `browser.png`.
 - `test.log` includes the captured `npm` output, `eslint` output, test harness output, and browser logs such as console messages, page errors, failed requests, and 4xx/5xx responses.
+- `error.log` is reset at the start of each run and records lint failures, browser `console.error` output, page errors, failed requests, 4xx/5xx responses, screenshot failures, and test-runner failures.
 - Extended matrix runs log benchmark summaries to `test.log`.
 
 Reviewing test output:
 
 - Open `test.log` to inspect the full combined test run after `npm test`.
+- Open `error.log` first when a run fails; any line in `error.log` causes the run to fail.
 - Open `browser.png` to review the final browser state captured at the end of the run.
 - When a test fails, start with the last lines of `test.log`, then scan upward for `test.failure`, `pageerror`, `console.error`, `requestfailed`, and `response.error`.
+
+## Development
+
+Use `npm run dev -- --host 127.0.0.1` while iterating. The app is route-driven, so the fastest way to reproduce a rendering state is to keep a concrete URL open instead of clicking back into the same view by hand.
+
+Useful development routes:
+
+- Text work: `http://127.0.0.1:5173/?textStrategy=packed`
+- Line work: `http://127.0.0.1:5173/?lineStrategy=rounded-step-links`
+- Layout work: `http://127.0.0.1:5173/?layoutStrategy=flow-columns`
+- Camera and zoom-band work: `http://127.0.0.1:5173/?cameraCenterX=1.25&cameraCenterY=-2.5&cameraZoom=0.75`
+- Benchmark work: `http://127.0.0.1:5173/?labelSet=benchmark&benchmark=1&textStrategy=sdf-visible-index&labelCount=4096&benchmarkFrames=8`
+
+Recommended workflow:
+
+- Keep DevTools open on `document.body.dataset`; the browser tests assert against the same camera, text, line, layout, and benchmark fields that manual debugging reads.
+- When changing text visibility or zoom behavior, check both zoom `0` and a zoomed-in child-layer view before calling the change done.
+- When changing line rendering, check the default route and confirm it still uses `rounded-step-links` in both the live UI and `browser.png`.
+- When changing panels or controls, verify the corresponding `data-testid` attributes and dataset exports still exist; the browser harness depends on both.
+
+Testing while working:
+
+- Run `npm run lint` first for fast feedback on syntax and style errors.
+- Run `npm run build` after TypeScript, route parsing, or public-surface changes.
+- Run `npm run test:browser` when you want the browser harness without paying for lint again.
+- Run `npm test` before finishing a change; it runs `eslint` and the browser suite, refreshes `test.log`, `error.log`, and `browser.png`, and fails if `error.log` is not empty.
+- Run `LINKER_EXTENDED_TEST_MATRIX=1 npm test` before larger rendering, visibility, or performance changes.
+
+Example loops:
+
+```bash
+npm run dev -- --host 127.0.0.1
+npm run test:browser
+npm test
+```
 
 ## Public Surface
 
@@ -75,7 +112,7 @@ Use these words consistently:
 - `stage-canvas`: fullscreen WebGPU canvas behind the UI
 - `line-layer`: curved network-edge rendering layer
 - `link-point`: top-center, right-center, bottom-center, or left-center label anchor retained on each `link`; same-column links use top/bottom anchors and cross-column links use left/right anchors
-- `line-strategy`: selectable curved network-edge path such as `arc-links` or `rounded-step-links`
+- `line-strategy`: the `rounded-step-links` curved network-edge path used by the line-layer
 - `network-mapping-strategy`: umbrella term for the selectable `text-strategy` and `line-strategy` controls
 - `text-layer`: atlas-backed label rendering layer
 - `text-strategy`: selectable label-rendering path such as `baseline` or `chunked`
@@ -95,7 +132,7 @@ Canonical demo scene:
 - Demo layout strategies: `flow-columns`
 - Default layout strategy: `flow-columns`
 - Default `text-strategy`: `packed`
-- Default `line-strategy`: `arc-links`
+- Default `line-strategy`: `rounded-step-links`
 - Demo shape: `12 x 12 x 2` labels
 - Demo link-set size: `147` links
 - Demo link colors: grouped by column-distance so every distance-`0`, distance-`1`, and longer-span link family shares a consistent color
@@ -161,19 +198,12 @@ Practical guidance:
 
 ## Line Strategies
 
-- `arc-links`: midpoint arc with a stable center lift for the clearest default network-edge shape
 - `rounded-step-links`: monotonic stepped route with cubic-rounded corners for diagram-style link-point to link-point mapping
-- `cubic-links`: balanced cubic Bezier curve with mirrored handles for a smoother general-purpose sweep
-- `fan-links`: source-biased cubic curve that fans outward from the link origin before settling onto the target
-- `orbit-links`: opposing-handle cubic curve that creates a more pronounced orbital sweep between labels
 
 Practical guidance:
 
-- Use `arc-links` for the cleanest default link-set read.
-- Use `rounded-step-links` when you want the line-layer to leave a label, turn once, and enter the target without overshooting above or below the source and target band.
-- Use `cubic-links` when you want a classic symmetric cubic curve between link-points.
-- Use `fan-links` when you want directionality to feel biased toward the source side.
-- Use `orbit-links` when you want the strongest curve separation between long links.
+- Use `rounded-step-links` as the default and only supported line path.
+- Use it when you want the line-layer to leave a label, turn once, and enter the target without overshooting above or below the source and target band.
 
 ## Layout Strategies
 
@@ -198,8 +228,8 @@ Default suite coverage:
 - app boot reaches `ready` without unexpected browser errors
 - `stage-canvas` fills the viewport
 - the four UI panels are present and positioned correctly
-- the default route uses `scene-12x12-v1`, the `packed` `text-strategy`, and the `arc-links` `line-strategy`
-- line strategy view exposes the deterministic demo link-set and distinct curve fingerprints for each line strategy
+- the default route uses `scene-12x12-v1`, the `packed` `text-strategy`, and the `rounded-step-links` `line-strategy`
+- line strategy view exposes the deterministic demo link-set and keeps `rounded-step-links` active
 - zoom `0` shows the full root grid
 - zooming in reveals the hidden child layer
 - camera button controls keep the URL in sync

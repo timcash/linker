@@ -332,19 +332,8 @@ function screenToClip(point: ScreenPoint, viewport: ViewportSize): {x: number; y
 }
 
 function getLineSegmentCount(mode: LineStrategy): number {
-  switch (mode) {
-    case 'orbit-links':
-      return 28;
-    case 'rounded-step-links':
-      return 20;
-    case 'cubic-links':
-      return 24;
-    case 'fan-links':
-      return 24;
-    case 'arc-links':
-    default:
-      return 18;
-  }
+  void mode;
+  return 20;
 }
 
 function createCurveFingerprint(positions: number[]): string {

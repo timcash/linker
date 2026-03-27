@@ -70,10 +70,16 @@ export async function runLineStrategiesStep(
     defaultLineState.submittedVertexCount > 0,
     'The default line strategy should submit visible line vertices.',
   );
+  const lineStrategies = getLineStrategies();
+  assert.deepEqual(
+    lineStrategies,
+    [DEFAULT_LINE_STRATEGY],
+    'Only Rounded Step Links should remain available as a line strategy.',
+  );
 
   const fingerprints = new Map<string, string>();
 
-  for (const lineStrategy of getLineStrategies()) {
+  for (const lineStrategy of lineStrategies) {
     await switchLineStrategy(context.page, lineStrategy);
 
     const lineState = await getLineState(context.page);
@@ -100,7 +106,7 @@ export async function runLineStrategiesStep(
 
   assert.equal(
     new Set(fingerprints.values()).size,
-    getLineStrategies().length,
+    lineStrategies.length,
     'Each line strategy should produce a distinct curve fingerprint.',
   );
 

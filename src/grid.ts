@@ -28,10 +28,10 @@ fn fragmentMain(inputs: FragmentInputs) -> @location(0) vec4<f32> {
 }
 `;
 
-const MINOR_COLOR: [number, number, number] = [0.16, 0.22, 0.32];
-const MAJOR_COLOR: [number, number, number] = [0.24, 0.39, 0.58];
-const AXIS_X_COLOR: [number, number, number] = [0.94, 0.54, 0.42];
-const AXIS_Y_COLOR: [number, number, number] = [0.44, 0.76, 0.96];
+const MINOR_COLOR: [number, number, number] = [0.14, 0.14, 0.14];
+const MAJOR_COLOR: [number, number, number] = [0.26, 0.26, 0.26];
+const AXIS_X_COLOR: [number, number, number] = [0.4, 0.4, 0.4];
+const AXIS_Y_COLOR: [number, number, number] = [0.4, 0.4, 0.4];
 
 type GridMesh = {
   positions: Float32Array;

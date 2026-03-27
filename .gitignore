@@ -1,4 +1,5 @@
 test.log
+error.log
 dist
 node_modules
 vite.dev.log

@@ -59,13 +59,8 @@ fn vertexMain(inputs: VertexInputs) -> FragmentInputs {
 }
 
 @fragment
-fn fragmentMain(inputs: FragmentInputs) -> @location(0) vec4<f32> {
-  let vignette = smoothstep(1.45, 0.18, length(inputs.position));
-
-  let base = vec3<f32>(0.015, 0.026, 0.06);
-  let wash = vec3<f32>(0.012, 0.055, 0.11) * (1.0 - inputs.uv.y * 0.9);
-
-  return vec4<f32>((base + wash) * vignette, 1.0);
+fn fragmentMain() -> @location(0) vec4<f32> {
+  return vec4<f32>(0.0, 0.0, 0.0, 1.0);
 }
 `;
 
@@ -343,7 +338,7 @@ class LumaStageController {
       const renderPass = this.device.beginRenderPass({
         id: 'luma-stage-pass',
         framebuffer,
-        clearColor: [0.01, 0.02, 0.04, 1],
+        clearColor: [0, 0, 0, 1],
         ...frameTimingProps,
       });
 

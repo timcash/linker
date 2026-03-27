@@ -146,8 +146,10 @@ export type StrategyMetricRule<TState> = {
 
 export type BrowserTestContext = {
   addBrowserLog: (kind: string, message: string) => void;
+  addErrorLog: (kind: string, message: string) => void;
   browser: Browser;
   flushBrowserLog: () => Promise<void>;
+  flushErrorLog: () => Promise<void>;
   logPath: string;
   page: Page;
   pageErrors: string[];
