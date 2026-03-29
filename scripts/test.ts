@@ -13,6 +13,7 @@ import {runLayoutStrategiesStep} from './test/003_layout_strategies';
 import {runCameraControlsStep} from './test/004_camera_controls';
 import {runInputGuardsStep} from './test/005_input_guards';
 import {runLineStrategiesStep} from './test/006_line_strategies';
+import {runDeepZoomCubeStep} from './test/007_deep_zoom_cube';
 import {runExtendedMatrixStep} from './test/900_extended_matrix';
 import {
   getLineState,
@@ -47,6 +48,7 @@ try {
     await runLineStrategiesStep(context);
     await runLayoutStrategiesStep(context);
     await runCameraControlsStep(context);
+    await runDeepZoomCubeStep(context);
     await runInputGuardsStep(context);
 
     if (RUN_EXTENDED_TEST_MATRIX) {

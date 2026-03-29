@@ -39,6 +39,8 @@ import {
 export async function runExtendedMatrixStep(
   context: BrowserTestContext,
 ): Promise<void> {
+  const referenceStrategy = TEXT_STRATEGIES[0];
+  assert.ok(referenceStrategy, 'Extended matrix requires at least one text strategy.');
   const demoStrategyChecks = new Map<TextStrategy, TextState>();
   const demoStrategySignatures = new Map<TextStrategy, Awaited<ReturnType<typeof getCanvasPixelSignature>>>();
 
@@ -71,10 +73,10 @@ export async function runExtendedMatrixStep(
     'Demo text strategy check',
   );
 
-  const baselineDemoSignature = getRequiredMapValue(
+  const referenceDemoSignature = getRequiredMapValue(
     demoStrategySignatures,
-    'baseline',
-    'Baseline demo canvas signature should be captured.',
+    referenceStrategy,
+    `Reference demo canvas signature should be captured for ${referenceStrategy}.`,
   );
 
   for (const textStrategy of TEXT_STRATEGIES) {
@@ -83,25 +85,28 @@ export async function runExtendedMatrixStep(
       textStrategy,
       `Demo canvas signature should be captured for text strategy ${textStrategy}.`,
     );
+    const textStrategyName = String(textStrategy);
+    const shouldMatchReferencePixels =
+      textStrategy === referenceStrategy || preservesBaselinePixels(textStrategy);
 
-    if (preservesBaselinePixels(textStrategy)) {
+    if (shouldMatchReferencePixels) {
       assert.deepEqual(
         demoSignature,
-        baselineDemoSignature,
-        `Demo canvas pixels should match baseline for text strategy ${textStrategy}.`,
+        referenceDemoSignature,
+        `Demo canvas pixels should match ${referenceStrategy} for text strategy ${textStrategy}.`,
       );
       continue;
     }
 
     assert.equal(
       demoSignature.width,
-      baselineDemoSignature.width,
-      `${textStrategy} demo signature should keep the canvas width stable.`,
+      referenceDemoSignature.width,
+      `${textStrategyName} demo signature should keep the canvas width stable.`,
     );
     assert.equal(
       demoSignature.height,
-      baselineDemoSignature.height,
-      `${textStrategy} demo signature should keep the canvas height stable.`,
+      referenceDemoSignature.height,
+      `${textStrategyName} demo signature should keep the canvas height stable.`,
     );
   }
 
@@ -117,12 +122,12 @@ export async function runExtendedMatrixStep(
     largeScaleSweeps.set(textStrategy, sweep);
   }
 
-  const baselineSweep = getRequiredMapValue(
+  const referenceSweep = getRequiredMapValue(
     largeScaleSweeps,
-    'baseline',
-    'Baseline large-scale sweep should be recorded.',
+    referenceStrategy,
+    `Reference large-scale sweep should be recorded for ${referenceStrategy}.`,
   );
-  const sweepTraceNames = baselineSweep.map((state) => state.name);
+  const sweepTraceNames = referenceSweep.map((state) => state.name);
 
   for (const textStrategy of TEXT_STRATEGIES) {
     const sweep = getRequiredMapValue(
@@ -158,10 +163,10 @@ export async function runExtendedMatrixStep(
         ),
       ]),
     );
-    const baselineCheckpoint = getRequiredMapValue(
+    const referenceCheckpoint = getRequiredMapValue(
       checkpointsByStrategy,
-      'baseline',
-      `Missing baseline checkpoint for ${checkpointName}.`,
+      referenceStrategy,
+      `Missing reference checkpoint for ${checkpointName}.`,
     );
 
     assertVisibilityMatchesBaseline(
@@ -170,7 +175,7 @@ export async function runExtendedMatrixStep(
       `${checkpointName} sweep`,
     );
 
-    if (baselineCheckpoint.visibleGlyphCount === 0) {
+    if (referenceCheckpoint.visibleGlyphCount === 0) {
       assertZeroGlyphSweepState(checkpointsByStrategy, `${checkpointName} sweep`);
       continue;
     }
@@ -206,21 +211,13 @@ export async function runExtendedMatrixStep(
       benchmarksByStrategy.set(textStrategy, benchmark);
     }
 
-    const baselineBenchmark = getRequiredMapValue(
+    const referenceBenchmark = getRequiredMapValue(
       benchmarksByStrategy,
-      'baseline',
-      `Missing baseline benchmark for labelCount=${labelCount}.`,
+      referenceStrategy,
+      `Missing reference benchmark for labelCount=${labelCount}.`,
     );
-    const instancedBenchmark = getRequiredMapValue(
-      benchmarksByStrategy,
-      'instanced',
-      `Missing instanced benchmark for labelCount=${labelCount}.`,
-    );
-    const packedBenchmark = getRequiredMapValue(
-      benchmarksByStrategy,
-      'packed',
-      `Missing packed benchmark for labelCount=${labelCount}.`,
-    );
+    const instancedBenchmark = benchmarksByStrategy.get('instanced');
+    const packedBenchmark = benchmarksByStrategy.get('packed');
 
     assertVisibilityMatchesBaseline(
       benchmarksByStrategy,
@@ -232,10 +229,12 @@ export async function runExtendedMatrixStep(
       BYTE_UPLOAD_RULES,
       `Benchmark ${labelCount}`,
     );
-    assert.ok(
-      instancedBenchmark.submittedVertexCount < baselineBenchmark.submittedVertexCount,
-      `Benchmark ${labelCount} instanced should submit fewer vertices than baseline.`,
-    );
+    if (instancedBenchmark && referenceBenchmark.textStrategy !== 'instanced') {
+      assert.ok(
+        instancedBenchmark.submittedVertexCount < referenceBenchmark.submittedVertexCount,
+        `Benchmark ${labelCount} instanced should submit fewer vertices than ${referenceBenchmark.textStrategy}.`,
+      );
+    }
     assertQuadVertexStrategies(
       benchmarksByStrategy,
       `Benchmark ${labelCount}`,
@@ -251,14 +250,18 @@ export async function runExtendedMatrixStep(
       `Benchmark ${labelCount}`,
     );
 
-    packedUploadCounts.push(packedBenchmark.bytesUploadedPerFrame);
+    if (packedBenchmark) {
+      packedUploadCounts.push(packedBenchmark.bytesUploadedPerFrame);
+    }
   }
 
-  assert.equal(
-    new Set(packedUploadCounts).size,
-    1,
-    'Packed benchmark uploads should stay constant across benchmark label counts.',
-  );
+  if (packedUploadCounts.length > 0) {
+    assert.equal(
+      new Set(packedUploadCounts).size,
+      1,
+      'Packed benchmark uploads should stay constant across benchmark label counts.',
+    );
+  }
 
   await context.flushBrowserLog();
   const benchmarkLogContents = await readFile(context.logPath, 'utf8');

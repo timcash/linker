@@ -36,18 +36,21 @@ export {
 export const DEMO_SOURCE_COLUMN_COUNT = 12;
 export const DEMO_ROWS_PER_SOURCE_COLUMN = 12;
 export const DEMO_ROOT_LABEL_COUNT = DEMO_SOURCE_COLUMN_COUNT * DEMO_ROWS_PER_SOURCE_COLUMN;
-export const DEMO_LABELS_PER_ROOT = 2;
+export const MIN_DEMO_LAYER_COUNT = 2;
+export const DEFAULT_DEMO_LAYER_COUNT = 12;
+export const MAX_DEMO_LAYER_COUNT = 12;
+export const DEMO_LABELS_PER_ROOT = DEFAULT_DEMO_LAYER_COUNT;
 export const DEMO_LABEL_COUNT = DEMO_ROOT_LABEL_COUNT * DEMO_LABELS_PER_ROOT;
 
 const DEMO_ROOT_WINDOW: ZoomBandPreset = {
   size: 0.26,
   zoomLevel: 0,
-  zoomRange: 0.36,
+  zoomRange: 2.4,
 };
 const DEMO_CHILD_WINDOW: ZoomBandPreset = {
   size: 0.28,
-  zoomLevel: 0.96,
-  zoomRange: 0.48,
+  zoomLevel: 2,
+  zoomRange: 2.4,
 };
 
 const DEMO_COLUMN_PALETTES: readonly [root: RgbaColor, child: RgbaColor][] = [
@@ -72,15 +75,35 @@ const DEMO_ENTRIES = createDemoLabelEntries();
 
 export const DEMO_LABELS: LabelDefinition[] = getDemoLabels();
 
-export function getDemoLabels(layoutStrategy: LayoutStrategy = DEFAULT_LAYOUT_STRATEGY): LabelDefinition[] {
+export function getDemoLabels(
+  layoutStrategy: LayoutStrategy = DEFAULT_LAYOUT_STRATEGY,
+  layerCount: number = DEFAULT_DEMO_LAYER_COUNT,
+): LabelDefinition[] {
+  const normalizedLayerCount = normalizeDemoLayerCount(layerCount);
   const placement = layoutDemoEntries(
     DEMO_ENTRIES.map((entry) => entry.layoutEntry),
     layoutStrategy,
   );
-  const rootLabels = DEMO_ENTRIES.map((entry, index) => createDemoRootLabel(entry, placement.locations[index]));
-  const childLabels = DEMO_ENTRIES.map((entry, index) => createDemoChildLabel(entry, placement.locations[index]));
+  const labels: LabelDefinition[] = [];
 
-  return [...rootLabels, ...childLabels];
+  for (let layer = 1; layer <= normalizedLayerCount; layer += 1) {
+    for (let index = 0; index < DEMO_ENTRIES.length; index += 1) {
+      const entry = DEMO_ENTRIES[index];
+      const locations = placement.locations[index];
+
+      if (!entry || !locations) {
+        continue;
+      }
+
+      labels.push(createDemoLayerLabel(entry, locations, layer, normalizedLayerCount));
+    }
+  }
+
+  return labels;
+}
+
+export function getDemoLabelCount(layerCount: number = DEFAULT_DEMO_LAYER_COUNT): number {
+  return DEMO_ROOT_LABEL_COUNT * normalizeDemoLayerCount(layerCount);
 }
 
 export function getDemoLayoutEntries(): DemoLayoutEntry[] {
@@ -130,48 +153,82 @@ function createDemoHierarchyTexts(columnIndex: number, rowIndex: number): DemoHi
   };
 }
 
-function createDemoRootLabel(
+function createDemoLayerLabel(
   entry: DemoLabelEntry,
   locations: DemoHierarchyLocations,
+  layer: number,
+  layerCount: number,
 ): LabelDefinition {
   const column = entry.layoutEntry.sourceColumnIndex + 1;
   const row = entry.layoutEntry.sourceRowIndex + 1;
+  const key = `${column}:${row}:${layer}`;
+  const layerWindow = getDemoLayerWindow(layer);
+  const location = layer === 1 ? locations.root : locations.child;
 
   return {
-    text: entry.hierarchyTexts.root,
-    location: locations.root,
+    text: key,
+    location,
     navigation: {
-      key: entry.hierarchyTexts.root,
+      key,
       column,
       row,
-      layer: 1,
+      layer,
     },
-    size: entry.rootWindow.size,
-    zoomLevel: entry.rootWindow.zoomLevel,
-    zoomRange: entry.rootWindow.zoomRange,
-    color: entry.palette[0],
+    size: layerWindow.size,
+    zoomLevel: layerWindow.zoomLevel,
+    zoomRange: layerWindow.zoomRange,
+    color: getDemoLayerColor(entry.palette, layer, layerCount),
   };
 }
 
-function createDemoChildLabel(
-  entry: DemoLabelEntry,
-  locations: DemoHierarchyLocations,
-): LabelDefinition {
-  const column = entry.layoutEntry.sourceColumnIndex + 1;
-  const row = entry.layoutEntry.sourceRowIndex + 1;
+function getDemoLayerWindow(layer: number): ZoomBandPreset {
+  if (layer <= 1) {
+    return DEMO_ROOT_WINDOW;
+  }
+
+  if (layer === 2) {
+    return DEMO_CHILD_WINDOW;
+  }
 
   return {
-    text: entry.hierarchyTexts.child,
-    location: locations.child,
-    navigation: {
-      key: entry.hierarchyTexts.child,
-      column,
-      row,
-      layer: 2,
-    },
-    size: entry.childWindow.size,
-    zoomLevel: entry.childWindow.zoomLevel,
-    zoomRange: entry.childWindow.zoomRange,
-    color: entry.palette[1],
+    size: DEMO_CHILD_WINDOW.size,
+    zoomLevel: DEMO_CHILD_WINDOW.zoomLevel + (layer - 2),
+    zoomRange: DEMO_CHILD_WINDOW.zoomRange,
   };
+}
+
+function getDemoLayerColor(
+  palette: (typeof DEMO_COLUMN_PALETTES)[number],
+  layer: number,
+  layerCount: number,
+): RgbaColor {
+  if (layer <= 1) {
+    return [...palette[0]];
+  }
+
+  const denominator = Math.max(1, layerCount - 1);
+  const t = (layer - 1) / denominator;
+
+  return mixColor(palette[0], palette[1], t);
+}
+
+function mixColor(left: RgbaColor, right: RgbaColor, t: number): RgbaColor {
+  return [
+    mixNumber(left[0], right[0], t),
+    mixNumber(left[1], right[1], t),
+    mixNumber(left[2], right[2], t),
+    mixNumber(left[3], right[3], t),
+  ];
+}
+
+function mixNumber(left: number, right: number, t: number): number {
+  return left + (right - left) * clampNumber(t, 0, 1);
+}
+
+function normalizeDemoLayerCount(layerCount: number): number {
+  return clampNumber(Math.round(layerCount), MIN_DEMO_LAYER_COUNT, MAX_DEMO_LAYER_COUNT);
+}
+
+function clampNumber(value: number, min: number, max: number): number {
+  return Math.min(max, Math.max(min, value));
 }

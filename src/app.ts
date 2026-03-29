@@ -100,6 +100,8 @@ const QUAD_UVS = new Float32Array([
   1, 1,
 ]);
 
+const DEMO_DEEP_ZOOM_STEP = 1;
+
 type AppState = 'loading' | 'ready' | 'unsupported' | 'error';
 
 type ControlAction = LabelFocusedCameraAction;
@@ -141,6 +143,7 @@ class LumaStageController {
   private readonly textStrategyButtons: HTMLButtonElement[] = [];
   private destroyed = false;
   private layoutStrategy: LayoutStrategy;
+  private lastFrameAt = 0;
   private lineStrategy: LineStrategy;
   private strategyPanelMode: StrategyPanelMode = 'text';
   private textStrategy: TextStrategy;
@@ -160,7 +163,7 @@ class LumaStageController {
         this.scene.labels,
         config.initialCameraLabel,
       );
-      this.syncActiveDemoCameraView();
+      this.syncActiveDemoCameraView({immediate: true});
     } else {
       this.camera.setView(
         config.initialCamera.centerX,
@@ -279,6 +282,9 @@ class LumaStageController {
 
     try {
       const frameStartedAt = performance.now();
+      const deltaMs = this.lastFrameAt === 0 ? 16.67 : frameStartedAt - this.lastFrameAt;
+      this.lastFrameAt = frameStartedAt;
+      this.camera.advance(deltaMs);
       const viewport = this.getViewportSize();
 
       const gridStartedAt = performance.now();
@@ -368,20 +374,70 @@ class LumaStageController {
   }
 
   private applyDemoControlAction(action: ControlAction): boolean {
-    const targetNode = getLabelFocusedCameraTarget(this.labelFocusedCamera, action);
+    const activeNode = getActiveLabelFocusedCameraNode(this.labelFocusedCamera);
 
-    if (!targetNode || targetNode.key === this.labelFocusedCamera?.activeLabelKey) {
+    if (!activeNode) {
       return false;
     }
 
-    return this.setActiveDemoLabelKey(targetNode.key);
+    const targetZoom = this.camera.getTargetSnapshot().zoom;
+
+    switch (action) {
+      case 'pan-up':
+      case 'pan-down':
+      case 'pan-left':
+      case 'pan-right': {
+        const targetNode = getLabelFocusedCameraTarget(this.labelFocusedCamera, action);
+
+        if (!targetNode || targetNode.key === this.labelFocusedCamera?.activeLabelKey) {
+          return false;
+        }
+
+        return this.setActiveDemoLabelKey(targetNode.key, {zoom: targetZoom});
+      }
+      case 'zoom-in': {
+        const deeperNode = getLabelFocusedCameraTarget(this.labelFocusedCamera, action);
+
+        if (deeperNode && deeperNode.key !== this.labelFocusedCamera?.activeLabelKey) {
+          return this.setActiveDemoLabelKey(deeperNode.key);
+        }
+
+        return this.syncActiveDemoCameraView({zoom: targetZoom + DEMO_DEEP_ZOOM_STEP});
+      }
+      case 'zoom-out': {
+        if (targetZoom > activeNode.label.zoomLevel + 0.0001) {
+          return this.syncActiveDemoCameraView({
+            zoom: Math.max(activeNode.label.zoomLevel, targetZoom - DEMO_DEEP_ZOOM_STEP),
+          });
+        }
+
+        const shallowerNode = getLabelFocusedCameraTarget(this.labelFocusedCamera, action);
+
+        if (!shallowerNode || shallowerNode.key === this.labelFocusedCamera?.activeLabelKey) {
+          return false;
+        }
+
+        return this.setActiveDemoLabelKey(shallowerNode.key);
+      }
+      case 'reset-camera': {
+        const defaultKey = this.labelFocusedCamera?.navigationIndex.defaultKey;
+
+        if (!defaultKey) {
+          return false;
+        }
+
+        return this.setActiveDemoLabelKey(defaultKey);
+      }
+      default:
+        return false;
+    }
   }
 
   private applyNumericControlAction(action: ControlAction): boolean {
     const viewport = this.getViewportSize();
     const panX = viewport.width * 0.16;
     const panY = viewport.height * 0.16;
-    const before = this.camera.getSnapshot();
+    const before = this.camera.getTargetSnapshot();
 
     switch (action) {
       case 'pan-up':
@@ -407,7 +463,7 @@ class LumaStageController {
         break;
     }
 
-    const after = this.camera.getSnapshot();
+    const after = this.camera.getTargetSnapshot();
 
     return (
       before.centerX !== after.centerX ||
@@ -425,7 +481,7 @@ class LumaStageController {
       this.scene.labels,
       requestedLabelKey,
     );
-    this.syncActiveDemoCameraView();
+    this.syncActiveDemoCameraView({immediate: true});
     this.updateCameraPanel();
 
     if (syncQuery) {
@@ -433,7 +489,10 @@ class LumaStageController {
     }
   }
 
-  private setActiveDemoLabelKey(labelKey: string): boolean {
+  private setActiveDemoLabelKey(
+    labelKey: string,
+    options?: {zoom?: number},
+  ): boolean {
     const nextState = withActiveLabelFocusedCameraKey(this.labelFocusedCamera, labelKey);
 
     if (!nextState) {
@@ -441,20 +500,30 @@ class LumaStageController {
     }
 
     this.labelFocusedCamera = nextState;
-    return this.syncActiveDemoCameraView();
+    return this.syncActiveDemoCameraView({zoom: options?.zoom});
   }
 
-  private syncActiveDemoCameraView(): boolean {
+  private syncActiveDemoCameraView(options?: {immediate?: boolean; zoom?: number}): boolean {
     const node = getActiveLabelFocusedCameraNode(this.labelFocusedCamera);
 
     if (!node) {
       return false;
     }
 
-    const before = this.camera.getSnapshot();
-    this.camera.setView(node.label.location.x, node.label.location.y, node.label.zoomLevel);
+    const zoom = options?.zoom ?? node.label.zoomLevel;
+    const before = options?.immediate
+      ? this.camera.getSnapshot()
+      : this.camera.getTargetSnapshot();
 
-    const after = this.camera.getSnapshot();
+    if (options?.immediate) {
+      this.camera.setView(node.label.location.x, node.label.location.y, zoom);
+    } else {
+      this.camera.setTargetView(node.label.location.x, node.label.location.y, zoom);
+    }
+
+    const after = options?.immediate
+      ? this.camera.getSnapshot()
+      : this.camera.getTargetSnapshot();
 
     return (
       before.centerX !== after.centerX ||
@@ -476,7 +545,7 @@ class LumaStageController {
       return;
     }
 
-    syncStageNumericCameraQueryParams(this.camera.getSnapshot());
+    syncStageNumericCameraQueryParams(this.camera.getTargetSnapshot());
   }
 
   private getViewportSize(): ViewportSize {
@@ -605,7 +674,7 @@ class LumaStageController {
     }
 
     this.layoutStrategy = mode;
-    this.scene = createDemoStageScene(mode);
+    this.scene = createDemoStageScene(mode, this.config.demoLayerCount);
     this.lineLayer.setLinks(this.scene.links);
     this.textLayer.setLayoutLabels(this.scene.labels);
     this.relayoutDemoCamera(this.labelFocusedCamera?.activeLabelKey ?? null, true);
@@ -646,7 +715,7 @@ class LumaStageController {
   private updateCameraPanel(): void {
     syncStageCameraPanel({
       buttons: this.actionButtons,
-      cameraAvailability: getLabelFocusedCameraAvailability(this.labelFocusedCamera),
+      cameraAvailability: this.getEffectiveCameraAvailability(),
       cameraEnabled: this.isDemoLabelCameraEnabled(),
     });
   }
@@ -734,13 +803,13 @@ class LumaStageController {
       await this.frameTelemetry.flushGpuSamples();
       this.frameTelemetry.reset();
       this.applyControlAction('reset-camera');
-      await this.waitForAnimationFrames(2);
+      await this.waitForCameraToSettle();
 
       const cameraTrace = buildBenchmarkCameraTrace(this.config.benchmarkTraceStepCount);
 
       for (const action of cameraTrace) {
         this.applyControlAction(action);
-        await this.waitForAnimationFrames(1);
+        await this.waitForCameraToSettle();
       }
 
       await this.waitForAnimationFrames(2);
@@ -797,7 +866,8 @@ class LumaStageController {
   private updateStatus(): void {
     const snapshot = createStageSnapshot({
       activeLabelNode: getActiveLabelFocusedCameraNode(this.labelFocusedCamera),
-      cameraAvailability: getLabelFocusedCameraAvailability(this.labelFocusedCamera),
+      cameraAnimating: this.camera.isAnimating,
+      cameraAvailability: this.getEffectiveCameraAvailability(),
       cameraSnapshot: this.camera.getSnapshot(),
       gpuTimingEnabled: this.config.gpuTimingEnabled,
       gridStats: this.gridLayer?.getStats(),
@@ -827,6 +897,28 @@ class LumaStageController {
     this.chrome.stats.textContent = snapshot.statsText;
   }
 
+  private getEffectiveCameraAvailability() {
+    const availability = getLabelFocusedCameraAvailability(this.labelFocusedCamera);
+
+    if (!this.isDemoLabelCameraEnabled()) {
+      return availability;
+    }
+
+    const activeNode = getActiveLabelFocusedCameraNode(this.labelFocusedCamera);
+    const targetZoom = this.camera.getTargetSnapshot().zoom;
+
+    return {
+      ...availability,
+      canReset:
+        availability.canReset ||
+        (activeNode ? Math.abs(targetZoom - activeNode.label.zoomLevel) > 0.0001 : false),
+      canZoomIn: activeNode !== null,
+      canZoomOut:
+        availability.canZoomOut ||
+        (activeNode ? targetZoom > activeNode.label.zoomLevel + 0.0001 : false),
+    };
+  }
+
   private async waitForAnimationFrames(count: number): Promise<void> {
     for (let index = 0; index < count; index += 1) {
       if (this.destroyed) {
@@ -836,6 +928,16 @@ class LumaStageController {
       await new Promise<void>((resolve) => {
         requestAnimationFrame(() => resolve());
       });
+    }
+  }
+
+  private async waitForCameraToSettle(maxFrames = 120): Promise<void> {
+    for (let frame = 0; frame < maxFrames; frame += 1) {
+      if (this.destroyed || !this.camera.isAnimating) {
+        return;
+      }
+
+      await this.waitForAnimationFrames(1);
     }
   }
 }
@@ -865,7 +967,7 @@ function isWebGPUUnavailableError(error: unknown): error is Error {
 }
 
 function isTextStrategy(value: string | null | undefined): value is TextStrategy {
-  return TEXT_STRATEGIES.includes(value as TextStrategy);
+  return value !== null && value !== undefined && TEXT_STRATEGIES.some((strategy) => strategy === value);
 }
 
 function isLineStrategy(value: string | null | undefined): value is LineStrategy {

@@ -88,13 +88,13 @@ export async function runReadyStep(
   assert.equal(
     result.text.labelCount,
     DEMO_LABEL_COUNT,
-    'Demo route should build the full canonical 12x12x2 label set.',
+    'Demo route should build the full default demo label set.',
   );
   assert.ok(result.text.glyphCount > 0, 'At least one text glyph should be generated.');
   assert.equal(
     result.text.labelSetPreset,
     DEMO_LABEL_SET_ID,
-    'Demo route should report the fixed canonical 12x12 label-set preset.',
+    'Demo route should report the default demo label-set preset.',
   );
   assert.equal(result.camera.label, FIRST_ROOT_LABEL, 'Default route should focus the first root label.');
   assertDemoRootLayerVisible(result.text, 'Zoom 0');

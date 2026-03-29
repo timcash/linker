@@ -1,27 +1,22 @@
 export type RgbaColor = [number, number, number, number];
 
+export type TextStrategy =
+  | 'baseline'
+  | 'instanced'
+  | 'packed'
+  | 'visible-index'
+  | 'chunked'
+  | 'sdf-instanced'
+  | 'sdf-visible-index';
+
 export const TEXT_STRATEGIES = [
-  'baseline',
-  'instanced',
-  'packed',
-  'visible-index',
-  'chunked',
   'sdf-instanced',
-  'sdf-visible-index',
-] as const;
+] as const satisfies ReadonlyArray<TextStrategy>;
 
-export type TextStrategy = (typeof TEXT_STRATEGIES)[number];
-
-export const DEFAULT_TEXT_STRATEGY: TextStrategy = 'packed';
+export const DEFAULT_TEXT_STRATEGY: TextStrategy = 'sdf-instanced';
 
 export const TEXT_STRATEGY_OPTIONS = [
-  {mode: 'baseline', label: 'Baseline'},
-  {mode: 'instanced', label: 'Instanced'},
-  {mode: 'packed', label: 'Packed'},
-  {mode: 'visible-index', label: 'Visible Index'},
-  {mode: 'chunked', label: 'Chunked'},
   {mode: 'sdf-instanced', label: 'SDF Instanced'},
-  {mode: 'sdf-visible-index', label: 'SDF Visible Index'},
 ] as const satisfies ReadonlyArray<{mode: TextStrategy; label: string}>;
 
 export type AtlasMode = 'bitmap' | 'sdf';

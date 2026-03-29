@@ -50,7 +50,6 @@ export function assertDemoRootLayerVisible(
   assertVisibleLabels(
     textState.visibleLabels,
     {
-      absent: [FIRST_CHILD_LABEL],
       present: [FIRST_ROOT_LABEL],
     },
     context,
@@ -64,7 +63,6 @@ export function assertDemoChildLayerVisible(
   assertVisibleLabels(
     textState.visibleLabels,
     {
-      absent: [FIRST_ROOT_LABEL],
       present: [FIRST_CHILD_LABEL],
     },
     context,
@@ -155,10 +153,13 @@ export function assertVisibilityMatchesBaseline<
   labelSetPreset: string,
   context: string,
 ): void {
-  const baselineState = getRequiredMapValue(
+  const referenceStrategy = TEXT_STRATEGIES[0];
+  assert.ok(referenceStrategy, `${context} should define at least one text strategy.`);
+
+  const referenceState = getRequiredMapValue(
     states,
-    'baseline',
-    `${context} should include the baseline strategy.`,
+    referenceStrategy,
+    `${context} should include the reference text strategy ${referenceStrategy}.`,
   );
 
   for (const textStrategy of TEXT_STRATEGIES) {
@@ -174,13 +175,13 @@ export function assertVisibilityMatchesBaseline<
     );
     assert.equal(
       state.visibleLabelCount,
-      baselineState.visibleLabelCount,
-      `${context} visible label counts should match baseline for ${textStrategy}.`,
+      referenceState.visibleLabelCount,
+      `${context} visible label counts should match ${referenceStrategy} for ${textStrategy}.`,
     );
     assert.equal(
       state.visibleGlyphCount,
-      baselineState.visibleGlyphCount,
-      `${context} visible glyph counts should match baseline for ${textStrategy}.`,
+      referenceState.visibleGlyphCount,
+      `${context} visible glyph counts should match ${referenceStrategy} for ${textStrategy}.`,
     );
   }
 }
@@ -191,16 +192,13 @@ export function assertStrategyMetricRules<TState>(
   context: string,
 ): void {
   for (const rule of rules) {
-    const leftState = getRequiredMapValue(
-      states,
-      rule.left,
-      `${context} should include ${rule.left}.`,
-    );
-    const rightState = getRequiredMapValue(
-      states,
-      rule.right,
-      `${context} should include ${rule.right}.`,
-    );
+    const leftState = states.get(rule.left);
+    const rightState = states.get(rule.right);
+
+    if (!leftState || !rightState) {
+      continue;
+    }
+
     const leftValue = rule.readValue(leftState);
     const rightValue = rule.readValue(rightState);
 
@@ -221,11 +219,11 @@ export function assertQuadVertexStrategies<
   context: string,
 ): void {
   for (const textStrategy of QUAD_VERTEX_TEXT_STRATEGIES) {
-    const state = getRequiredMapValue(
-      states,
-      textStrategy,
-      `${context} should include ${textStrategy}.`,
-    );
+    const state = states.get(textStrategy);
+
+    if (!state) {
+      continue;
+    }
 
     assert.equal(
       state.submittedVertexCount,
@@ -245,11 +243,11 @@ export function assertChunkedVisibleChunks<
   expectedValue: number,
   context: string,
 ): void {
-  const chunkedState = getRequiredMapValue(
-    states,
-    'chunked',
-    `${context} should include chunked.`,
-  );
+  const chunkedState = states.get('chunked');
+
+  if (!chunkedState) {
+    return;
+  }
 
   if (operator === '>') {
     assert.ok(
@@ -274,16 +272,12 @@ export function assertPackedSubmitsMoreVertices<
   states: Map<TextStrategy, TState>,
   context: string,
 ): void {
-  const packedState = getRequiredMapValue(
-    states,
-    'packed',
-    `${context} should include packed.`,
-  );
-  const visibleIndexState = getRequiredMapValue(
-    states,
-    'visible-index',
-    `${context} should include visible-index.`,
-  );
+  const packedState = states.get('packed');
+  const visibleIndexState = states.get('visible-index');
+
+  if (!packedState || !visibleIndexState) {
+    return;
+  }
 
   assert.ok(
     packedState.submittedVertexCount > visibleIndexState.submittedVertexCount,

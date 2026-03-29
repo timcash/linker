@@ -6,13 +6,16 @@ import {buildGlyphAtlas} from './atlas';
 import {getCharacterSetFromLabels} from './charset';
 import {layoutLabels, measureLabelBounds} from './layout';
 import {
+  DOT_SCALE,
+  EXIT_FADE_SCALE,
+  EXIT_HIDE_SCALE,
+  LABEL_SCALE,
   getMaxVisibleZoom,
   getMinVisibleZoom,
   getZoomOpacity,
   getZoomScale,
   isZoomVisible,
   MIN_ZOOM_OPACITY,
-  MIN_ZOOM_SCALE,
 } from './zoom';
 import {DEFAULT_TEXT_STRATEGY} from './types';
 import type {
@@ -169,7 +172,7 @@ fn vertexMain(inputs: VertexInputs) -> FragmentInputs {
 @fragment
 fn fragmentMain(inputs: FragmentInputs) -> @location(0) vec4<f32> {
   let distance = textureSample(glyphAtlas, glyphAtlasSampler, inputs.uv).a;
-  let edgeWidth = sdf.smoothing;
+  let edgeWidth = max(sdf.smoothing, fwidth(distance));
   let alpha = smoothstep(sdf.cutoff - edgeWidth, sdf.cutoff + edgeWidth, distance) * inputs.color.a;
 
   if (alpha < 0.01) {
@@ -219,30 +222,38 @@ fn screenToClip(position: vec2<f32>) -> vec2<f32> {
 
 fn isZoomVisible(zoom: f32, zoomStyle: vec2<f32>) -> bool {
   let zoomRange = max(zoomStyle.y, 0.0);
-  return abs(zoom - zoomStyle.x) <= zoomRange;
+  let minZoom = zoomStyle.x - zoomRange;
+  let maxZoom = zoomStyle.x + zoomRange;
+  return zoom >= minZoom && zoom <= maxZoom;
 }
 
 fn getZoomScale(zoom: f32, zoomStyle: vec2<f32>) -> f32 {
-  let zoomRange = max(zoomStyle.y, 0.0);
-
-  if (zoomRange <= 0.0001) {
-    return 1.0;
-  }
-
-  let emphasis = clamp(1.0 - abs(zoom - zoomStyle.x) / zoomRange, 0.0, 1.0);
-  return ${MIN_ZOOM_SCALE} + (1.0 - ${MIN_ZOOM_SCALE}) * emphasis;
+  return exp2(zoom - zoomStyle.x);
 }
 
 fn getZoomOpacity(zoom: f32, zoomStyle: vec2<f32>) -> f32 {
   let zoomRange = max(zoomStyle.y, 0.0);
 
   if (zoomRange <= 0.0001) {
-    return 1.0;
+    return select(0.0, 1.0, abs(zoom - zoomStyle.x) <= 0.0001);
   }
 
-  let emphasis = clamp(1.0 - abs(zoom - zoomStyle.x) / zoomRange, 0.0, 1.0);
-  let smoothedEmphasis = smoothstep(0.0, 1.0, emphasis);
-  return ${MIN_ZOOM_OPACITY} + (1.0 - ${MIN_ZOOM_OPACITY}) * smoothedEmphasis;
+  let minZoom = zoomStyle.x - zoomRange;
+  let maxZoom = zoomStyle.x + zoomRange;
+
+  if (zoom < minZoom || zoom > maxZoom) {
+    return 0.0;
+  }
+
+  let scale = getZoomScale(zoom, zoomStyle);
+  let enter = smoothstep(0.0, 1.0, clamp((scale - ${DOT_SCALE}) / (${LABEL_SCALE} - ${DOT_SCALE}), 0.0, 1.0));
+  let exit = smoothstep(
+    0.0,
+    1.0,
+    clamp((scale - ${EXIT_HIDE_SCALE}) / (${EXIT_FADE_SCALE} - ${EXIT_HIDE_SCALE}), 0.0, 1.0),
+  );
+  let emphasis = min(enter, exit);
+  return ${MIN_ZOOM_OPACITY} + (1.0 - ${MIN_ZOOM_OPACITY}) * emphasis;
 }
 
 @vertex
@@ -337,26 +348,32 @@ fn screenToClip(position: vec2<f32>) -> vec2<f32> {
 }
 
 fn getZoomScale(zoom: f32, zoomStyle: vec2<f32>) -> f32 {
-  let zoomRange = max(zoomStyle.y, 0.0);
-
-  if (zoomRange <= 0.0001) {
-    return 1.0;
-  }
-
-  let emphasis = clamp(1.0 - abs(zoom - zoomStyle.x) / zoomRange, 0.0, 1.0);
-  return ${MIN_ZOOM_SCALE} + (1.0 - ${MIN_ZOOM_SCALE}) * emphasis;
+  return exp2(zoom - zoomStyle.x);
 }
 
 fn getZoomOpacity(zoom: f32, zoomStyle: vec2<f32>) -> f32 {
   let zoomRange = max(zoomStyle.y, 0.0);
 
   if (zoomRange <= 0.0001) {
-    return 1.0;
+    return select(0.0, 1.0, abs(zoom - zoomStyle.x) <= 0.0001);
   }
 
-  let emphasis = clamp(1.0 - abs(zoom - zoomStyle.x) / zoomRange, 0.0, 1.0);
-  let smoothedEmphasis = smoothstep(0.0, 1.0, emphasis);
-  return ${MIN_ZOOM_OPACITY} + (1.0 - ${MIN_ZOOM_OPACITY}) * smoothedEmphasis;
+  let minZoom = zoomStyle.x - zoomRange;
+  let maxZoom = zoomStyle.x + zoomRange;
+
+  if (zoom < minZoom || zoom > maxZoom) {
+    return 0.0;
+  }
+
+  let scale = getZoomScale(zoom, zoomStyle);
+  let enter = smoothstep(0.0, 1.0, clamp((scale - ${DOT_SCALE}) / (${LABEL_SCALE} - ${DOT_SCALE}), 0.0, 1.0));
+  let exit = smoothstep(
+    0.0,
+    1.0,
+    clamp((scale - ${EXIT_HIDE_SCALE}) / (${EXIT_FADE_SCALE} - ${EXIT_HIDE_SCALE}), 0.0, 1.0),
+  );
+  let emphasis = min(enter, exit);
+  return ${MIN_ZOOM_OPACITY} + (1.0 - ${MIN_ZOOM_OPACITY}) * emphasis;
 }
 
 @vertex
@@ -447,26 +464,32 @@ fn screenToClip(position: vec2<f32>) -> vec2<f32> {
 }
 
 fn getZoomScale(zoom: f32, zoomStyle: vec2<f32>) -> f32 {
-  let zoomRange = max(zoomStyle.y, 0.0);
-
-  if (zoomRange <= 0.0001) {
-    return 1.0;
-  }
-
-  let emphasis = clamp(1.0 - abs(zoom - zoomStyle.x) / zoomRange, 0.0, 1.0);
-  return ${MIN_ZOOM_SCALE} + (1.0 - ${MIN_ZOOM_SCALE}) * emphasis;
+  return exp2(zoom - zoomStyle.x);
 }
 
 fn getZoomOpacity(zoom: f32, zoomStyle: vec2<f32>) -> f32 {
   let zoomRange = max(zoomStyle.y, 0.0);
 
   if (zoomRange <= 0.0001) {
-    return 1.0;
+    return select(0.0, 1.0, abs(zoom - zoomStyle.x) <= 0.0001);
   }
 
-  let emphasis = clamp(1.0 - abs(zoom - zoomStyle.x) / zoomRange, 0.0, 1.0);
-  let smoothedEmphasis = smoothstep(0.0, 1.0, emphasis);
-  return ${MIN_ZOOM_OPACITY} + (1.0 - ${MIN_ZOOM_OPACITY}) * smoothedEmphasis;
+  let minZoom = zoomStyle.x - zoomRange;
+  let maxZoom = zoomStyle.x + zoomRange;
+
+  if (zoom < minZoom || zoom > maxZoom) {
+    return 0.0;
+  }
+
+  let scale = getZoomScale(zoom, zoomStyle);
+  let enter = smoothstep(0.0, 1.0, clamp((scale - ${DOT_SCALE}) / (${LABEL_SCALE} - ${DOT_SCALE}), 0.0, 1.0));
+  let exit = smoothstep(
+    0.0,
+    1.0,
+    clamp((scale - ${EXIT_HIDE_SCALE}) / (${EXIT_FADE_SCALE} - ${EXIT_HIDE_SCALE}), 0.0, 1.0),
+  );
+  let emphasis = min(enter, exit);
+  return ${MIN_ZOOM_OPACITY} + (1.0 - ${MIN_ZOOM_OPACITY}) * emphasis;
 }
 
 @vertex
@@ -497,7 +520,7 @@ fn vertexMain(inputs: VertexInputs) -> FragmentInputs {
 @fragment
 fn fragmentMain(inputs: FragmentInputs) -> @location(0) vec4<f32> {
   let distance = textureSample(glyphAtlas, glyphAtlasSampler, inputs.uv).a;
-  let edgeWidth = sdf.smoothing;
+  let edgeWidth = max(sdf.smoothing, fwidth(distance));
   let alpha = smoothstep(sdf.cutoff - edgeWidth, sdf.cutoff + edgeWidth, distance) * inputs.color.a;
 
   if (alpha < 0.01) {

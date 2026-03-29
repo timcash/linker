@@ -10,7 +10,7 @@ import type {LinkDefinition, LinkPoint} from '../line/types';
 import type {LabelLocation, RgbaColor} from '../text/types';
 
 const DEMO_LINK_ZOOM_LEVEL = 0;
-const DEMO_LINK_ZOOM_RANGE = 0.42;
+const DEMO_LINK_ZOOM_RANGE = 2.4;
 const ROW_NETWORK_BANDS = [1, 4, 7, 10] as const;
 const COLUMN_NETWORK_BANDS = [2, 5, 8] as const;
 const DIAGONAL_NETWORK_BANDS = [0, 4, 8] as const;

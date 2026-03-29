@@ -17,6 +17,10 @@ import {
   STATIC_BENCHMARK_LABEL_SET_ID,
 } from '../../src/data/static-benchmark';
 import {
+  DEFAULT_DEMO_LAYER_COUNT,
+  getDemoLabelCount,
+} from '../../src/data/labels';
+import {
   DEFAULT_TEXT_STRATEGY,
   TEXT_STRATEGIES,
   type TextStrategy,
@@ -38,6 +42,7 @@ export type NonReadyResult = {
 };
 
 export type CameraState = {
+  animating: boolean;
   canMoveDown: boolean;
   canMoveLeft: boolean;
   canMoveRight: boolean;
@@ -191,7 +196,7 @@ export const LARGE_SCALE_SWEEP_CAMERA_ZOOM = 4.08;
 export const DEMO_SOURCE_COLUMN_COUNT = 12;
 export const DEMO_ROWS_PER_SOURCE_COLUMN = 12;
 export const DEMO_ROOT_LABEL_COUNT = DEMO_SOURCE_COLUMN_COUNT * DEMO_ROWS_PER_SOURCE_COLUMN;
-export const DEMO_LABEL_COUNT = DEMO_ROOT_LABEL_COUNT * 2;
+export const DEMO_LABEL_COUNT = getDemoLabelCount(DEFAULT_DEMO_LAYER_COUNT);
 export const DEMO_ROOT_LABEL_SIZE = 0.26;
 export const DEMO_CHILD_LABEL_SIZE = 0.28;
 export const FIRST_ROOT_LABEL = '1:1:1';
@@ -200,6 +205,7 @@ export const CENTER_ROOT_LABEL = '6:6:1';
 export const CENTER_CHILD_LABEL = '6:6:2';
 export const LAST_ROOT_LABEL = '12:12:1';
 export const LAST_CHILD_LABEL = '12:12:2';
+export const LAST_DEMO_LABEL = `12:12:${DEFAULT_DEMO_LAYER_COUNT}`;
 export const RUN_EXTENDED_TEST_MATRIX = process.env.LINKER_EXTENDED_TEST_MATRIX === '1';
 
 export const BYTE_UPLOAD_RULES: readonly StrategyMetricRule<{

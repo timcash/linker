@@ -1,5 +1,13 @@
 import type {CameraSnapshot} from './camera';
-import {DEMO_LABELS, DEFAULT_LAYOUT_STRATEGY, LAYOUT_STRATEGIES, type LayoutStrategy} from './data/labels';
+import {
+  DEFAULT_DEMO_LAYER_COUNT,
+  DEFAULT_LAYOUT_STRATEGY,
+  LAYOUT_STRATEGIES,
+  MAX_DEMO_LAYER_COUNT,
+  MIN_DEMO_LAYER_COUNT,
+  getDemoLabelCount,
+  type LayoutStrategy,
+} from './data/labels';
 import {DEFAULT_BENCHMARK_LABEL_COUNT} from './data/static-benchmark';
 import {DEFAULT_LINE_STRATEGY, LINE_STRATEGIES, type LineStrategy} from './line/types';
 import {DEFAULT_TEXT_STRATEGY, TEXT_STRATEGIES, type TextStrategy} from './text/types';
@@ -11,6 +19,7 @@ export type CameraView = Pick<CameraSnapshot, 'centerX' | 'centerY' | 'zoom'>;
 export type StageConfig = {
   benchmarkTraceStepCount: number;
   benchmarkEnabled: boolean;
+  demoLayerCount: number;
   gpuTimingEnabled: boolean;
   initialCamera: CameraView;
   initialCameraLabel: string | null;
@@ -28,10 +37,16 @@ export function readStageConfig(search: string): StageConfig {
   const labelSetKind: LabelSetKind = params.get('labelSet') === 'benchmark' ? 'benchmark' : 'demo';
   const layoutStrategy = parseLayoutStrategy(params.get('layoutStrategy'));
   const lineStrategy = parseLineStrategy(params.get('lineStrategy'));
+  const demoLayerCount = parseBoundedInteger(
+    params.get('demoLayers'),
+    DEFAULT_DEMO_LAYER_COUNT,
+    MIN_DEMO_LAYER_COUNT,
+    MAX_DEMO_LAYER_COUNT,
+  );
   const labelTargetCount =
     labelSetKind === 'benchmark'
       ? parseBoundedInteger(params.get('labelCount'), DEFAULT_BENCHMARK_LABEL_COUNT, 64, 16384)
-      : DEMO_LABELS.length;
+      : getDemoLabelCount(demoLayerCount);
 
   return {
     benchmarkTraceStepCount: parseBoundedInteger(
@@ -41,6 +56,7 @@ export function readStageConfig(search: string): StageConfig {
       120,
     ),
     benchmarkEnabled: params.get('benchmark') === '1',
+    demoLayerCount,
     gpuTimingEnabled: params.get('gpuTiming') !== '0',
     initialCamera: {
       centerX: parseFiniteNumber(params.get('cameraCenterX'), 0),
@@ -137,7 +153,7 @@ function parseBoundedInteger(
 }
 
 function isTextStrategy(value: string | null | undefined): value is TextStrategy {
-  return TEXT_STRATEGIES.includes(value as TextStrategy);
+  return value !== null && value !== undefined && TEXT_STRATEGIES.some((strategy) => strategy === value);
 }
 
 function isLineStrategy(value: string | null | undefined): value is LineStrategy {

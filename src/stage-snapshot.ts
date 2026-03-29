@@ -21,6 +21,7 @@ export type StageSnapshot = {
 
 export function createStageSnapshot(input: {
   activeLabelNode: LabelNavigationNode | null;
+  cameraAnimating: boolean;
   cameraAvailability: LabelFocusedCameraAvailability;
   cameraSnapshot: CameraSnapshot;
   gpuTimingEnabled: boolean;
@@ -38,6 +39,7 @@ export function createStageSnapshot(input: {
 }): StageSnapshot {
   const {
     activeLabelNode,
+    cameraAnimating,
     cameraAvailability,
     cameraSnapshot,
     gpuTimingEnabled,
@@ -89,6 +91,7 @@ export function createStageSnapshot(input: {
       cameraCanMoveUp: String(cameraAvailability.canMoveUp),
       cameraCanZoomIn: String(cameraAvailability.canZoomIn),
       cameraCanZoomOut: String(cameraAvailability.canZoomOut),
+      cameraAnimating: String(cameraAnimating),
       cameraCenterX: cameraSnapshot.centerX.toFixed(4),
       cameraCenterY: cameraSnapshot.centerY.toFixed(4),
       cameraColumn: activeLabelNode ? String(activeLabelNode.column) : '',

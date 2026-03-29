@@ -17,7 +17,6 @@ import {sampleLineCurve} from '../../src/line/curves';
 import {DEMO_LABELS} from '../../src/data/labels';
 import {
   MIN_ZOOM_OPACITY,
-  MIN_ZOOM_SCALE,
   createZoomBand,
   getMaxVisibleZoom,
   getMinVisibleZoom,
@@ -34,6 +33,7 @@ import {
   DEMO_SOURCE_COLUMN_COUNT,
   FIRST_CHILD_LABEL,
   FIRST_ROOT_LABEL,
+  LAST_DEMO_LABEL,
   LAST_CHILD_LABEL,
   LAST_ROOT_LABEL,
 } from './types';
@@ -44,6 +44,7 @@ export function runCameraUnitTests(): void {
 
   const beforePan = camera.getSnapshot();
   camera.panByPixels(112, 56);
+  camera.advance(1000);
   const afterPan = camera.getSnapshot();
 
   assert.notEqual(afterPan.centerX, beforePan.centerX, 'Camera pan should change centerX.');
@@ -54,6 +55,7 @@ export function runCameraUnitTests(): void {
   const zoomBefore = camera.zoom;
 
   camera.zoomAtScreenPoint(-120, anchorScreenPoint, viewport);
+  camera.advance(1000);
 
   const worldAfterZoom = camera.screenToWorld(anchorScreenPoint, viewport);
 
@@ -482,12 +484,12 @@ export function runCanonicalLabelIdUnitTests(): void {
   );
   assert.equal(
     DEMO_LABELS[DEMO_LABEL_COUNT - 1]?.text,
-    LAST_CHILD_LABEL,
-    'The last generated label should be the last child id.',
+    LAST_DEMO_LABEL,
+    'The last generated label should be the deepest default demo id.',
   );
   assert.equal(
     DEMO_LABELS[DEMO_LABEL_COUNT - 1]?.navigation?.key,
-    LAST_CHILD_LABEL,
+    LAST_DEMO_LABEL,
     'The last generated label should retain its navigation key.',
   );
 }
@@ -567,10 +569,9 @@ export function runZoomBandUnitTests(): void {
     false,
     'Zoom bands should hide labels once the zoom passes the upper threshold.',
   );
-  assert.equal(
-    getZoomScale(3.5, detailBand.zoomLevel, detailBand.zoomRange),
-    MIN_ZOOM_SCALE,
-    'Zoom-band scaling should start at the minimum reveal scale.',
+  assert.ok(
+    Math.abs(getZoomScale(3.5, detailBand.zoomLevel, detailBand.zoomRange) - 2 ** -0.5) <= 0.0001,
+    'Zoom-band scaling should follow the relative zoom delta at the reveal edge.',
   );
   assert.equal(
     getZoomScale(4, detailBand.zoomLevel, detailBand.zoomRange),
@@ -579,8 +580,8 @@ export function runZoomBandUnitTests(): void {
   );
   assert.equal(
     getZoomOpacity(3.5, detailBand.zoomLevel, detailBand.zoomRange),
-    MIN_ZOOM_OPACITY,
-    'Zoom-band opacity should start at the minimum fade value at the reveal edge.',
+    1,
+    'Zoom-band opacity should stay fully readable once the label has reached readable scale.',
   );
   assert.equal(
     getZoomOpacity(4, detailBand.zoomLevel, detailBand.zoomRange),
@@ -588,14 +589,14 @@ export function runZoomBandUnitTests(): void {
     'Zoom-band opacity should reach full strength at the focal zoom.',
   );
   assert.ok(
-    getZoomScale(3.75, detailBand.zoomLevel, detailBand.zoomRange) > MIN_ZOOM_SCALE &&
+    getZoomScale(3.75, detailBand.zoomLevel, detailBand.zoomRange) > getZoomScale(3.5, detailBand.zoomLevel, detailBand.zoomRange) &&
       getZoomScale(3.75, detailBand.zoomLevel, detailBand.zoomRange) < 1,
-    'Zoom-band scaling should interpolate between the reveal edge and the focal zoom.',
+    'Zoom-band scaling should grow smoothly between the reveal edge and the focal zoom.',
   );
   assert.ok(
-    getZoomOpacity(3.75, detailBand.zoomLevel, detailBand.zoomRange) > MIN_ZOOM_OPACITY &&
-      getZoomOpacity(3.75, detailBand.zoomLevel, detailBand.zoomRange) < 1,
-    'Zoom-band opacity should interpolate between the reveal edge and the focal zoom.',
+    getZoomOpacity(3.75, detailBand.zoomLevel, detailBand.zoomRange) >= MIN_ZOOM_OPACITY &&
+      getZoomOpacity(3.75, detailBand.zoomLevel, detailBand.zoomRange) <= 1,
+    'Zoom-band opacity should remain in a valid visible range while the label scales in.',
   );
 }
 

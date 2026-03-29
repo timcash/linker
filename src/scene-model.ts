@@ -1,5 +1,9 @@
-import {DEMO_LABEL_SET_ID} from './data/demo-meta';
-import {getDemoLabels, type LayoutStrategy} from './data/labels';
+import {getDemoLabelSetId} from './data/demo-meta';
+import {
+  DEFAULT_DEMO_LAYER_COUNT,
+  getDemoLabels,
+  type LayoutStrategy,
+} from './data/labels';
 import {getDemoLinks} from './data/links';
 import {
   STATIC_BENCHMARK_LABEL_SET_ID,
@@ -16,19 +20,23 @@ export type StageScene = {
 };
 
 export function createStageScene(options: {
+  demoLayerCount: number;
   labelSetKind: LabelSetKind;
   labelTargetCount: number;
   layoutStrategy: LayoutStrategy;
 }): StageScene {
   return options.labelSetKind === 'benchmark'
     ? createBenchmarkStageScene(options.labelTargetCount)
-    : createDemoStageScene(options.layoutStrategy);
+    : createDemoStageScene(options.layoutStrategy, options.demoLayerCount);
 }
 
-export function createDemoStageScene(layoutStrategy: LayoutStrategy): StageScene {
+export function createDemoStageScene(
+  layoutStrategy: LayoutStrategy,
+  demoLayerCount: number = DEFAULT_DEMO_LAYER_COUNT,
+): StageScene {
   return {
-    labelSetPreset: DEMO_LABEL_SET_ID,
-    labels: getDemoLabels(layoutStrategy),
+    labelSetPreset: getDemoLabelSetId(demoLayerCount),
+    labels: getDemoLabels(layoutStrategy, demoLayerCount),
     links: getDemoLinks(layoutStrategy),
   };
 }

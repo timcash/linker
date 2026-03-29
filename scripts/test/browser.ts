@@ -42,6 +42,7 @@ export async function readAppResult(page: Page): Promise<ReadyResult | NonReadyR
         innerWidth: window.innerWidth,
         innerHeight: window.innerHeight,
         camera: {
+          animating: document.body.dataset.cameraAnimating === 'true',
           canMoveDown: document.body.dataset.cameraCanMoveDown === 'true',
           canMoveLeft: document.body.dataset.cameraCanMoveLeft === 'true',
           canMoveRight: document.body.dataset.cameraCanMoveRight === 'true',
@@ -88,6 +89,7 @@ export async function readAppResult(page: Page): Promise<ReadyResult | NonReadyR
 
 export async function getCameraState(page: Page): Promise<CameraState> {
   return page.evaluate(() => ({
+    animating: document.body.dataset.cameraAnimating === 'true',
     canMoveDown: document.body.dataset.cameraCanMoveDown === 'true',
     canMoveLeft: document.body.dataset.cameraCanMoveLeft === 'true',
     canMoveRight: document.body.dataset.cameraCanMoveRight === 'true',
@@ -299,6 +301,7 @@ export async function clickControlRepeatedly(
   }
 
   await waitForBrowserUpdate(page);
+  await waitForCameraSettled(page);
 }
 
 export async function waitForCameraReset(page: Page): Promise<void> {
@@ -307,6 +310,7 @@ export async function waitForCameraReset(page: Page): Promise<void> {
     {},
     FIRST_ROOT_LABEL,
   );
+  await waitForCameraSettled(page);
 }
 
 export async function resetCamera(page: Page): Promise<void> {
@@ -320,6 +324,7 @@ export async function waitForCameraLabel(page: Page, label: string): Promise<voi
     {},
     label,
   );
+  await waitForCameraSettled(page);
 }
 
 export async function selectToggleValue<TValue extends string>(
@@ -502,6 +507,13 @@ export async function waitForBrowserUpdate(page: Page): Promise<void> {
       });
     }
   }, BROWSER_UPDATE_FRAME_COUNT);
+}
+
+export async function waitForCameraSettled(page: Page): Promise<void> {
+  await page.waitForFunction(
+    () => (document.body.dataset.cameraAnimating ?? 'false') === 'false',
+    {timeout: 10_000},
+  );
 }
 
 export async function waitForAppDatasets(page: Page): Promise<void> {
