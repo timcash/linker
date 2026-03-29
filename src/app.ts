@@ -2,47 +2,60 @@ import {luma, type Device} from '@luma.gl/core';
 import {Geometry, Model} from '@luma.gl/engine';
 import {webgpuAdapter} from '@luma.gl/webgpu';
 
-import {Camera2D, type CameraSnapshot, type ViewportSize} from './camera';
-import {getDemoLinks} from './data/links';
-import {DEMO_LABEL_SET_ID} from './data/demo-meta';
 import {
-  DEFAULT_LAYOUT_STRATEGY,
-  DEMO_LABELS,
+  buildBenchmarkCameraTrace,
+  createStageBenchmarkDatasets,
+  createStageBenchmarkSummary,
+  writeStageBenchmarkDatasets,
+  type StageBenchmarkSummary,
+} from './benchmark-model';
+import {Camera2D, type ViewportSize} from './camera';
+import {
   LAYOUT_STRATEGIES,
-  LAYOUT_STRATEGY_OPTIONS,
-  getDemoLabels,
   type LayoutStrategy,
 } from './data/labels';
-import {
-  DEFAULT_BENCHMARK_LABEL_COUNT,
-  STATIC_BENCHMARK_LABEL_SET_ID,
-  getStaticBenchmarkLabels,
-} from './data/static-benchmark';
 import {GridLayer} from './grid';
 import {
-  createLabelNavigationIndex,
-  getLabelNavigationNode,
-  getLabelNavigationTarget,
-  hasLabelNavigationTarget,
-  resolveLabelNavigationKey,
-  type LabelNavigationIndex,
-  type LabelNavigationNode,
-} from './label-navigation';
+  createLabelFocusedCameraState,
+  getActiveLabelFocusedCameraNode,
+  getLabelFocusedCameraAvailability,
+  getLabelFocusedCameraTarget,
+  relayoutLabelFocusedCameraState,
+  withActiveLabelFocusedCameraKey,
+  type LabelFocusedCameraAction,
+  type LabelFocusedCameraState,
+} from './label-focused-camera';
 import {LineLayer} from './line/layer';
 import {
-  DEFAULT_LINE_STRATEGY,
   LINE_STRATEGIES,
-  LINE_STRATEGY_OPTIONS,
-  type LinkDefinition,
   type LineStrategy,
 } from './line/types';
-import {FrameTelemetry, type FrameTelemetrySnapshot} from './perf';
+import {FrameTelemetry} from './perf';
+import {
+  createDemoStageScene,
+  createStageScene,
+  type StageScene,
+} from './scene-model';
+import {
+  readStageConfig,
+  syncStageDemoCameraQueryParams,
+  syncStageLayoutStrategyQueryParam,
+  syncStageLineStrategyQueryParam,
+  syncStageNumericCameraQueryParams,
+  syncStageTextStrategyQueryParam,
+  type StageConfig,
+} from './stage-config';
+import {
+  syncStageCameraPanel,
+  syncStageStrategyPanels,
+  type StrategyPanelMode,
+} from './stage-panels';
+import {createStageChrome, type StageChromeElements} from './stage-chrome';
+import {syncStageSelectionBox} from './stage-selection-box';
+import {createStageSnapshot, writeStageSnapshot} from './stage-snapshot';
 import {TextLayer} from './text/layer';
 import {
-  DEFAULT_TEXT_STRATEGY,
   TEXT_STRATEGIES,
-  TEXT_STRATEGY_OPTIONS,
-  type LabelDefinition,
   type TextStrategy,
 } from './text/types';
 
@@ -87,81 +100,9 @@ const QUAD_UVS = new Float32Array([
   1, 1,
 ]);
 
-const DEFAULT_BENCHMARK_TRACE_STEP_COUNT = 8;
-const BENCHMARK_CAMERA_TRACE: ControlAction[] = [
-  'zoom-out',
-  'zoom-out',
-  'pan-right',
-  'pan-up',
-  'zoom-in',
-  'zoom-in',
-  'pan-left',
-  'pan-down',
-];
-
 type AppState = 'loading' | 'ready' | 'unsupported' | 'error';
-type StrategyPanelMode = 'text' | 'line' | 'layout';
 
-type ControlAction =
-  | 'pan-up'
-  | 'pan-down'
-  | 'pan-left'
-  | 'pan-right'
-  | 'zoom-in'
-  | 'zoom-out'
-  | 'reset-camera';
-
-type LabelSetKind = 'demo' | 'benchmark';
-
-type StageConfig = {
-  benchmarkTraceStepCount: number;
-  benchmarkEnabled: boolean;
-  gpuTimingEnabled: boolean;
-  initialCamera: CameraView;
-  initialCameraLabel: string | null;
-  labelSetKind: LabelSetKind;
-  labelSetPreset: string;
-  layoutStrategy: LayoutStrategy;
-  labelTargetCount: number;
-  labels: LabelDefinition[];
-  lineStrategy: LineStrategy;
-  links: LinkDefinition[];
-  textStrategy: TextStrategy;
-};
-
-type CameraView = Pick<CameraSnapshot, 'centerX' | 'centerY' | 'zoom'>;
-
-type StageBenchmarkSummary = {
-  bytesUploadedPerFrame: number;
-  cpuDrawAvgMs: number;
-  cpuFrameAvgMs: number;
-  cpuFrameSamples: number;
-  cpuTextAvgMs: number;
-  glyphCount: number;
-  gpuFrameAvgMs: number | null;
-  gpuFrameSamples: number;
-  gpuTextAvgMs: number | null;
-  gpuSupported: boolean;
-  labelCount: number;
-  textStrategy: TextStrategy;
-  submittedGlyphCount: number;
-  submittedVertexCount: number;
-  visibleChunkCount: number;
-  visibleGlyphCount: number;
-  visibleLabelCount: number;
-};
-
-type StageChromeElements = {
-  cameraPanel: HTMLElement;
-  canvas: HTMLCanvasElement;
-  launchBanner: HTMLDivElement;
-  renderPanel: HTMLElement;
-  selectionBox: HTMLDivElement;
-  stage: HTMLDivElement;
-  statusPanel: HTMLElement;
-  stats: HTMLParagraphElement;
-  strategyModePanel: HTMLElement;
-};
+type ControlAction = LabelFocusedCameraAction;
 
 export type AppHandle = {
   destroy: () => void;
@@ -170,7 +111,8 @@ export type AppHandle = {
 export async function startApp(root: HTMLElement): Promise<AppHandle> {
   const stageChrome = createStageChrome(root);
   const config = readStageConfig(window.location.search);
-  const stageController = new LumaStageController(stageChrome, config);
+  const scene = createStageScene(config);
+  const stageController = new LumaStageController(stageChrome, config, scene);
 
   await stageController.start();
 
@@ -180,16 +122,16 @@ export async function startApp(root: HTMLElement): Promise<AppHandle> {
 }
 
 class LumaStageController {
-  private activeDemoLabelKey: string | null = null;
   private device: Device | null = null;
-  private demoNavigationIndex: LabelNavigationIndex | null = null;
   private frameId = 0;
   private backgroundModel: Model | null = null;
   private benchmarkStarted = false;
   private benchmarkSummary: StageBenchmarkSummary | null = null;
   private frameTelemetry: FrameTelemetry | null = null;
   private gridLayer: GridLayer | null = null;
+  private labelFocusedCamera: LabelFocusedCameraState | null = null;
   private lineLayer: LineLayer | null = null;
+  private scene: StageScene;
   private textLayer: TextLayer | null = null;
   private readonly camera = new Camera2D();
   private readonly actionButtons: HTMLButtonElement[] = [];
@@ -206,13 +148,19 @@ class LumaStageController {
   constructor(
     private readonly chrome: StageChromeElements,
     private readonly config: StageConfig,
+    scene: StageScene,
   ) {
+    this.scene = scene;
     this.layoutStrategy = config.layoutStrategy;
     this.lineStrategy = config.lineStrategy;
     this.textStrategy = config.textStrategy;
 
     if (config.labelSetKind === 'demo') {
-      this.setDemoNavigationLabels(config.labels, config.initialCameraLabel, false);
+      this.labelFocusedCamera = createLabelFocusedCameraState(
+        this.scene.labels,
+        config.initialCameraLabel,
+      );
+      this.syncActiveDemoCameraView();
     } else {
       this.camera.setView(
         config.initialCamera.centerX,
@@ -278,16 +226,12 @@ class LumaStageController {
       });
 
       this.gridLayer = new GridLayer(this.device);
-      this.lineLayer = new LineLayer(this.device, this.config.links, this.lineStrategy);
-      this.textLayer = new TextLayer(this.device, this.config.labels, this.textStrategy);
+      this.lineLayer = new LineLayer(this.device, this.scene.links, this.lineStrategy);
+      this.textLayer = new TextLayer(this.device, this.scene.labels, this.textStrategy);
       await this.textLayer.ready;
       this.installInteractionHandlers();
-      this.updateTextStrategyButtons();
-      this.updateLineStrategyButtons();
-      this.updateLayoutStrategyButtons();
-      this.updateStrategyModeButtons();
-      this.updateStrategyPanel();
-      this.updateCameraControlButtons();
+      this.updateStrategyPanels();
+      this.updateCameraPanel();
       this.chrome.launchBanner.hidden = true;
       this.chrome.canvas.hidden = false;
       this.setState('ready');
@@ -346,7 +290,13 @@ class LumaStageController {
       const textStartedAt = performance.now();
       this.textLayer.update(this.camera, viewport);
       const textCpuMs = performance.now() - textStartedAt;
-      this.updateSelectionBox(viewport);
+      syncStageSelectionBox({
+        activeLabelNode: getActiveLabelFocusedCameraNode(this.labelFocusedCamera),
+        camera: this.camera,
+        selectionBox: this.chrome.selectionBox,
+        textLayer: this.textLayer,
+        viewport,
+      });
 
       const drawStartedAt = performance.now();
       const framebuffer = this.device
@@ -414,20 +364,13 @@ class LumaStageController {
       this.syncCurrentCameraQueryParams();
     }
 
-    this.updateCameraControlButtons();
+    this.updateCameraPanel();
   }
 
   private applyDemoControlAction(action: ControlAction): boolean {
-    const navigationIndex = this.demoNavigationIndex;
-    const currentKey = this.activeDemoLabelKey;
+    const targetNode = getLabelFocusedCameraTarget(this.labelFocusedCamera, action);
 
-    if (!navigationIndex || !currentKey) {
-      return false;
-    }
-
-    const targetNode = getLabelNavigationTarget(navigationIndex, currentKey, action);
-
-    if (!targetNode || targetNode.key === currentKey) {
+    if (!targetNode || targetNode.key === this.labelFocusedCamera?.activeLabelKey) {
       return false;
     }
 
@@ -473,26 +416,17 @@ class LumaStageController {
     );
   }
 
-  private setDemoNavigationLabels(
-    labels: LabelDefinition[],
+  private relayoutDemoCamera(
     requestedLabelKey: string | null,
     syncQuery: boolean,
   ): void {
-    const navigationIndex = createLabelNavigationIndex(labels);
-
-    if (!navigationIndex) {
-      throw new Error('Demo label set is missing label navigation metadata.');
-    }
-
-    this.demoNavigationIndex = navigationIndex;
-
-    const resolvedKey = resolveLabelNavigationKey(
-      navigationIndex,
-      requestedLabelKey ?? this.activeDemoLabelKey ?? navigationIndex.defaultKey,
+    this.labelFocusedCamera = relayoutLabelFocusedCameraState(
+      this.labelFocusedCamera,
+      this.scene.labels,
+      requestedLabelKey,
     );
-
-    this.setActiveDemoLabelKey(resolvedKey);
-    this.updateCameraControlButtons();
+    this.syncActiveDemoCameraView();
+    this.updateCameraPanel();
 
     if (syncQuery) {
       this.syncCurrentCameraQueryParams();
@@ -500,15 +434,24 @@ class LumaStageController {
   }
 
   private setActiveDemoLabelKey(labelKey: string): boolean {
-    const node = getLabelNavigationNode(this.demoNavigationIndex, labelKey);
+    const nextState = withActiveLabelFocusedCameraKey(this.labelFocusedCamera, labelKey);
+
+    if (!nextState) {
+      return false;
+    }
+
+    this.labelFocusedCamera = nextState;
+    return this.syncActiveDemoCameraView();
+  }
+
+  private syncActiveDemoCameraView(): boolean {
+    const node = getActiveLabelFocusedCameraNode(this.labelFocusedCamera);
 
     if (!node) {
       return false;
     }
 
     const before = this.camera.getSnapshot();
-
-    this.activeDemoLabelKey = node.key;
     this.camera.setView(node.label.location.x, node.label.location.y, node.label.zoomLevel);
 
     const after = this.camera.getSnapshot();
@@ -520,21 +463,20 @@ class LumaStageController {
     );
   }
 
-  private getActiveDemoNavigationNode(): LabelNavigationNode | null {
-    return getLabelNavigationNode(this.demoNavigationIndex, this.activeDemoLabelKey);
-  }
-
   private isDemoLabelCameraEnabled(): boolean {
-    return this.config.labelSetKind === 'demo' && this.demoNavigationIndex !== null;
+    return this.config.labelSetKind === 'demo' && this.labelFocusedCamera !== null;
   }
 
   private syncCurrentCameraQueryParams(): void {
-    if (this.isDemoLabelCameraEnabled() && this.demoNavigationIndex && this.activeDemoLabelKey) {
-      syncDemoCameraQueryParams(this.activeDemoLabelKey, this.demoNavigationIndex.defaultKey);
+    if (this.isDemoLabelCameraEnabled() && this.labelFocusedCamera) {
+      syncStageDemoCameraQueryParams(
+        this.labelFocusedCamera.activeLabelKey,
+        this.labelFocusedCamera.navigationIndex.defaultKey,
+      );
       return;
     }
 
-    syncNumericCameraQueryParams(this.camera.getSnapshot());
+    syncStageNumericCameraQueryParams(this.camera.getSnapshot());
   }
 
   private getViewportSize(): ViewportSize {
@@ -626,8 +568,8 @@ class LumaStageController {
     this.benchmarkSummary = null;
     document.body.dataset.benchmarkError = '';
     document.body.dataset.benchmarkState = this.config.benchmarkEnabled ? 'pending' : 'disabled';
-    syncTextStrategyQueryParam(mode);
-    this.updateTextStrategyButtons();
+    syncStageTextStrategyQueryParam(mode);
+    this.updateStrategyPanels();
     this.updateStatus();
   }
 
@@ -646,8 +588,8 @@ class LumaStageController {
     this.benchmarkSummary = null;
     document.body.dataset.benchmarkError = '';
     document.body.dataset.benchmarkState = this.config.benchmarkEnabled ? 'pending' : 'disabled';
-    syncLineStrategyQueryParam(mode);
-    this.updateLineStrategyButtons();
+    syncStageLineStrategyQueryParam(mode);
+    this.updateStrategyPanels();
     this.updateStatus();
   }
 
@@ -663,16 +605,15 @@ class LumaStageController {
     }
 
     this.layoutStrategy = mode;
-    this.config.labels = getDemoLabels(mode);
-    this.config.links = getDemoLinks(mode);
-    this.lineLayer.setLinks(this.config.links);
-    this.textLayer.setLayoutLabels(this.config.labels);
-    this.setDemoNavigationLabels(this.config.labels, this.activeDemoLabelKey, true);
+    this.scene = createDemoStageScene(mode);
+    this.lineLayer.setLinks(this.scene.links);
+    this.textLayer.setLayoutLabels(this.scene.labels);
+    this.relayoutDemoCamera(this.labelFocusedCamera?.activeLabelKey ?? null, true);
     this.benchmarkSummary = null;
     document.body.dataset.benchmarkError = '';
     document.body.dataset.benchmarkState = this.config.benchmarkEnabled ? 'pending' : 'disabled';
-    syncLayoutStrategyQueryParam(mode);
-    this.updateLayoutStrategyButtons();
+    syncStageLayoutStrategyQueryParam(mode);
+    this.updateStrategyPanels();
     this.updateStatus();
   }
 
@@ -686,143 +627,28 @@ class LumaStageController {
     }
 
     this.strategyPanelMode = mode;
-    this.updateStrategyModeButtons();
-    this.updateStrategyPanel();
+    this.updateStrategyPanels();
     this.updateStatus();
   }
 
-  private updateTextStrategyButtons(): void {
-    const buttons = this.chrome.renderPanel.querySelectorAll<HTMLButtonElement>('[data-text-strategy]');
-
-    for (const button of buttons) {
-      const isActive = button.dataset.textStrategy === this.textStrategy;
-      button.dataset.active = String(isActive);
-      button.setAttribute('aria-pressed', String(isActive));
-    }
+  private updateStrategyPanels(): void {
+    syncStageStrategyPanels({
+      labelSetKind: this.config.labelSetKind,
+      layoutStrategy: this.layoutStrategy,
+      lineStrategy: this.lineStrategy,
+      renderPanel: this.chrome.renderPanel,
+      strategyModePanel: this.chrome.strategyModePanel,
+      strategyPanelMode: this.strategyPanelMode,
+      textStrategy: this.textStrategy,
+    });
   }
 
-  private updateLineStrategyButtons(): void {
-    const buttons = this.chrome.renderPanel.querySelectorAll<HTMLButtonElement>('[data-line-strategy]');
-
-    for (const button of buttons) {
-      const isActive = button.dataset.lineStrategy === this.lineStrategy;
-      button.dataset.active = String(isActive);
-      button.setAttribute('aria-pressed', String(isActive));
-    }
-  }
-
-  private updateLayoutStrategyButtons(): void {
-    const buttons = this.chrome.renderPanel.querySelectorAll<HTMLButtonElement>('[data-layout-strategy]');
-
-    for (const button of buttons) {
-      const isActive = button.dataset.layoutStrategy === this.layoutStrategy;
-      button.dataset.active = String(isActive);
-      button.setAttribute('aria-pressed', String(isActive));
-    }
-  }
-
-  private updateStrategyModeButtons(): void {
-    const buttons =
-      this.chrome.strategyModePanel.querySelectorAll<HTMLButtonElement>('[data-strategy-panel-mode]');
-
-    for (const button of buttons) {
-      const mode = button.dataset.strategyPanelMode;
-      const requiresDemoLabelSet = mode === 'layout' || mode === 'line';
-      const isDisabled = requiresDemoLabelSet && this.config.labelSetKind !== 'demo';
-      const isActive = mode === this.strategyPanelMode;
-
-      button.disabled = isDisabled;
-      button.dataset.active = String(isActive);
-      button.setAttribute('aria-pressed', String(isActive));
-    }
-  }
-
-  private updateStrategyPanel(): void {
-    const textStrategyPanel = this.chrome.renderPanel.querySelector<HTMLElement>(
-      '[data-testid="text-strategy-panel"]',
-    );
-    const lineStrategyPanel = this.chrome.renderPanel.querySelector<HTMLElement>(
-      '[data-testid="line-strategy-panel"]',
-    );
-    const layoutStrategyPanel = this.chrome.renderPanel.querySelector<HTMLElement>(
-      '[data-testid="layout-strategy-panel"]',
-    );
-    const panelLabel = this.chrome.renderPanel.querySelector<HTMLElement>(
-      '[data-testid="strategy-panel-label"]',
-    );
-
-    if (panelLabel) {
-      panelLabel.textContent =
-        this.strategyPanelMode === 'layout'
-          ? 'Layout Strategy'
-          : this.strategyPanelMode === 'line'
-          ? 'Line Strategy'
-          : 'Text Strategy';
-    }
-
-    if (textStrategyPanel) {
-      textStrategyPanel.hidden = this.strategyPanelMode !== 'text';
-    }
-
-    if (lineStrategyPanel) {
-      lineStrategyPanel.hidden =
-        this.strategyPanelMode !== 'line' || this.config.labelSetKind !== 'demo';
-    }
-
-    if (layoutStrategyPanel) {
-      layoutStrategyPanel.hidden =
-        this.strategyPanelMode !== 'layout' || this.config.labelSetKind !== 'demo';
-    }
-  }
-
-  private updateCameraControlButtons(): void {
-    if (!this.isDemoLabelCameraEnabled() || !this.demoNavigationIndex || !this.activeDemoLabelKey) {
-      for (const button of this.actionButtons) {
-        button.disabled = false;
-      }
-
-      return;
-    }
-
-    for (const button of this.actionButtons) {
-      const action = button.dataset.control;
-
-      if (!isControlAction(action)) {
-        button.disabled = false;
-        continue;
-      }
-
-      button.disabled = !hasLabelNavigationTarget(this.demoNavigationIndex, this.activeDemoLabelKey, action);
-    }
-  }
-
-  private updateSelectionBox(viewport: ViewportSize): void {
-    const activeNode = this.getActiveDemoNavigationNode();
-
-    if (!activeNode || !this.textLayer) {
-      this.chrome.selectionBox.hidden = true;
-      return;
-    }
-
-    const bounds = this.textLayer.getLabelScreenBounds(activeNode.label, this.camera, viewport);
-
-    if (!bounds || bounds.width <= 0 || bounds.height <= 0) {
-      this.chrome.selectionBox.hidden = true;
-      return;
-    }
-
-    const outlinePadding = 8;
-    const left = bounds.left - outlinePadding;
-    const top = bounds.top - outlinePadding;
-    const width = bounds.width + outlinePadding * 2;
-    const height = bounds.height + outlinePadding * 2;
-
-    this.chrome.selectionBox.hidden = false;
-    this.chrome.selectionBox.dataset.label = activeNode.key;
-    this.chrome.selectionBox.style.left = `${left.toFixed(2)}px`;
-    this.chrome.selectionBox.style.top = `${top.toFixed(2)}px`;
-    this.chrome.selectionBox.style.width = `${width.toFixed(2)}px`;
-    this.chrome.selectionBox.style.height = `${height.toFixed(2)}px`;
+  private updateCameraPanel(): void {
+    syncStageCameraPanel({
+      buttons: this.actionButtons,
+      cameraAvailability: getLabelFocusedCameraAvailability(this.labelFocusedCamera),
+      cameraEnabled: this.isDemoLabelCameraEnabled(),
+    });
   }
 
   private installInteractionHandlers(): void {
@@ -900,7 +726,7 @@ class LumaStageController {
     document.body.dataset.benchmarkState = 'running';
     document.body.dataset.benchmarkError = '';
     console.info(
-      `Starting benchmark strategy=${this.textStrategy} labelSet=${this.config.labelSetKind} labels=${this.config.labels.length}`,
+      `Starting benchmark strategy=${this.textStrategy} labelSet=${this.config.labelSetKind} labels=${this.scene.labels.length}`,
     );
 
     try {
@@ -923,25 +749,11 @@ class LumaStageController {
       const perf = this.frameTelemetry.getSnapshot();
       const textStats = this.textLayer.getStats();
 
-      this.benchmarkSummary = {
-        bytesUploadedPerFrame: textStats.bytesUploadedPerFrame,
-        cpuDrawAvgMs: perf.cpuDrawAvgMs,
-        cpuFrameAvgMs: perf.cpuFrameAvgMs,
-        cpuFrameSamples: perf.cpuFrameSamples,
-        cpuTextAvgMs: perf.cpuTextAvgMs,
-        glyphCount: textStats.glyphCount,
-        gpuFrameAvgMs: perf.gpuFrameAvgMs,
-        gpuFrameSamples: perf.gpuFrameSamples,
-        gpuTextAvgMs: perf.gpuTextAvgMs,
-        gpuSupported: perf.gpuSupported,
-        labelCount: textStats.labelCount,
+      this.benchmarkSummary = createStageBenchmarkSummary({
+        perf,
+        textStats,
         textStrategy: this.textStrategy,
-        submittedGlyphCount: textStats.submittedGlyphCount,
-        submittedVertexCount: textStats.submittedVertexCount,
-        visibleChunkCount: textStats.visibleChunkCount,
-        visibleGlyphCount: textStats.visibleGlyphCount,
-        visibleLabelCount: textStats.visibleLabelCount,
-      };
+      });
 
       document.body.dataset.benchmarkError = '';
       document.body.dataset.benchmarkState = 'complete';
@@ -954,61 +766,6 @@ class LumaStageController {
       document.body.dataset.benchmarkState = 'error';
       console.error(`Benchmark failed: ${message}`);
     }
-  }
-
-  private setBenchmarkDatasets(): void {
-    document.body.dataset.benchmarkLabelCount = String(this.config.labels.length);
-    document.body.dataset.benchmarkLabelSetKind = this.config.labelSetKind;
-    document.body.dataset.benchmarkLabelSetPreset = this.config.labelSetPreset;
-    document.body.dataset.benchmarkLabelTargetCount = String(this.config.labelTargetCount);
-    document.body.dataset.benchmarkTextStrategy = this.textStrategy;
-    document.body.dataset.benchmarkGpuTimingEnabled = String(this.config.gpuTimingEnabled);
-
-    if (!this.benchmarkSummary) {
-      document.body.dataset.benchmarkBytesUploadedPerFrame = '0';
-      document.body.dataset.benchmarkCpuDrawAvgMs = '0.000';
-      document.body.dataset.benchmarkCpuFrameAvgMs = '0.000';
-      document.body.dataset.benchmarkCpuFrameSamples = '0';
-      document.body.dataset.benchmarkCpuTextAvgMs = '0.000';
-      document.body.dataset.benchmarkGlyphCount = '0';
-      document.body.dataset.benchmarkGpuFrameAvgMs = this.config.gpuTimingEnabled ? 'pending' : 'disabled';
-      document.body.dataset.benchmarkGpuTextAvgMs = this.config.gpuTimingEnabled ? 'pending' : 'disabled';
-      document.body.dataset.benchmarkGpuFrameSamples = '0';
-      document.body.dataset.benchmarkGpuSupported = 'false';
-      document.body.dataset.benchmarkSubmittedGlyphCount = '0';
-      document.body.dataset.benchmarkSubmittedVertexCount = '0';
-      document.body.dataset.benchmarkVisibleChunkCount = '0';
-      document.body.dataset.benchmarkVisibleGlyphCount = '0';
-      document.body.dataset.benchmarkVisibleLabelCount = '0';
-      return;
-    }
-
-    document.body.dataset.benchmarkBytesUploadedPerFrame =
-      String(this.benchmarkSummary.bytesUploadedPerFrame);
-    document.body.dataset.benchmarkCpuDrawAvgMs = this.benchmarkSummary.cpuDrawAvgMs.toFixed(3);
-    document.body.dataset.benchmarkCpuFrameAvgMs = this.benchmarkSummary.cpuFrameAvgMs.toFixed(3);
-    document.body.dataset.benchmarkCpuFrameSamples = String(this.benchmarkSummary.cpuFrameSamples);
-    document.body.dataset.benchmarkCpuTextAvgMs = this.benchmarkSummary.cpuTextAvgMs.toFixed(3);
-    document.body.dataset.benchmarkGlyphCount = String(this.benchmarkSummary.glyphCount);
-    document.body.dataset.benchmarkGpuFrameAvgMs =
-      !this.config.gpuTimingEnabled
-        ? 'disabled'
-        : this.benchmarkSummary.gpuFrameAvgMs === null
-        ? 'unsupported'
-        : this.benchmarkSummary.gpuFrameAvgMs.toFixed(3);
-    document.body.dataset.benchmarkGpuTextAvgMs =
-      !this.config.gpuTimingEnabled
-        ? 'disabled'
-        : this.benchmarkSummary.gpuTextAvgMs === null
-        ? 'unsupported'
-        : this.benchmarkSummary.gpuTextAvgMs.toFixed(3);
-    document.body.dataset.benchmarkGpuFrameSamples = String(this.benchmarkSummary.gpuFrameSamples);
-    document.body.dataset.benchmarkGpuSupported = String(this.benchmarkSummary.gpuSupported);
-    document.body.dataset.benchmarkSubmittedGlyphCount = String(this.benchmarkSummary.submittedGlyphCount);
-    document.body.dataset.benchmarkSubmittedVertexCount = String(this.benchmarkSummary.submittedVertexCount);
-    document.body.dataset.benchmarkVisibleChunkCount = String(this.benchmarkSummary.visibleChunkCount);
-    document.body.dataset.benchmarkVisibleGlyphCount = String(this.benchmarkSummary.visibleGlyphCount);
-    document.body.dataset.benchmarkVisibleLabelCount = String(this.benchmarkSummary.visibleLabelCount);
   }
 
   private setState(state: AppState): void {
@@ -1038,141 +795,36 @@ class LumaStageController {
   }
 
   private updateStatus(): void {
-    const snapshot = this.camera.getSnapshot();
-    const activeDemoNode = this.getActiveDemoNavigationNode();
-    const gridStats = this.gridLayer?.getStats();
-    const lineStats = this.lineLayer?.getStats();
-    const perf = this.frameTelemetry?.getSnapshot();
-    const textStats = this.textLayer?.getStats();
-    const lineCount = gridStats ? gridStats.verticalLines + gridStats.horizontalLines : 0;
-    const minorSpacing = gridStats ? formatSpacing(gridStats.minorSpacing) : 'n/a';
-    const majorSpacing = gridStats ? formatSpacing(gridStats.majorSpacing) : 'n/a';
-    const labelCount = textStats ? textStats.labelCount : 0;
-    const glyphCount = textStats ? textStats.glyphCount : 0;
-    const activeLineStrategy = lineStats ? lineStats.lineStrategy : this.lineStrategy;
-    const activeTextStrategy = textStats ? textStats.textStrategy : this.textStrategy;
-    const activeLayoutStrategy =
-      this.config.labelSetKind === 'demo' ? this.layoutStrategy : 'benchmark-static';
-    const layoutStrategyLabel =
-      this.config.labelSetKind === 'demo'
-        ? getLayoutStrategyLabel(this.layoutStrategy)
-        : 'Benchmark Static';
-    const lineStrategyLabel = getLineStrategyLabel(activeLineStrategy);
-    const textStrategyLabel = getTextStrategyLabel(activeTextStrategy);
-    const lineLinkCount = lineStats ? lineStats.lineLinkCount : this.config.links.length;
-    const visibleLinkCount = lineStats ? lineStats.lineVisibleLinkCount : 0;
-    const submittedLineVertexCount = lineStats ? lineStats.submittedVertexCount : 0;
-    const bytesUploadedPerFrame = textStats ? textStats.bytesUploadedPerFrame : 0;
-    const submittedGlyphCount = textStats ? textStats.submittedGlyphCount : 0;
-    const submittedVertexCount = textStats ? textStats.submittedVertexCount : 0;
-    const submittedTotalVertexCount = submittedVertexCount + submittedLineVertexCount;
-    const visibleChunkCount = textStats ? textStats.visibleChunkCount : 0;
-    const visibleLabelCount = textStats ? textStats.visibleLabelCount : 0;
-    const visibleGlyphCount = textStats ? textStats.visibleGlyphCount : 0;
-    const visibleLabels = textStats
-      ? formatVisibleLabelSample(textStats.visibleLabels, textStats.visibleLabelCount)
-      : '';
-    const cameraCanMoveLeft =
-      activeDemoNode && this.demoNavigationIndex
-        ? hasLabelNavigationTarget(this.demoNavigationIndex, activeDemoNode.key, 'pan-left')
-        : false;
-    const cameraCanMoveRight =
-      activeDemoNode && this.demoNavigationIndex
-        ? hasLabelNavigationTarget(this.demoNavigationIndex, activeDemoNode.key, 'pan-right')
-        : false;
-    const cameraCanMoveUp =
-      activeDemoNode && this.demoNavigationIndex
-        ? hasLabelNavigationTarget(this.demoNavigationIndex, activeDemoNode.key, 'pan-up')
-        : false;
-    const cameraCanMoveDown =
-      activeDemoNode && this.demoNavigationIndex
-        ? hasLabelNavigationTarget(this.demoNavigationIndex, activeDemoNode.key, 'pan-down')
-        : false;
-    const cameraCanZoomIn =
-      activeDemoNode && this.demoNavigationIndex
-        ? hasLabelNavigationTarget(this.demoNavigationIndex, activeDemoNode.key, 'zoom-in')
-        : false;
-    const cameraCanZoomOut =
-      activeDemoNode && this.demoNavigationIndex
-        ? hasLabelNavigationTarget(this.demoNavigationIndex, activeDemoNode.key, 'zoom-out')
-        : false;
+    const snapshot = createStageSnapshot({
+      activeLabelNode: getActiveLabelFocusedCameraNode(this.labelFocusedCamera),
+      cameraAvailability: getLabelFocusedCameraAvailability(this.labelFocusedCamera),
+      cameraSnapshot: this.camera.getSnapshot(),
+      gpuTimingEnabled: this.config.gpuTimingEnabled,
+      gridStats: this.gridLayer?.getStats(),
+      labelSetKind: this.config.labelSetKind,
+      labelTargetCount: this.config.labelTargetCount,
+      layoutStrategy: this.layoutStrategy,
+      lineStats: this.lineLayer?.getStats(),
+      lineStrategy: this.lineStrategy,
+      perf: this.frameTelemetry?.getSnapshot(),
+      scene: this.scene,
+      strategyPanelMode: this.strategyPanelMode,
+      textStats: this.textLayer?.getStats(),
+      textStrategy: this.textStrategy,
+    });
 
-    document.body.dataset.cameraCenterX = snapshot.centerX.toFixed(4);
-    document.body.dataset.cameraCenterY = snapshot.centerY.toFixed(4);
-    document.body.dataset.cameraColumn = activeDemoNode ? String(activeDemoNode.column) : '';
-    document.body.dataset.cameraLabel = activeDemoNode?.key ?? '';
-    document.body.dataset.cameraLayer = activeDemoNode ? String(activeDemoNode.layer) : '';
-    document.body.dataset.cameraRow = activeDemoNode ? String(activeDemoNode.row) : '';
-    document.body.dataset.cameraZoom = snapshot.zoom.toFixed(4);
-    document.body.dataset.cameraScale = snapshot.pixelsPerWorldUnit.toFixed(4);
-    document.body.dataset.cameraCanMoveDown = String(cameraCanMoveDown);
-    document.body.dataset.cameraCanMoveLeft = String(cameraCanMoveLeft);
-    document.body.dataset.cameraCanMoveRight = String(cameraCanMoveRight);
-    document.body.dataset.cameraCanMoveUp = String(cameraCanMoveUp);
-    document.body.dataset.cameraCanZoomIn = String(cameraCanZoomIn);
-    document.body.dataset.cameraCanZoomOut = String(cameraCanZoomOut);
-    document.body.dataset.labelSetKind = this.config.labelSetKind;
-    document.body.dataset.labelSetPreset = this.config.labelSetPreset;
-    document.body.dataset.labelSetCount = String(this.config.labels.length);
-    document.body.dataset.labelTargetCount = String(this.config.labelTargetCount);
-    document.body.dataset.gridLineCount = String(lineCount);
-    document.body.dataset.gridMinorSpacing = minorSpacing;
-    document.body.dataset.gridMajorSpacing = majorSpacing;
-    document.body.dataset.layoutFingerprint = getLayoutFingerprint(this.config.labels);
-    document.body.dataset.layoutStrategy = activeLayoutStrategy;
-    document.body.dataset.layoutStrategyLabel = layoutStrategyLabel;
-    document.body.dataset.strategyPanelMode = this.strategyPanelMode;
-    document.body.dataset.lineStrategy = activeLineStrategy;
-    document.body.dataset.lineStrategyLabel = lineStrategyLabel;
-    document.body.dataset.lineLinkCount = String(lineLinkCount);
-    document.body.dataset.lineVisibleLinkCount = String(visibleLinkCount);
-    document.body.dataset.lineSubmittedVertexCount = String(submittedLineVertexCount);
-    document.body.dataset.lineCurveFingerprint = lineStats?.curveFingerprint ?? '0:0:0:0:0:0:0';
-    document.body.dataset.textStrategy = activeTextStrategy;
-    document.body.dataset.textStrategyLabel = textStrategyLabel;
-    document.body.dataset.textBytesUploadedPerFrame = String(bytesUploadedPerFrame);
-    document.body.dataset.textLabelCount = String(labelCount);
-    document.body.dataset.textGlyphCount = String(glyphCount);
-    document.body.dataset.textSubmittedGlyphCount = String(submittedGlyphCount);
-    document.body.dataset.textSubmittedVertexCount = String(submittedVertexCount);
-    document.body.dataset.textVisibleChunkCount = String(visibleChunkCount);
-    document.body.dataset.textVisibleLabelCount = String(visibleLabelCount);
-    document.body.dataset.textVisibleLabels = visibleLabels;
-    document.body.dataset.textVisibleGlyphCount = String(visibleGlyphCount);
-    document.body.dataset.perfCpuDrawAvgMs = perf ? perf.cpuDrawAvgMs.toFixed(3) : '0.000';
-    document.body.dataset.perfCpuFrameAvgMs = perf ? perf.cpuFrameAvgMs.toFixed(3) : '0.000';
-    document.body.dataset.perfCpuFrameMaxMs = perf ? perf.cpuFrameMaxMs.toFixed(3) : '0.000';
-    document.body.dataset.perfCpuFrameSamples = String(perf?.cpuFrameSamples ?? 0);
-    document.body.dataset.perfCpuGridAvgMs = perf ? perf.cpuGridAvgMs.toFixed(3) : '0.000';
-    document.body.dataset.perfCpuTextAvgMs = perf ? perf.cpuTextAvgMs.toFixed(3) : '0.000';
-    document.body.dataset.perfGpuError = perf?.gpuError ?? '';
-    document.body.dataset.perfGpuFrameAvgMs =
-      !this.config.gpuTimingEnabled
-        ? 'disabled'
-        : perf?.gpuFrameAvgMs === null || perf?.gpuFrameAvgMs === undefined
-        ? 'unsupported'
-        : perf.gpuFrameAvgMs.toFixed(3);
-    document.body.dataset.perfGpuTextAvgMs =
-      !this.config.gpuTimingEnabled
-        ? 'disabled'
-        : perf?.gpuTextAvgMs === null || perf?.gpuTextAvgMs === undefined
-        ? 'unsupported'
-        : perf.gpuTextAvgMs.toFixed(3);
-    document.body.dataset.perfGpuFrameSamples = String(perf?.gpuFrameSamples ?? 0);
-    document.body.dataset.perfGpuSupported = String(perf?.gpuSupported ?? false);
-
-    this.setBenchmarkDatasets();
-
-    this.chrome.stats.textContent = [
-      activeDemoNode ? `label ${activeDemoNode.key}` : null,
-      `center ${snapshot.centerX.toFixed(2)}, ${snapshot.centerY.toFixed(2)}`,
-      `zoom ${snapshot.zoom.toFixed(2)}`,
-      textStats
-        ? `glyphs ${visibleGlyphCount} visible / ${glyphCount} total`
-        : 'glyphs 0 visible / 0 total',
-      `vertices ${submittedTotalVertexCount}`,
-      perf ? formatPerfSummary(perf, this.config.gpuTimingEnabled) : 'cpu 0.00 ms / gpu pending',
-    ].filter(Boolean).join('  |  ');
+    writeStageSnapshot(snapshot);
+    writeStageBenchmarkDatasets(
+      createStageBenchmarkDatasets({
+        gpuTimingEnabled: this.config.gpuTimingEnabled,
+        labelSetKind: this.config.labelSetKind,
+        labelTargetCount: this.config.labelTargetCount,
+        scene: this.scene,
+        summary: this.benchmarkSummary,
+        textStrategy: this.textStrategy,
+      }),
+    );
+    this.chrome.stats.textContent = snapshot.statsText;
   }
 
   private async waitForAnimationFrames(count: number): Promise<void> {
@@ -1188,133 +840,6 @@ class LumaStageController {
   }
 }
 
-function buildBenchmarkCameraTrace(stepCount: number): ControlAction[] {
-  const safeCount = Math.max(1, stepCount);
-  const actions: ControlAction[] = [];
-
-  for (let index = 0; index < safeCount; index += 1) {
-    actions.push(BENCHMARK_CAMERA_TRACE[index % BENCHMARK_CAMERA_TRACE.length]);
-  }
-
-  return actions;
-}
-
-function createStageChrome(root: HTMLElement): StageChromeElements {
-  const stage = document.createElement('div');
-  stage.className = 'luma-stage';
-
-  const canvas = document.createElement('canvas');
-  canvas.className = 'stage-canvas';
-  canvas.dataset.testid = 'gpu-canvas';
-  canvas.setAttribute('aria-label', 'luma.gl WebGPU canvas');
-  canvas.hidden = true;
-
-  const selectionBox = document.createElement('div');
-  selectionBox.className = 'selection-box';
-  selectionBox.dataset.testid = 'selection-box';
-  selectionBox.setAttribute('aria-hidden', 'true');
-  selectionBox.hidden = true;
-
-  const statusPanel = document.createElement('aside');
-  statusPanel.className = 'status-panel';
-  statusPanel.dataset.testid = 'status-panel';
-  statusPanel.innerHTML = `
-    <div class="status-eyebrow">Linker / Luma</div>
-    <h1>Network Mapping Lab</h1>
-  `;
-
-  const stats = document.createElement('p');
-  stats.className = 'status-stats';
-  stats.textContent =
-    'center 0.00, 0.00  |  zoom 0.00  |  glyphs 0 visible / 0 total  |  vertices 0  |  cpu 0.00 ms frame / 0.00 ms text / gpu pending';
-  statusPanel.append(stats);
-
-  const textStrategyButtonsMarkup = TEXT_STRATEGY_OPTIONS.map(
-    ({mode, label}) =>
-      `<button type="button" class="control-button" data-text-strategy="${mode}" aria-pressed="false">${label}</button>`,
-  ).join('');
-  const lineStrategyButtonsMarkup = LINE_STRATEGY_OPTIONS.map(
-    ({mode, label}) =>
-      `<button type="button" class="control-button" data-line-strategy="${mode}" aria-pressed="false">${label}</button>`,
-  ).join('');
-  const layoutStrategyButtonsMarkup = LAYOUT_STRATEGY_OPTIONS.map(
-    ({mode, label}) =>
-      `<button type="button" class="control-button" data-layout-strategy="${mode}" aria-pressed="false">${label}</button>`,
-  ).join('');
-  const strategyModeButtonsMarkup = `
-    <button type="button" class="control-button" data-strategy-panel-mode="text" aria-pressed="false">Text Strategy</button>
-    <button type="button" class="control-button" data-strategy-panel-mode="line" aria-pressed="false">Line Strategy</button>
-    <button type="button" class="control-button" data-strategy-panel-mode="layout" aria-pressed="false">Layout Strategy</button>
-  `;
-
-  const launchBanner = document.createElement('div');
-  launchBanner.className = 'launch-banner';
-  launchBanner.dataset.testid = 'app-message';
-  launchBanner.innerHTML = `
-    <strong>Preparing WebGPU</strong>
-    <p>Initializing a luma-stage and fullscreen WebGPU canvas.</p>
-  `;
-
-  const strategyModePanel = document.createElement('aside');
-  strategyModePanel.className = 'strategy-mode-panel';
-  strategyModePanel.dataset.testid = 'strategy-mode-panel';
-  strategyModePanel.innerHTML = `
-    <div class="panel-label">Strategy View</div>
-    <div class="control-row" data-testid="strategy-panel-mode">
-      ${strategyModeButtonsMarkup}
-    </div>
-  `;
-
-  const renderPanel = document.createElement('aside');
-  renderPanel.className = 'render-panel';
-  renderPanel.dataset.testid = 'render-panel';
-  renderPanel.setAttribute('aria-label', 'Render panel');
-  renderPanel.innerHTML = `
-    <div class="panel-label" data-testid="strategy-panel-label">Text Strategy</div>
-    <div class="control-row" data-testid="text-strategy-panel">
-      ${textStrategyButtonsMarkup}
-    </div>
-    <div class="control-row" data-testid="line-strategy-panel" hidden>
-      ${lineStrategyButtonsMarkup}
-    </div>
-    <div class="control-row" data-testid="layout-strategy-panel" hidden>
-      ${layoutStrategyButtonsMarkup}
-    </div>
-  `;
-
-  const cameraPanel = document.createElement('aside');
-  cameraPanel.className = 'camera-panel';
-  cameraPanel.dataset.testid = 'camera-panel';
-  cameraPanel.setAttribute('aria-label', 'Camera panel');
-  cameraPanel.innerHTML = `
-    <div class="panel-label">Camera</div>
-    <div class="camera-grid" aria-label="Camera controls">
-      <button type="button" class="control-button" data-control="zoom-in">Zoom In</button>
-      <button type="button" class="control-button" data-control="zoom-out">Zoom Out</button>
-      <button type="button" class="control-button" data-control="reset-camera">Reset</button>
-      <button type="button" class="control-button" data-control="pan-up">Up</button>
-      <button type="button" class="control-button" data-control="pan-left">Left</button>
-      <button type="button" class="control-button" data-control="pan-down">Down</button>
-      <button type="button" class="control-button" data-control="pan-right">Right</button>
-    </div>
-  `;
-
-  stage.append(canvas, selectionBox, statusPanel, strategyModePanel, renderPanel, cameraPanel, launchBanner);
-  root.replaceChildren(stage);
-
-  return {
-    cameraPanel,
-    canvas,
-    launchBanner,
-    renderPanel,
-    selectionBox,
-    stage,
-    statusPanel,
-    stats,
-    strategyModePanel,
-  };
-}
-
 function escapeHtml(input: string): string {
   return input
     .replaceAll('&', '&amp;')
@@ -1322,79 +847,6 @@ function escapeHtml(input: string): string {
     .replaceAll('>', '&gt;')
     .replaceAll('"', '&quot;')
     .replaceAll("'", '&#39;');
-}
-
-function formatPerfSummary(perf: FrameTelemetrySnapshot, gpuTimingEnabled: boolean): string {
-  const cpuFrame = formatMs(perf.cpuFrameAvgMs);
-  const cpuText = formatMs(perf.cpuTextAvgMs);
-  const gpuSummary =
-    !gpuTimingEnabled
-      ? 'gpu disabled'
-      : perf.gpuError
-      ? `gpu error ${perf.gpuError}`
-      : !perf.gpuSupported
-      ? 'gpu unsupported'
-      : perf.gpuFrameSamples === 0 || perf.gpuFrameAvgMs === null
-      ? 'gpu pending'
-      : perf.gpuTextAvgMs === null
-      ? `gpu ${formatMs(perf.gpuFrameAvgMs)} frame`
-      : `gpu ${formatMs(perf.gpuFrameAvgMs)} frame / ${formatMs(perf.gpuTextAvgMs)} text`;
-
-  return `cpu ${cpuFrame} frame / ${cpuText} text / ${gpuSummary}`;
-}
-
-function formatMs(value: number): string {
-  return `${value.toFixed(2)} ms`;
-}
-
-function formatSpacing(value: number): string {
-  if (value >= 1) {
-    return value.toFixed(2);
-  }
-
-  return value.toPrecision(2);
-}
-
-function formatVisibleLabelSample(visibleLabels: string[], visibleLabelCount: number): string {
-  if (visibleLabels.length === 0) {
-    return '';
-  }
-
-  const suffix =
-    visibleLabelCount > visibleLabels.length
-      ? `|...(+${visibleLabelCount - visibleLabels.length} more)`
-      : '';
-
-  return `${visibleLabels.join('|')}${suffix}`;
-}
-
-function getLayoutFingerprint(labels: LabelDefinition[]): string {
-  let weightedX = 0;
-  let weightedY = 0;
-  let minX = Number.POSITIVE_INFINITY;
-  let maxX = Number.NEGATIVE_INFINITY;
-  let minY = Number.POSITIVE_INFINITY;
-  let maxY = Number.NEGATIVE_INFINITY;
-
-  labels.forEach((label, index) => {
-    const weight = index + 1;
-    weightedX += label.location.x * weight;
-    weightedY += label.location.y * weight;
-    minX = Math.min(minX, label.location.x);
-    maxX = Math.max(maxX, label.location.x);
-    minY = Math.min(minY, label.location.y);
-    maxY = Math.max(maxY, label.location.y);
-  });
-
-  return [
-    labels.length,
-    weightedX.toFixed(3),
-    weightedY.toFixed(3),
-    minX.toFixed(3),
-    maxX.toFixed(3),
-    minY.toFixed(3),
-    maxY.toFixed(3),
-  ].join(':');
 }
 
 function getViewportCenter(viewport: ViewportSize): {x: number; y: number} {
@@ -1410,39 +862,6 @@ function isWebGPUUnavailableError(error: unknown): error is Error {
   }
 
   return /webgpu|gpu adapter|gpu device|navigator\.gpu/i.test(error.message);
-}
-
-function getTextStrategyLabel(textStrategy: TextStrategy): string {
-  return (
-    TEXT_STRATEGY_OPTIONS.find((option) => option.mode === textStrategy)?.label ?? textStrategy
-  );
-}
-
-function getLineStrategyLabel(lineStrategy: LineStrategy): string {
-  return (
-    LINE_STRATEGY_OPTIONS.find((option) => option.mode === lineStrategy)?.label ?? lineStrategy
-  );
-}
-
-function getLayoutStrategyLabel(layoutStrategy: LayoutStrategy): string {
-  return (
-    LAYOUT_STRATEGY_OPTIONS.find((option) => option.mode === layoutStrategy)?.label ?? layoutStrategy
-  );
-}
-
-function parseBoundedInteger(
-  input: string | null,
-  fallback: number,
-  min: number,
-  max: number,
-): number {
-  const parsed = input ? Number.parseInt(input, 10) : Number.NaN;
-
-  if (!Number.isFinite(parsed)) {
-    return fallback;
-  }
-
-  return Math.min(max, Math.max(min, parsed));
 }
 
 function isTextStrategy(value: string | null | undefined): value is TextStrategy {
@@ -1467,147 +886,4 @@ function isControlAction(value: string | null | undefined): value is ControlActi
     value === 'zoom-out' ||
     value === 'reset-camera'
   );
-}
-
-function parseTextStrategy(value: string | null): TextStrategy {
-  return isTextStrategy(value) ? value : DEFAULT_TEXT_STRATEGY;
-}
-
-function parseLineStrategy(value: string | null): LineStrategy {
-  return isLineStrategy(value) ? value : DEFAULT_LINE_STRATEGY;
-}
-
-function parseLayoutStrategy(value: string | null): LayoutStrategy {
-  return isLayoutStrategy(value) ? value : DEFAULT_LAYOUT_STRATEGY;
-}
-
-function syncTextStrategyQueryParam(textStrategy: TextStrategy): void {
-  updateRouteSearchParams((searchParams) => {
-    if (textStrategy === DEFAULT_TEXT_STRATEGY) {
-      searchParams.delete('textStrategy');
-    } else {
-      searchParams.set('textStrategy', textStrategy);
-    }
-  });
-}
-
-function syncLineStrategyQueryParam(lineStrategy: LineStrategy): void {
-  updateRouteSearchParams((searchParams) => {
-    if (lineStrategy === DEFAULT_LINE_STRATEGY) {
-      searchParams.delete('lineStrategy');
-    } else {
-      searchParams.set('lineStrategy', lineStrategy);
-    }
-  });
-}
-
-function syncLayoutStrategyQueryParam(layoutStrategy: LayoutStrategy): void {
-  updateRouteSearchParams((searchParams) => {
-    if (layoutStrategy === DEFAULT_LAYOUT_STRATEGY) {
-      searchParams.delete('layoutStrategy');
-    } else {
-      searchParams.set('layoutStrategy', layoutStrategy);
-    }
-  });
-}
-
-function syncNumericCameraQueryParams(camera: CameraView): void {
-  updateRouteSearchParams((searchParams) => {
-    searchParams.delete('cameraLabel');
-    syncCameraNumberQueryParam(searchParams, 'cameraCenterX', camera.centerX);
-    syncCameraNumberQueryParam(searchParams, 'cameraCenterY', camera.centerY);
-    syncCameraNumberQueryParam(searchParams, 'cameraZoom', camera.zoom);
-  });
-}
-
-function syncDemoCameraQueryParams(labelKey: string, defaultLabelKey: string): void {
-  updateRouteSearchParams((searchParams) => {
-    searchParams.delete('cameraCenterX');
-    searchParams.delete('cameraCenterY');
-    searchParams.delete('cameraZoom');
-
-    if (labelKey === defaultLabelKey) {
-      searchParams.delete('cameraLabel');
-    } else {
-      searchParams.set('cameraLabel', labelKey);
-    }
-  });
-}
-
-function syncCameraNumberQueryParam(
-  searchParams: URLSearchParams,
-  key: 'cameraCenterX' | 'cameraCenterY' | 'cameraZoom',
-  value: number,
-): void {
-  const normalizedValue = normalizeCameraQueryNumber(value);
-
-  if (normalizedValue === null) {
-    searchParams.delete(key);
-    return;
-  }
-
-  searchParams.set(key, normalizedValue);
-}
-
-function normalizeCameraQueryNumber(value: number): string | null {
-  if (Math.abs(value) < 0.00005) {
-    return null;
-  }
-
-  return value.toFixed(4).replace(/\.?0+$/u, '');
-}
-
-function updateRouteSearchParams(mutate: (searchParams: URLSearchParams) => void): void {
-  const url = new URL(window.location.href);
-  const previousSearch = url.search;
-  mutate(url.searchParams);
-
-  if (url.search === previousSearch) {
-    return;
-  }
-
-  window.history.replaceState({}, '', url.toString());
-}
-
-function parseFiniteNumber(input: string | null, fallback: number): number {
-  const parsed = input ? Number(input) : Number.NaN;
-  return Number.isFinite(parsed) ? parsed : fallback;
-}
-
-function readStageConfig(search: string): StageConfig {
-  const params = new URLSearchParams(search);
-  const labelSetKind: LabelSetKind = params.get('labelSet') === 'benchmark' ? 'benchmark' : 'demo';
-  const layoutStrategy = parseLayoutStrategy(params.get('layoutStrategy'));
-  const lineStrategy = parseLineStrategy(params.get('lineStrategy'));
-  const labelTargetCount =
-    labelSetKind === 'benchmark'
-      ? parseBoundedInteger(params.get('labelCount'), DEFAULT_BENCHMARK_LABEL_COUNT, 64, 16384)
-      : DEMO_LABELS.length;
-  const labels =
-    labelSetKind === 'benchmark' ? getStaticBenchmarkLabels(labelTargetCount) : getDemoLabels(layoutStrategy);
-
-  return {
-    benchmarkTraceStepCount: parseBoundedInteger(
-      params.get('benchmarkFrames'),
-      DEFAULT_BENCHMARK_TRACE_STEP_COUNT,
-      8,
-      120,
-    ),
-    benchmarkEnabled: params.get('benchmark') === '1',
-    gpuTimingEnabled: params.get('gpuTiming') !== '0',
-    initialCamera: {
-      centerX: parseFiniteNumber(params.get('cameraCenterX'), 0),
-      centerY: parseFiniteNumber(params.get('cameraCenterY'), 0),
-      zoom: parseFiniteNumber(params.get('cameraZoom'), 0),
-    },
-    initialCameraLabel: params.get('cameraLabel'),
-    labelSetKind,
-    labelSetPreset: labelSetKind === 'benchmark' ? STATIC_BENCHMARK_LABEL_SET_ID : DEMO_LABEL_SET_ID,
-    layoutStrategy,
-    labelTargetCount,
-    labels,
-    lineStrategy,
-    links: labelSetKind === 'benchmark' ? [] : getDemoLinks(layoutStrategy),
-    textStrategy: parseTextStrategy(params.get('textStrategy')),
-  };
 }
