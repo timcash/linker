@@ -9,6 +9,7 @@ const LUMA_RESOURCE_STATS_ID = 'GPU Time and Memory';
 const CPU_DRAW_STAT_NAME = 'CPU Draw Time';
 const CPU_FRAME_STAT_NAME = 'CPU Frame Time';
 const CPU_GRID_STAT_NAME = 'CPU Grid Time';
+const CPU_LINE_STAT_NAME = 'CPU Line Time';
 const CPU_TEXT_STAT_NAME = 'CPU Text Time';
 const GPU_FRAME_STAT_NAME = 'GPU Frame Time';
 const GPU_TEXT_STAT_NAME = 'GPU Text Time';
@@ -27,18 +28,26 @@ export type FrameTelemetrySnapshot = {
   bufferMemoryBytes: number;
   buffersActive: number;
   cpuDrawAvgMs: number;
+  cpuDrawLastMs: number;
   cpuFrameAvgMs: number;
+  cpuFrameLastMs: number;
   cpuFrameMaxMs: number;
   cpuFrameSamples: number;
   cpuGridAvgMs: number;
+  cpuGridLastMs: number;
+  cpuLineAvgMs: number;
+  cpuLineLastMs: number;
   cpuTextAvgMs: number;
+  cpuTextLastMs: number;
   gpuError: string | null;
   gpuFrameAvgMs: number | null;
+  gpuFrameLastMs: number | null;
   gpuFrameMaxMs: number | null;
   gpuFrameSamples: number;
   gpuMemoryBytes: number;
   gpuSupported: boolean;
   gpuTextAvgMs: number | null;
+  gpuTextLastMs: number | null;
   gpuTextMaxMs: number | null;
   resourcesActive: number;
   textureMemoryBytes: number;
@@ -57,11 +66,18 @@ type GpuTimerSlot = {
 };
 
 type TimerStat = ReturnType<ReturnType<typeof luma.stats.get>['get']>;
+type TimerMetrics = {
+  lastMs: number;
+  maxMs: number;
+  sampleCount: number;
+  totalMs: number;
+};
 
 export class FrameTelemetry {
   private readonly cpuDrawStat: TimerStat;
   private readonly cpuFrameStat: TimerStat;
   private readonly cpuGridStat: TimerStat;
+  private readonly cpuLineStat: TimerStat;
   private readonly cpuTextStat: TimerStat;
   private readonly gpuFrameStat: TimerStat;
   private readonly gpuSupported: boolean;
@@ -69,10 +85,14 @@ export class FrameTelemetry {
   private readonly gpuTextStat: TimerStat;
   private readonly perfStats = luma.stats.get(LINKER_PERF_STATS_ID);
   private activeGpuSlot: GpuTimerSlot | null = null;
-  private cpuFrameMaxMs = 0;
+  private cpuDrawMetrics = createTimerMetrics();
+  private cpuFrameMetrics = createTimerMetrics();
+  private cpuGridMetrics = createTimerMetrics();
+  private cpuLineMetrics = createTimerMetrics();
+  private cpuTextMetrics = createTimerMetrics();
   private gpuError: string | null = null;
-  private gpuFrameMaxMs = 0;
-  private gpuTextMaxMs = 0;
+  private gpuFrameMetrics = createTimerMetrics();
+  private gpuTextMetrics = createTimerMetrics();
 
   constructor(
     private readonly device: Device,
@@ -81,6 +101,7 @@ export class FrameTelemetry {
     this.cpuDrawStat = createTimerStat(this.perfStats, CPU_DRAW_STAT_NAME);
     this.cpuFrameStat = createTimerStat(this.perfStats, CPU_FRAME_STAT_NAME);
     this.cpuGridStat = createTimerStat(this.perfStats, CPU_GRID_STAT_NAME);
+    this.cpuLineStat = createTimerStat(this.perfStats, CPU_LINE_STAT_NAME);
     this.cpuTextStat = createTimerStat(this.perfStats, CPU_TEXT_STAT_NAME);
     this.gpuFrameStat = createTimerStat(this.perfStats, GPU_FRAME_STAT_NAME);
     this.gpuTextStat = createTimerStat(this.perfStats, GPU_TEXT_STAT_NAME);
@@ -125,6 +146,7 @@ export class FrameTelemetry {
 
   endCpuDraw(): void {
     this.cpuDrawStat.timeEnd();
+    recordTimerSample(this.cpuDrawMetrics, this.cpuDrawStat.lastTiming);
   }
 
   startCpuFrame(): void {
@@ -133,7 +155,7 @@ export class FrameTelemetry {
 
   endCpuFrame(): void {
     this.cpuFrameStat.timeEnd();
-    this.cpuFrameMaxMs = Math.max(this.cpuFrameMaxMs, this.cpuFrameStat.lastTiming);
+    recordTimerSample(this.cpuFrameMetrics, this.cpuFrameStat.lastTiming);
   }
 
   startCpuGrid(): void {
@@ -142,6 +164,16 @@ export class FrameTelemetry {
 
   endCpuGrid(): void {
     this.cpuGridStat.timeEnd();
+    recordTimerSample(this.cpuGridMetrics, this.cpuGridStat.lastTiming);
+  }
+
+  startCpuLine(): void {
+    this.cpuLineStat.timeStart();
+  }
+
+  endCpuLine(): void {
+    this.cpuLineStat.timeEnd();
+    recordTimerSample(this.cpuLineMetrics, this.cpuLineStat.lastTiming);
   }
 
   startCpuText(): void {
@@ -150,6 +182,7 @@ export class FrameTelemetry {
 
   endCpuText(): void {
     this.cpuTextStat.timeEnd();
+    recordTimerSample(this.cpuTextMetrics, this.cpuTextStat.lastTiming);
   }
 
   async flushGpuSamples(): Promise<void> {
@@ -203,20 +236,28 @@ export class FrameTelemetry {
     return {
       bufferMemoryBytes: getTableCount(resourceTable, 'Buffer Memory'),
       buffersActive: getTableCount(resourceTable, 'Buffers Active'),
-      cpuDrawAvgMs: this.cpuDrawStat.getAverageTime(),
-      cpuFrameAvgMs: this.cpuFrameStat.getAverageTime(),
-      cpuFrameMaxMs: this.cpuFrameMaxMs,
-      cpuFrameSamples: this.cpuFrameStat.samples,
-      cpuGridAvgMs: this.cpuGridStat.getAverageTime(),
-      cpuTextAvgMs: this.cpuTextStat.getAverageTime(),
+      cpuDrawAvgMs: getTimerAverage(this.cpuDrawMetrics),
+      cpuDrawLastMs: this.cpuDrawMetrics.lastMs,
+      cpuFrameAvgMs: getTimerAverage(this.cpuFrameMetrics),
+      cpuFrameLastMs: this.cpuFrameMetrics.lastMs,
+      cpuFrameMaxMs: this.cpuFrameMetrics.maxMs,
+      cpuFrameSamples: this.cpuFrameMetrics.sampleCount,
+      cpuGridAvgMs: getTimerAverage(this.cpuGridMetrics),
+      cpuGridLastMs: this.cpuGridMetrics.lastMs,
+      cpuLineAvgMs: getTimerAverage(this.cpuLineMetrics),
+      cpuLineLastMs: this.cpuLineMetrics.lastMs,
+      cpuTextAvgMs: getTimerAverage(this.cpuTextMetrics),
+      cpuTextLastMs: this.cpuTextMetrics.lastMs,
       gpuError: this.gpuError,
-      gpuFrameAvgMs: this.gpuFrameStat.samples > 0 ? this.gpuFrameStat.getAverageTime() : null,
-      gpuFrameMaxMs: this.gpuFrameStat.samples > 0 ? this.gpuFrameMaxMs : null,
-      gpuFrameSamples: this.gpuFrameStat.samples,
+      gpuFrameAvgMs: this.gpuFrameMetrics.sampleCount > 0 ? getTimerAverage(this.gpuFrameMetrics) : null,
+      gpuFrameLastMs: this.gpuFrameMetrics.sampleCount > 0 ? this.gpuFrameMetrics.lastMs : null,
+      gpuFrameMaxMs: this.gpuFrameMetrics.sampleCount > 0 ? this.gpuFrameMetrics.maxMs : null,
+      gpuFrameSamples: this.gpuFrameMetrics.sampleCount,
       gpuMemoryBytes: getTableCount(resourceTable, 'GPU Memory'),
       gpuSupported: this.gpuSupported,
-      gpuTextAvgMs: this.gpuTextStat.samples > 0 ? this.gpuTextStat.getAverageTime() : null,
-      gpuTextMaxMs: this.gpuTextStat.samples > 0 ? this.gpuTextMaxMs : null,
+      gpuTextAvgMs: this.gpuTextMetrics.sampleCount > 0 ? getTimerAverage(this.gpuTextMetrics) : null,
+      gpuTextLastMs: this.gpuTextMetrics.sampleCount > 0 ? this.gpuTextMetrics.lastMs : null,
+      gpuTextMaxMs: this.gpuTextMetrics.sampleCount > 0 ? this.gpuTextMetrics.maxMs : null,
       resourcesActive: getTableCount(resourceTable, 'Resources Active'),
       textureMemoryBytes: getTableCount(resourceTable, 'Texture Memory'),
       texturesActive: getTableCount(resourceTable, 'Textures Active'),
@@ -225,9 +266,13 @@ export class FrameTelemetry {
 
   reset(): void {
     this.perfStats.reset();
-    this.cpuFrameMaxMs = 0;
-    this.gpuFrameMaxMs = 0;
-    this.gpuTextMaxMs = 0;
+    resetTimerMetrics(this.cpuDrawMetrics);
+    resetTimerMetrics(this.cpuFrameMetrics);
+    resetTimerMetrics(this.cpuGridMetrics);
+    resetTimerMetrics(this.cpuLineMetrics);
+    resetTimerMetrics(this.cpuTextMetrics);
+    resetTimerMetrics(this.gpuFrameMetrics);
+    resetTimerMetrics(this.gpuTextMetrics);
     this.gpuError = null;
   }
 
@@ -274,12 +319,12 @@ export class FrameTelemetry {
 
         if (frameDurationMs !== null) {
           this.gpuFrameStat.addTime(frameDurationMs);
-          this.gpuFrameMaxMs = Math.max(this.gpuFrameMaxMs, frameDurationMs);
+          recordTimerSample(this.gpuFrameMetrics, frameDurationMs);
         }
 
         if (textDurationMs !== null) {
           this.gpuTextStat.addTime(textDurationMs);
-          this.gpuTextMaxMs = Math.max(this.gpuTextMaxMs, textDurationMs);
+          recordTimerSample(this.gpuTextMetrics, textDurationMs);
         }
       })
       .catch((error: unknown) => {
@@ -293,6 +338,33 @@ export class FrameTelemetry {
 
 function createTimerStat(stats: ReturnType<typeof luma.stats.get>, name: string): TimerStat {
   return stats.get(name, 'time').setSampleSize(1);
+}
+
+function createTimerMetrics(): TimerMetrics {
+  return {
+    lastMs: 0,
+    maxMs: 0,
+    sampleCount: 0,
+    totalMs: 0,
+  };
+}
+
+function resetTimerMetrics(metrics: TimerMetrics): void {
+  metrics.lastMs = 0;
+  metrics.maxMs = 0;
+  metrics.sampleCount = 0;
+  metrics.totalMs = 0;
+}
+
+function recordTimerSample(metrics: TimerMetrics, durationMs: number): void {
+  metrics.lastMs = durationMs;
+  metrics.maxMs = Math.max(metrics.maxMs, durationMs);
+  metrics.sampleCount += 1;
+  metrics.totalMs += durationMs;
+}
+
+function getTimerAverage(metrics: TimerMetrics): number {
+  return metrics.sampleCount === 0 ? 0 : metrics.totalMs / metrics.sampleCount;
 }
 
 function getGpuQueryDurationMs(

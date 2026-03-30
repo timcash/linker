@@ -81,30 +81,27 @@ function projectPlaneTextBoxToScreen(
   }
 
   const zoomScale = getZoomScale(projector.zoom, box.zoomLevel, box.zoomRange);
-  const anchor = projector.projectWorldPoint(
-    {x: box.anchorX, y: box.anchorY, z: box.anchorZ},
-    viewport,
-  );
-  const anchorClip = projector.projectWorldPointToClip(
-    {x: box.anchorX, y: box.anchorY, z: box.anchorZ},
-    viewport,
-  );
-  const basisXUnit = getProjectedBasisUnit(
-    box.anchorX,
-    box.anchorY,
-    box.anchorZ,
+  const anchorLocation = {x: box.anchorX, y: box.anchorY, z: box.anchorZ};
+  const anchor = projector.projectWorldPoint(anchorLocation, viewport);
+  const anchorClip = projector.projectWorldPointToClip(anchorLocation, viewport);
+  const basisXUnit = getProjectedBasisUnitFromAnchor(
+    anchor,
     box.planeBasisX ?? DEFAULT_PLANE_BASIS_X,
     projector,
     viewport,
-    DEFAULT_SCREEN_BASIS_X,
-  );
-  const basisYUnit = getProjectedBasisUnit(
     box.anchorX,
     box.anchorY,
     box.anchorZ,
+    DEFAULT_SCREEN_BASIS_X,
+  );
+  const basisYUnit = getProjectedBasisUnitFromAnchor(
+    anchor,
     box.planeBasisY ?? DEFAULT_PLANE_BASIS_Y,
     projector,
     viewport,
+    box.anchorX,
+    box.anchorY,
+    box.anchorZ,
     DEFAULT_SCREEN_BASIS_Y,
   );
   const origin = {
@@ -127,16 +124,16 @@ function projectPlaneTextBoxToScreen(
   };
 }
 
-function getProjectedBasisUnit(
-  anchorX: number,
-  anchorY: number,
-  anchorZ: number,
+function getProjectedBasisUnitFromAnchor(
+  anchor: ScreenPoint,
   planeBasis: LabelLocation,
   projector: StageProjector,
   viewport: ViewportSize,
+  anchorX: number,
+  anchorY: number,
+  anchorZ: number,
   fallback: ScreenPoint,
 ): ScreenPoint {
-  const anchor = projector.projectWorldPoint({x: anchorX, y: anchorY, z: anchorZ}, viewport);
   const target = projector.projectWorldPoint(
     {
       x: anchorX + planeBasis.x,
@@ -149,7 +146,7 @@ function getProjectedBasisUnit(
     x: target.x - anchor.x,
     y: target.y - anchor.y,
   };
-  const length = Math.hypot(basis.x, basis.y);
+  const length = Math.sqrt(basis.x * basis.x + basis.y * basis.y);
 
   if (length <= BASIS_VECTOR_EPSILON) {
     return fallback;
@@ -169,14 +166,16 @@ function measureProjectedQuadBounds(
   const topRight = addScreenPoints(origin, basisX);
   const bottomLeft = addScreenPoints(origin, basisY);
   const bottomRight = addScreenPoints(topRight, basisY);
-  const xs = [origin.x, topRight.x, bottomLeft.x, bottomRight.x];
-  const ys = [origin.y, topRight.y, bottomLeft.y, bottomRight.y];
+  const left = Math.min(origin.x, topRight.x, bottomLeft.x, bottomRight.x);
+  const right = Math.max(origin.x, topRight.x, bottomLeft.x, bottomRight.x);
+  const top = Math.min(origin.y, topRight.y, bottomLeft.y, bottomRight.y);
+  const bottom = Math.max(origin.y, topRight.y, bottomLeft.y, bottomRight.y);
 
   return {
-    bottom: Math.max(...ys),
-    left: Math.min(...xs),
-    right: Math.max(...xs),
-    top: Math.min(...ys),
+    bottom,
+    left,
+    right,
+    top,
   };
 }
 

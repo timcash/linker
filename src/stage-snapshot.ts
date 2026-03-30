@@ -140,11 +140,17 @@ export function createStageSnapshot(input: {
       lineSubmittedVertexCount: String(submittedLineVertexCount),
       lineVisibleLinkCount: String(visibleLinkCount),
       perfCpuDrawAvgMs: perf ? perf.cpuDrawAvgMs.toFixed(3) : '0.000',
+      perfCpuDrawLastMs: perf ? perf.cpuDrawLastMs.toFixed(3) : '0.000',
       perfCpuFrameAvgMs: perf ? perf.cpuFrameAvgMs.toFixed(3) : '0.000',
+      perfCpuFrameLastMs: perf ? perf.cpuFrameLastMs.toFixed(3) : '0.000',
       perfCpuFrameMaxMs: perf ? perf.cpuFrameMaxMs.toFixed(3) : '0.000',
       perfCpuFrameSamples: String(perf?.cpuFrameSamples ?? 0),
       perfCpuGridAvgMs: perf ? perf.cpuGridAvgMs.toFixed(3) : '0.000',
+      perfCpuGridLastMs: perf ? perf.cpuGridLastMs.toFixed(3) : '0.000',
+      perfCpuLineAvgMs: perf ? perf.cpuLineAvgMs.toFixed(3) : '0.000',
+      perfCpuLineLastMs: perf ? perf.cpuLineLastMs.toFixed(3) : '0.000',
       perfCpuTextAvgMs: perf ? perf.cpuTextAvgMs.toFixed(3) : '0.000',
+      perfCpuTextLastMs: perf ? perf.cpuTextLastMs.toFixed(3) : '0.000',
       perfBuffersActive: String(perf?.buffersActive ?? 0),
       perfBufferMemoryBytes: String(perf?.bufferMemoryBytes ?? 0),
       perfGpuError: perf?.gpuError ?? '',
@@ -154,6 +160,12 @@ export function createStageSnapshot(input: {
           : perf?.gpuFrameAvgMs === null || perf?.gpuFrameAvgMs === undefined
           ? 'unsupported'
           : perf.gpuFrameAvgMs.toFixed(3),
+      perfGpuFrameLastMs:
+        !gpuTimingEnabled
+          ? 'disabled'
+          : perf?.gpuFrameLastMs === null || perf?.gpuFrameLastMs === undefined
+          ? 'unsupported'
+          : perf.gpuFrameLastMs.toFixed(3),
       perfGpuFrameSamples: String(perf?.gpuFrameSamples ?? 0),
       perfGpuMemoryBytes: String(perf?.gpuMemoryBytes ?? 0),
       perfGpuSupported: String(perf?.gpuSupported ?? false),
@@ -163,6 +175,12 @@ export function createStageSnapshot(input: {
           : perf?.gpuTextAvgMs === null || perf?.gpuTextAvgMs === undefined
           ? 'unsupported'
           : perf.gpuTextAvgMs.toFixed(3),
+      perfGpuTextLastMs:
+        !gpuTimingEnabled
+          ? 'disabled'
+          : perf?.gpuTextLastMs === null || perf?.gpuTextLastMs === undefined
+          ? 'unsupported'
+          : perf.gpuTextLastMs.toFixed(3),
       planeCount: String(planeCount),
       perfResourcesActive: String(perf?.resourcesActive ?? 0),
       perfTexturesActive: String(perf?.texturesActive ?? 0),

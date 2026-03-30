@@ -49,11 +49,29 @@ export type ClipPoint = {
   z: number;
 };
 
+export type ProjectorKind = 'plane-focus' | 'stack-camera';
+
+export type ProjectorUniforms = {
+  aspect: number;
+  eye: ScenePoint3D;
+  far: number;
+  forward: SceneVector3D;
+  near: number;
+  right: SceneVector3D;
+  tanHalfFovY: number;
+  up: SceneVector3D;
+  viewportHeight: number;
+  viewportWidth: number;
+  zoom: number;
+};
+
 export type StageProjector = {
   readonly centerX: number;
   readonly centerY: number;
+  readonly kind: ProjectorKind;
   readonly pixelsPerWorldUnit: number;
   readonly zoom: number;
+  getProjectorUniforms: (viewport: ViewportSize) => ProjectorUniforms;
   getVisibleWorldBounds: (viewport: ViewportSize) => WorldBounds;
   getProjectionFingerprint: (viewport: ViewportSize) => string;
   projectWorldPoint: (point: StageWorldPoint, viewport: ViewportSize) => ScreenPoint;
@@ -75,6 +93,8 @@ type PerspectiveCameraState = {
 };
 
 export class PlaneFocusProjector implements StageProjector {
+  readonly kind = 'plane-focus' as const;
+
   constructor(private readonly camera: Camera2D) {}
 
   get centerX(): number {
@@ -95,6 +115,14 @@ export class PlaneFocusProjector implements StageProjector {
 
   getVisibleWorldBounds(viewport: ViewportSize): WorldBounds {
     return getPlaneFocusVisibleWorldBounds(this.getState(), viewport);
+  }
+
+  getProjectorUniforms(viewport: ViewportSize): ProjectorUniforms {
+    return getPerspectiveProjectorUniforms(
+      getPlaneFocusPerspectiveCameraState(this.getState(), viewport),
+      viewport,
+      this.zoom,
+    );
   }
 
   getProjectionFingerprint(viewport: ViewportSize): string {
@@ -129,6 +157,7 @@ export class PlaneFocusProjector implements StageProjector {
 }
 
 export class StackCameraProjector implements StageProjector {
+  readonly kind = 'stack-camera' as const;
   private sceneBounds: SceneBounds3D = {
     minX: -1,
     maxX: 1,
@@ -197,6 +226,14 @@ export class StackCameraProjector implements StageProjector {
       minY: this.centerY - halfHeight,
       maxY: this.centerY + halfHeight,
     };
+  }
+
+  getProjectorUniforms(viewport: ViewportSize): ProjectorUniforms {
+    return getPerspectiveProjectorUniforms(
+      this.getCameraState(viewport),
+      viewport,
+      this.zoom,
+    );
   }
 
   getProjectionFingerprint(viewport: ViewportSize): string {
@@ -337,6 +374,33 @@ function getPlaneFocusCameraDistance(
   viewportHeight: number,
 ): number {
   return viewportHeight / (2 * pixelsPerWorldUnit * Math.tan(PLANE_FOCUS_FOV_Y_RADIANS * 0.5));
+}
+
+function getPerspectiveProjectorUniforms(
+  camera: PerspectiveCameraState,
+  viewport: ViewportSize,
+  zoom: number,
+): ProjectorUniforms {
+  const aspect = getSafeAspectRatio(viewport);
+  const tanHalfFovY = Math.tan(camera.fovYRadians * 0.5);
+  const basis = getPerspectiveCameraBasis(
+    subtractScenePoints(camera.target, camera.eye),
+    camera.up,
+  );
+
+  return {
+    aspect,
+    eye: camera.eye,
+    far: camera.far,
+    forward: basis.forward,
+    near: camera.near,
+    right: basis.right,
+    tanHalfFovY,
+    up: basis.up,
+    viewportHeight: viewport.height,
+    viewportWidth: viewport.width,
+    zoom,
+  };
 }
 
 function projectPerspectiveWorldPointToScreen(

@@ -427,7 +427,9 @@ class LumaStageController {
         this.stackBackplateLayer?.update(stageProjector, viewport, this.stackBackplates);
       }
 
+      this.frameTelemetry?.startCpuLine();
       this.lineLayer.update(stageProjector, viewport, activeLabelNode?.label ?? null);
+      this.frameTelemetry?.endCpuLine();
 
       this.frameTelemetry?.startCpuText();
       this.textLayer.update(stageProjector, viewport, activeLabelNode?.key ?? null);
