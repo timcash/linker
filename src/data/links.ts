@@ -179,17 +179,20 @@ function pushLink(
     return;
   }
 
-  const startLinkPoint = getLinkPoint(startBox, endBox);
-  const endLinkPoint = getLinkPoint(endBox, startBox);
+  const outputLinkPoint = getLinkPoint(startBox, endBox);
+  const inputLinkPoint = getLinkPoint(endBox, startBox);
   const columnDistance = Math.abs(endColumn - startColumn);
 
   links.push({
     ...options,
     color: getColumnDistanceColor(columnDistance),
-    end: endLinkPoint.location,
-    endLinkPoint: endLinkPoint.linkPoint,
-    start: startLinkPoint.location,
-    startLinkPoint: startLinkPoint.linkPoint,
+    inputLabelKey: getRootLabelKey(endColumn, endRow),
+    inputLinkPoint: inputLinkPoint.linkPoint,
+    inputLocation: inputLinkPoint.location,
+    linkKey: `${getRootLabelKey(startColumn, startRow)}->${getRootLabelKey(endColumn, endRow)}`,
+    outputLabelKey: getRootLabelKey(startColumn, startRow),
+    outputLinkPoint: outputLinkPoint.linkPoint,
+    outputLocation: outputLinkPoint.location,
     zoomLevel: DEMO_LINK_ZOOM_LEVEL,
     zoomRange: DEMO_LINK_ZOOM_RANGE,
   });
@@ -241,4 +244,8 @@ function getColumnDistanceColor(columnDistance: number): RgbaColor {
 
 function getGridKey(sourceColumnIndex: number, sourceRowIndex: number): string {
   return `${sourceColumnIndex}:${sourceRowIndex}`;
+}
+
+function getRootLabelKey(sourceColumnIndex: number, sourceRowIndex: number): string {
+  return `${sourceColumnIndex + 1}:${sourceRowIndex + 1}:1`;
 }

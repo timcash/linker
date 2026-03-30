@@ -152,6 +152,9 @@ export async function getTextState(page: Page): Promise<TextState> {
 export async function getLineState(page: Page): Promise<LineState> {
   return page.evaluate(() => ({
     curveFingerprint: document.body.dataset.lineCurveFingerprint ?? '',
+    lineDimmedLinkCount: Number(document.body.dataset.lineDimmedLinkCount ?? '0'),
+    lineHighlightedInputLinkCount: Number(document.body.dataset.lineHighlightedInputLinkCount ?? '0'),
+    lineHighlightedOutputLinkCount: Number(document.body.dataset.lineHighlightedOutputLinkCount ?? '0'),
     lineLinkCount: Number(document.body.dataset.lineLinkCount ?? '0'),
     lineStrategy: (document.body.dataset.lineStrategy ?? DEFAULT_LINE_STRATEGY) as LineStrategy,
     lineVisibleLinkCount: Number(document.body.dataset.lineVisibleLinkCount ?? '0'),
@@ -262,7 +265,7 @@ export async function getBenchmarkState(page: Page): Promise<BenchmarkState> {
 }
 
 export async function openRoute(page: Page, url: string): Promise<void> {
-  await page.goto(url, {waitUntil: 'networkidle0'});
+  await page.goto(url, {waitUntil: 'load'});
   await waitForAppDatasets(page);
 }
 
@@ -272,18 +275,13 @@ export async function clickButton(
   missingMessage: string,
 ): Promise<void> {
   await page.waitForSelector(selector);
-  await page.evaluate(
-    ({buttonSelector, errorMessage}) => {
-      const button = document.querySelector<HTMLButtonElement>(buttonSelector);
+  const button = await page.$(selector);
 
-      if (!button) {
-        throw new Error(errorMessage);
-      }
+  if (!button) {
+    throw new Error(missingMessage);
+  }
 
-      button.click();
-    },
-    {buttonSelector: selector, errorMessage: missingMessage},
-  );
+  await button.click();
 }
 
 export async function clickControl(page: Page, control: string): Promise<void> {
@@ -437,6 +435,65 @@ export async function switchLayoutStrategy(
     missingMessage: `Missing layout strategy button ${selector}`,
     selector,
   });
+}
+
+export async function submitFocusedLabelInput(
+  page: Page,
+  value: string,
+): Promise<void> {
+  const inputSelector = '[data-testid="label-input-field"]';
+  const submitSelector = '[data-testid="label-input-submit"]';
+
+  await showStrategyPanelMode(page, 'label-edit');
+  await page.waitForSelector(inputSelector);
+  await page.waitForSelector(submitSelector);
+  await page.click(inputSelector, {clickCount: 3});
+  await page.keyboard.press('Backspace');
+  await page.keyboard.type(value);
+  await page.click(submitSelector);
+  await page.waitForFunction(
+    ({expectedValue, inputButtonSelector, submitButtonSelector}) => {
+      const input = document.querySelector<HTMLInputElement>('[data-testid="label-input-field"]');
+      const submitButton =
+        document.querySelector<HTMLButtonElement>(submitButtonSelector);
+
+      return (
+        input instanceof HTMLInputElement &&
+        submitButton instanceof HTMLButtonElement &&
+        input.matches(inputButtonSelector) &&
+        input.value === expectedValue &&
+        !input.disabled &&
+        !submitButton.disabled
+      );
+    },
+    {},
+    {
+      expectedValue: value,
+      inputButtonSelector: inputSelector,
+      submitButtonSelector: submitSelector,
+    },
+  );
+  await waitForBrowserUpdate(page);
+}
+
+export async function pressNavigationKey(
+  page: Page,
+  key: 'ArrowDown' | 'ArrowLeft' | 'ArrowRight' | 'ArrowUp',
+  options?: {shift?: boolean},
+): Promise<void> {
+  if (options?.shift) {
+    await page.keyboard.down('Shift');
+  }
+
+  try {
+    await page.keyboard.press(key);
+  } finally {
+    if (options?.shift) {
+      await page.keyboard.up('Shift');
+    }
+  }
+
+  await waitForBrowserUpdate(page);
 }
 
 export async function verifyDemoTextStrategyVisibility(

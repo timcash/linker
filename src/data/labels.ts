@@ -166,6 +166,7 @@ function createDemoLayerLabel(
   const location = layer === 1 ? locations.root : locations.child;
 
   return {
+    inputLinkKeys: [],
     text: key,
     location,
     navigation: {
@@ -174,6 +175,7 @@ function createDemoLayerLabel(
       row,
       layer,
     },
+    outputLinkKeys: [],
     size: layerWindow.size,
     zoomLevel: layerWindow.zoomLevel,
     zoomRange: layerWindow.zoomRange,

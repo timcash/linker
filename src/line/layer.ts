@@ -2,6 +2,7 @@ import {Buffer, type Device} from '@luma.gl/core';
 import {GPUGeometry, Model} from '@luma.gl/engine';
 
 import {type Camera2D, type ScreenPoint, type ViewportSize} from '../camera';
+import type {LabelDefinition} from '../text/types';
 import {getZoomOpacity, isZoomVisible} from '../text/zoom';
 import {sampleLineCurve} from './curves';
 import {DEFAULT_LINE_STRATEGY} from './types';
@@ -48,14 +49,25 @@ const LINE_BLEND_PARAMETERS = {
 } as const;
 
 const VIEWPORT_PADDING = 24;
+const DIMMED_LINK_ALPHA_SCALE = 0.68;
+const DIMMED_LINK_RGB_SCALE = 0.72;
+const INPUT_LINK_ALPHA_SCALE = 1.9;
+const INPUT_LINK_BRIGHTEN = 0.28;
+const OUTPUT_LINK_ALPHA_SCALE = 2.1;
+const OUTPUT_LINK_BRIGHTEN = 0.4;
 
 type LineMesh = {
   colors: Float32Array;
   curveFingerprint: string;
+  dimmedLinkCount: number;
+  highlightedInputLinkCount: number;
+  highlightedOutputLinkCount: number;
   positions: Float32Array;
   vertexCount: number;
   visibleLinkCount: number;
 };
+
+type FocusedLinkState = 'dimmed' | 'input' | 'normal' | 'output';
 
 export class LineLayer {
   private positionBuffer;
@@ -125,8 +137,8 @@ export class LineLayer {
     this.stats = createEmptyLineLayerStats(this.links, this.mode);
   }
 
-  update(camera: Camera2D, viewport: ViewportSize): void {
-    const mesh = buildLineMesh(this.links, this.mode, camera, viewport);
+  update(camera: Camera2D, viewport: ViewportSize, activeLabel: LabelDefinition | null = null): void {
+    const mesh = buildLineMesh(this.links, this.mode, camera, viewport, activeLabel);
 
     if (mesh.vertexCount > this.capacity) {
       this.capacity = mesh.vertexCount;
@@ -180,13 +192,20 @@ function buildLineMesh(
   mode: LineStrategy,
   camera: Camera2D,
   viewport: ViewportSize,
+  activeLabel: LabelDefinition | null,
 ): LineMesh {
   if (viewport.width <= 0 || viewport.height <= 0 || links.length === 0) {
     return createEmptyLineMesh();
   }
 
+  const inputLinkKeys = activeLabel ? new Set(activeLabel.inputLinkKeys) : null;
+  const outputLinkKeys = activeLabel ? new Set(activeLabel.outputLinkKeys) : null;
+  const hasActiveLabel = activeLabel !== null;
   const positions: number[] = [];
   const colors: number[] = [];
+  let dimmedLinkCount = 0;
+  let highlightedInputLinkCount = 0;
+  let highlightedOutputLinkCount = 0;
   let visibleLinkCount = 0;
 
   for (const link of links) {
@@ -200,6 +219,8 @@ function buildLineMesh(
       continue;
     }
 
+    const focusedLinkState = getFocusedLinkState(link, inputLinkKeys, outputLinkKeys, hasActiveLabel);
+
     const curvePoints = sampleLineCurve(link, mode, getLineSegmentCount(mode));
     const screenPoints = curvePoints.map((point) => camera.worldToScreen(point, viewport));
 
@@ -210,11 +231,26 @@ function buildLineMesh(
     appendRibbonMesh(
       screenPoints,
       link.lineWidth,
-      [link.color[0], link.color[1], link.color[2], alpha],
+      getRenderedLinkColor(link.color, alpha, focusedLinkState),
       positions,
       colors,
       viewport,
     );
+
+    switch (focusedLinkState) {
+      case 'input':
+        highlightedInputLinkCount += 1;
+        break;
+      case 'output':
+        highlightedOutputLinkCount += 1;
+        break;
+      case 'dimmed':
+        dimmedLinkCount += 1;
+        break;
+      default:
+        break;
+    }
+
     visibleLinkCount += 1;
   }
 
@@ -225,6 +261,9 @@ function buildLineMesh(
   return {
     colors: new Float32Array(colors),
     curveFingerprint: createCurveFingerprint(positions),
+    dimmedLinkCount,
+    highlightedInputLinkCount,
+    highlightedOutputLinkCount,
     positions: new Float32Array(positions),
     vertexCount: positions.length / 2,
     visibleLinkCount,
@@ -371,6 +410,9 @@ function createEmptyLineMesh(): LineMesh {
   return {
     colors: new Float32Array(),
     curveFingerprint: '0:0:0:0:0:0:0',
+    dimmedLinkCount: 0,
+    highlightedInputLinkCount: 0,
+    highlightedOutputLinkCount: 0,
     positions: new Float32Array(),
     vertexCount: 0,
     visibleLinkCount: 0,
@@ -383,6 +425,9 @@ function createEmptyLineLayerStats(
 ): LineLayerStats {
   return {
     curveFingerprint: '0:0:0:0:0:0:0',
+    lineDimmedLinkCount: 0,
+    lineHighlightedInputLinkCount: 0,
+    lineHighlightedOutputLinkCount: 0,
     lineLinkCount: links.length,
     lineStrategy: mode,
     lineVisibleLinkCount: 0,
@@ -397,9 +442,70 @@ function createLineLayerStats(
 ): LineLayerStats {
   return {
     curveFingerprint: mesh.curveFingerprint,
+    lineDimmedLinkCount: mesh.dimmedLinkCount,
+    lineHighlightedInputLinkCount: mesh.highlightedInputLinkCount,
+    lineHighlightedOutputLinkCount: mesh.highlightedOutputLinkCount,
     lineLinkCount: links.length,
     lineStrategy: mode,
     lineVisibleLinkCount: mesh.visibleLinkCount,
     submittedVertexCount: mesh.vertexCount,
   };
+}
+
+function getFocusedLinkState(
+  link: LinkDefinition,
+  inputLinkKeys: Set<string> | null,
+  outputLinkKeys: Set<string> | null,
+  hasActiveLabel: boolean,
+): FocusedLinkState {
+  if (outputLinkKeys?.has(link.linkKey)) {
+    return 'output';
+  }
+
+  if (inputLinkKeys?.has(link.linkKey)) {
+    return 'input';
+  }
+
+  return hasActiveLabel ? 'dimmed' : 'normal';
+}
+
+function getRenderedLinkColor(
+  color: LinkDefinition['color'],
+  alpha: number,
+  focusedLinkState: FocusedLinkState,
+): [number, number, number, number] {
+  switch (focusedLinkState) {
+    case 'input':
+      return brightenLinkColor(color, alpha, INPUT_LINK_ALPHA_SCALE, INPUT_LINK_BRIGHTEN);
+    case 'output':
+      return brightenLinkColor(color, alpha, OUTPUT_LINK_ALPHA_SCALE, OUTPUT_LINK_BRIGHTEN);
+    case 'dimmed':
+      return [
+        color[0] * DIMMED_LINK_RGB_SCALE,
+        color[1] * DIMMED_LINK_RGB_SCALE,
+        color[2] * DIMMED_LINK_RGB_SCALE,
+        alpha * DIMMED_LINK_ALPHA_SCALE,
+      ];
+    case 'normal':
+    default:
+      return [color[0], color[1], color[2], alpha];
+  }
+}
+
+function brightenLinkColor(
+  color: LinkDefinition['color'],
+  alpha: number,
+  alphaScale: number,
+  brightenAmount: number,
+): [number, number, number, number] {
+  return [
+    mixChannel(color[0], brightenAmount),
+    mixChannel(color[1], brightenAmount),
+    mixChannel(color[2], brightenAmount),
+    Math.min(1, alpha * alphaScale),
+  ];
+}
+
+function mixChannel(value: number, brightenAmount: number): number {
+  return value + (1 - value) * brightenAmount;
 }

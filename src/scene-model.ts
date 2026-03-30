@@ -34,17 +34,71 @@ export function createDemoStageScene(
   layoutStrategy: LayoutStrategy,
   demoLayerCount: number = DEFAULT_DEMO_LAYER_COUNT,
 ): StageScene {
+  const labels = getDemoLabels(layoutStrategy, demoLayerCount);
+  const links = getDemoLinks(layoutStrategy);
+
+  connectLabelSetLinks(labels, links);
+
   return {
     labelSetPreset: getDemoLabelSetId(demoLayerCount),
-    labels: getDemoLabels(layoutStrategy, demoLayerCount),
-    links: getDemoLinks(layoutStrategy),
+    labels,
+    links,
   };
 }
 
 export function createBenchmarkStageScene(labelTargetCount: number): StageScene {
+  const labels = getStaticBenchmarkLabels(labelTargetCount);
+
+  connectLabelSetLinks(labels, []);
+
   return {
     labelSetPreset: STATIC_BENCHMARK_LABEL_SET_ID,
-    labels: getStaticBenchmarkLabels(labelTargetCount),
+    labels,
     links: [],
   };
+}
+
+function connectLabelSetLinks(labels: LabelDefinition[], links: LinkDefinition[]): void {
+  const labelsByCellKey = new Map<string, LabelDefinition[]>();
+
+  for (const label of labels) {
+    label.inputLinkKeys.length = 0;
+    label.outputLinkKeys.length = 0;
+
+    if (!label.navigation) {
+      continue;
+    }
+
+    const cellKey = getLabelCellKey(label.navigation.column, label.navigation.row);
+    const cellLabels = labelsByCellKey.get(cellKey);
+
+    if (cellLabels) {
+      cellLabels.push(label);
+      continue;
+    }
+
+    labelsByCellKey.set(cellKey, [label]);
+  }
+
+  for (const link of links) {
+    const outputCellLabels = labelsByCellKey.get(getCellKeyFromRootLabel(link.outputLabelKey)) ?? [];
+    const inputCellLabels = labelsByCellKey.get(getCellKeyFromRootLabel(link.inputLabelKey)) ?? [];
+
+    for (const label of outputCellLabels) {
+      label.outputLinkKeys.push(link.linkKey);
+    }
+
+    for (const label of inputCellLabels) {
+      label.inputLinkKeys.push(link.linkKey);
+    }
+  }
+}
+
+function getCellKeyFromRootLabel(labelKey: string): string {
+  const [column = '', row = ''] = labelKey.split(':');
+  return `${column}:${row}`;
+}
+
+function getLabelCellKey(column: number, row: number): string {
+  return `${column}:${row}`;
 }

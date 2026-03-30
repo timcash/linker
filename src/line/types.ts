@@ -25,17 +25,23 @@ export type LinkDefinition = {
   curveBias: number;
   curveDepth: number;
   curveLift: number;
-  end: LabelLocation;
-  endLinkPoint: LinkPoint;
+  inputLabelKey: string;
+  inputLinkPoint: LinkPoint;
+  inputLocation: LabelLocation;
+  linkKey: string;
   lineWidth: number;
-  start: LabelLocation;
-  startLinkPoint: LinkPoint;
+  outputLabelKey: string;
+  outputLinkPoint: LinkPoint;
+  outputLocation: LabelLocation;
   zoomLevel: number;
   zoomRange: number;
 };
 
 export type LineLayerStats = {
   curveFingerprint: string;
+  lineDimmedLinkCount: number;
+  lineHighlightedInputLinkCount: number;
+  lineHighlightedOutputLinkCount: number;
   lineLinkCount: number;
   lineStrategy: LineStrategy;
   lineVisibleLinkCount: number;

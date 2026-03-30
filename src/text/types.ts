@@ -48,8 +48,10 @@ export type LabelBounds = {
 
 export type LabelDefinition = {
   color?: RgbaColor;
+  inputLinkKeys: string[];
   location: LabelLocation;
   navigation?: LabelNavigation;
+  outputLinkKeys: string[];
   size: number;
   text: string;
   zoomLevel: number;
@@ -85,6 +87,7 @@ export type GlyphAtlas = {
 
 export type GlyphPlacement = {
   labelId: number;
+  labelKey: string;
   anchorX: number;
   anchorY: number;
   labelText: string;

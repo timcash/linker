@@ -117,11 +117,13 @@ function createStaticBenchmarkLabels(count: number): LabelDefinition[] {
     const clusterIndex = Math.floor(index / BENCHMARK_TEXT_VARIANTS.length);
 
     return {
+      inputLinkKeys: [],
       text: `${textVariant} ${String(clusterIndex).padStart(3, '0')}`,
       location: {
         x: cell.x,
         y: cell.y,
       },
+      outputLinkKeys: [],
       size: style.size,
       zoomLevel: style.zoomLevel,
       zoomRange: style.zoomRange,

@@ -69,10 +69,13 @@ export type CameraQueryState = {
   zoom: number | null;
 };
 
-export type StrategyPanelMode = 'text' | 'line' | 'layout';
+export type StrategyPanelMode = 'text' | 'line' | 'layout' | 'label-edit';
 
 export type LineState = {
   curveFingerprint: string;
+  lineDimmedLinkCount: number;
+  lineHighlightedInputLinkCount: number;
+  lineHighlightedOutputLinkCount: number;
   lineLinkCount: number;
   lineStrategy: LineStrategy;
   lineVisibleLinkCount: number;

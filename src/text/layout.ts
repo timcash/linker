@@ -17,10 +17,12 @@ export function layoutLabels(labels: LabelDefinition[], atlas: GlyphAtlas): Text
   labels.forEach((label, labelId) => {
     const color = label.color ?? [...DEFAULT_LABEL_COLOR];
     const measuredLabel = measureLabelLayout(label, atlas);
+    const labelKey = label.navigation?.key ?? label.text;
 
     for (const glyph of measuredLabel.glyphs) {
       glyphs.push({
         labelId,
+        labelKey,
         anchorX: label.location.x,
         anchorY: label.location.y,
         labelText: label.text,

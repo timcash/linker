@@ -244,10 +244,10 @@ export function runLinkPointUnitTests(): void {
     const endBox = getRequiredRootBox(rootBoxByLabel, '2:2:1');
 
     return (
-      Math.abs(link.start.x - startBox.maxX) < 0.0001 &&
-      Math.abs(link.start.y - getBoxCenterY(startBox)) < 0.0001 &&
-      Math.abs(link.end.x - endBox.minX) < 0.0001 &&
-      Math.abs(link.end.y - getBoxCenterY(endBox)) < 0.0001
+      Math.abs(link.outputLocation.x - startBox.maxX) < 0.0001 &&
+      Math.abs(link.outputLocation.y - getBoxCenterY(startBox)) < 0.0001 &&
+      Math.abs(link.inputLocation.x - endBox.minX) < 0.0001 &&
+      Math.abs(link.inputLocation.y - getBoxCenterY(endBox)) < 0.0001
     );
   });
 
@@ -256,12 +256,12 @@ export function runLinkPointUnitTests(): void {
     'Horizontal demo links should connect from the source right-center to the target left-center.',
   );
   assert.equal(
-    horizontalLink?.startLinkPoint,
+    horizontalLink?.outputLinkPoint,
     'right-center',
     'Horizontal demo links should retain the source right-center link-point.',
   );
   assert.equal(
-    horizontalLink?.endLinkPoint,
+    horizontalLink?.inputLinkPoint,
     'left-center',
     'Horizontal demo links should retain the target left-center link-point.',
   );
@@ -270,10 +270,10 @@ export function runLinkPointUnitTests(): void {
   const endVerticalBox = getRequiredRootBox(rootBoxByLabel, '3:2:1');
   const verticalLink = links.find((link) => {
     return (
-      Math.abs(link.start.x - getBoxCenterX(startVerticalBox)) < 0.0001 &&
-      Math.abs(link.start.y - startVerticalBox.minY) < 0.0001 &&
-      Math.abs(link.end.x - getBoxCenterX(endVerticalBox)) < 0.0001 &&
-      Math.abs(link.end.y - endVerticalBox.maxY) < 0.0001
+      Math.abs(link.outputLocation.x - getBoxCenterX(startVerticalBox)) < 0.0001 &&
+      Math.abs(link.outputLocation.y - startVerticalBox.minY) < 0.0001 &&
+      Math.abs(link.inputLocation.x - getBoxCenterX(endVerticalBox)) < 0.0001 &&
+      Math.abs(link.inputLocation.y - endVerticalBox.maxY) < 0.0001
     );
   });
 
@@ -282,12 +282,12 @@ export function runLinkPointUnitTests(): void {
     'Vertical demo links should connect from the lower label bottom-center to the upper label top-center.',
   );
   assert.equal(
-    verticalLink?.startLinkPoint,
+    verticalLink?.outputLinkPoint,
     'bottom-center',
     'Vertical demo links should retain the source bottom-center link-point.',
   );
   assert.equal(
-    verticalLink?.endLinkPoint,
+    verticalLink?.inputLinkPoint,
     'top-center',
     'Vertical demo links should retain the target top-center link-point.',
   );
@@ -296,10 +296,10 @@ export function runLinkPointUnitTests(): void {
   const firstDiagonalEndBox = getRequiredRootBox(rootBoxByLabel, '2:2:1');
   const diagonalLink = links.find((link) => {
     return (
-      Math.abs(link.start.x - firstDiagonalStartBox.maxX) < 0.0001 &&
-      Math.abs(link.start.y - getBoxCenterY(firstDiagonalStartBox)) < 0.0001 &&
-      Math.abs(link.end.x - firstDiagonalEndBox.minX) < 0.0001 &&
-      Math.abs(link.end.y - getBoxCenterY(firstDiagonalEndBox)) < 0.0001
+      Math.abs(link.outputLocation.x - firstDiagonalStartBox.maxX) < 0.0001 &&
+      Math.abs(link.outputLocation.y - getBoxCenterY(firstDiagonalStartBox)) < 0.0001 &&
+      Math.abs(link.inputLocation.x - firstDiagonalEndBox.minX) < 0.0001 &&
+      Math.abs(link.inputLocation.y - getBoxCenterY(firstDiagonalEndBox)) < 0.0001
     );
   });
 
@@ -308,12 +308,12 @@ export function runLinkPointUnitTests(): void {
     'Diagonal demo links should include 1:1:1 to 2:2:1 using right-center to left-center link-points.',
   );
   assert.equal(
-    diagonalLink?.startLinkPoint,
+    diagonalLink?.outputLinkPoint,
     'right-center',
     'Diagonal demo links should retain the source right-center link-point.',
   );
   assert.equal(
-    diagonalLink?.endLinkPoint,
+    diagonalLink?.inputLinkPoint,
     'left-center',
     'Diagonal demo links should retain the target left-center link-point.',
   );
@@ -321,10 +321,10 @@ export function runLinkPointUnitTests(): void {
   const firstFanoutEndBox = getRequiredRootBox(rootBoxByLabel, '2:3:1');
   const fanoutLink = links.find((link) => {
     return (
-      Math.abs(link.start.x - firstDiagonalStartBox.maxX) < 0.0001 &&
-      Math.abs(link.start.y - getBoxCenterY(firstDiagonalStartBox)) < 0.0001 &&
-      Math.abs(link.end.x - firstFanoutEndBox.minX) < 0.0001 &&
-      Math.abs(link.end.y - getBoxCenterY(firstFanoutEndBox)) < 0.0001
+      Math.abs(link.outputLocation.x - firstDiagonalStartBox.maxX) < 0.0001 &&
+      Math.abs(link.outputLocation.y - getBoxCenterY(firstDiagonalStartBox)) < 0.0001 &&
+      Math.abs(link.inputLocation.x - firstFanoutEndBox.minX) < 0.0001 &&
+      Math.abs(link.inputLocation.y - getBoxCenterY(firstFanoutEndBox)) < 0.0001
     );
   });
 
@@ -333,12 +333,12 @@ export function runLinkPointUnitTests(): void {
     'Demo links should include 1:1:1 to 2:3:1 using right-center to left-center link-points across columns.',
   );
   assert.equal(
-    fanoutLink?.startLinkPoint,
+    fanoutLink?.outputLinkPoint,
     'right-center',
     'Cross-column fanout demo links should retain the source right-center link-point.',
   );
   assert.equal(
-    fanoutLink?.endLinkPoint,
+    fanoutLink?.inputLinkPoint,
     'left-center',
     'Cross-column fanout demo links should retain the target left-center link-point.',
   );
@@ -363,10 +363,10 @@ export function runLinkPointUnitTests(): void {
   const firstSpineEndBox = getRequiredRootBox(rootBoxByLabel, '12:1:1');
   const spineLink = links.find((link) => {
     return (
-      Math.abs(link.start.x - firstSpineStartBox.maxX) < 0.0001 &&
-      Math.abs(link.start.y - getBoxCenterY(firstSpineStartBox)) < 0.0001 &&
-      Math.abs(link.end.x - firstSpineEndBox.minX) < 0.0001 &&
-      Math.abs(link.end.y - getBoxCenterY(firstSpineEndBox)) < 0.0001
+      Math.abs(link.outputLocation.x - firstSpineStartBox.maxX) < 0.0001 &&
+      Math.abs(link.outputLocation.y - getBoxCenterY(firstSpineStartBox)) < 0.0001 &&
+      Math.abs(link.inputLocation.x - firstSpineEndBox.minX) < 0.0001 &&
+      Math.abs(link.inputLocation.y - getBoxCenterY(firstSpineEndBox)) < 0.0001
     );
   });
 
@@ -390,10 +390,10 @@ export function runRoundedStepCurveUnitTests(): void {
   const links = getDemoLinks('flow-columns');
   const diagonalLink = links.find((link) => {
     return (
-      link.startLinkPoint === 'right-center' &&
-      link.endLinkPoint === 'left-center' &&
-      link.start.x < link.end.x &&
-      link.start.y > link.end.y
+      link.outputLinkPoint === 'right-center' &&
+      link.inputLinkPoint === 'left-center' &&
+      link.outputLocation.x < link.inputLocation.x &&
+      link.outputLocation.y > link.inputLocation.y
     );
   });
 
@@ -420,18 +420,18 @@ export function runRoundedStepCurveUnitTests(): void {
   assert.ok(firstPoint, 'Rounded step links should keep the source point.');
   assert.ok(lastPoint, 'Rounded step links should keep the target point.');
   assert.ok(
-    firstPoint && Math.abs(firstPoint.x - diagonalLink.start.x) < 0.0001,
+    firstPoint && Math.abs(firstPoint.x - diagonalLink.outputLocation.x) < 0.0001,
     'Rounded step links should start at the source link-point.',
   );
   assert.ok(
-    lastPoint && Math.abs(lastPoint.x - diagonalLink.end.x) < 0.0001,
+    lastPoint && Math.abs(lastPoint.x - diagonalLink.inputLocation.x) < 0.0001,
     'Rounded step links should end at the target link-point.',
   );
 
-  const minX = Math.min(diagonalLink.start.x, diagonalLink.end.x);
-  const maxX = Math.max(diagonalLink.start.x, diagonalLink.end.x);
-  const minY = Math.min(diagonalLink.start.y, diagonalLink.end.y);
-  const maxY = Math.max(diagonalLink.start.y, diagonalLink.end.y);
+  const minX = Math.min(diagonalLink.outputLocation.x, diagonalLink.inputLocation.x);
+  const maxX = Math.max(diagonalLink.outputLocation.x, diagonalLink.inputLocation.x);
+  const minY = Math.min(diagonalLink.outputLocation.y, diagonalLink.inputLocation.y);
+  const maxY = Math.max(diagonalLink.outputLocation.y, diagonalLink.inputLocation.y);
 
   roundedStepPoints.forEach((point, index) => {
     assert.ok(

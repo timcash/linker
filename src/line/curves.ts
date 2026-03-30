@@ -67,7 +67,7 @@ function sampleRoundedStepLinks(link: LinkDefinition, segmentCount: number): Vec
 function sampleArcLinks(link: LinkDefinition, t: number): Vec2 {
   const tangent = getLinkTangent(link);
   const normal = getLinkNormal(link);
-  const base = lerpVec2(link.start, link.end, t);
+  const base = lerpVec2(link.outputLocation, link.inputLocation, t);
   const curveAmplitude = getCurveAmplitude(link);
   const tangentDrift = (t - 0.5) * link.curveBias * getLinkDistance(link) * 0.18;
   const normalOffset = Math.sin(Math.PI * t) * curveAmplitude * link.bendDirection;
@@ -86,26 +86,26 @@ function sampleCubicLinks(link: LinkDefinition, t: number): Vec2 {
   const handle = distance * (0.18 + link.curveBias * 0.28);
   const control1 = {
     x:
-      link.start.x +
+      link.outputLocation.x +
       tangent.x * handle +
       normal.x * curveAmplitude * link.bendDirection,
     y:
-      link.start.y +
+      link.outputLocation.y +
       tangent.y * handle +
       normal.y * curveAmplitude * link.bendDirection,
   };
   const control2 = {
     x:
-      link.end.x -
+      link.inputLocation.x -
       tangent.x * handle +
       normal.x * curveAmplitude * link.bendDirection,
     y:
-      link.end.y -
+      link.inputLocation.y -
       tangent.y * handle +
       normal.y * curveAmplitude * link.bendDirection,
   };
 
-  return cubicBezier(link.start, control1, control2, link.end, t);
+  return cubicBezier(link.outputLocation, control1, control2, link.inputLocation, t);
 }
 
 function sampleFanLinks(link: LinkDefinition, t: number): Vec2 {
@@ -117,26 +117,26 @@ function sampleFanLinks(link: LinkDefinition, t: number): Vec2 {
   const endHandle = distance * (0.08 + link.curveBias * 0.18);
   const control1 = {
     x:
-      link.start.x +
+      link.outputLocation.x +
       tangent.x * startHandle +
       normal.x * curveAmplitude * link.bendDirection,
     y:
-      link.start.y +
+      link.outputLocation.y +
       tangent.y * startHandle +
       normal.y * curveAmplitude * link.bendDirection,
   };
   const control2 = {
     x:
-      link.end.x -
+      link.inputLocation.x -
       tangent.x * endHandle +
       normal.x * curveAmplitude * link.bendDirection * 0.38,
     y:
-      link.end.y -
+      link.inputLocation.y -
       tangent.y * endHandle +
       normal.y * curveAmplitude * link.bendDirection * 0.38,
   };
 
-  return cubicBezier(link.start, control1, control2, link.end, t);
+  return cubicBezier(link.outputLocation, control1, control2, link.inputLocation, t);
 }
 
 function sampleOrbitLinks(link: LinkDefinition, t: number): Vec2 {
@@ -147,82 +147,82 @@ function sampleOrbitLinks(link: LinkDefinition, t: number): Vec2 {
   const handle = distance * (0.17 + link.curveBias * 0.22);
   const control1 = {
     x:
-      link.start.x +
+      link.outputLocation.x +
       tangent.x * handle +
       normal.x * curveAmplitude * link.bendDirection,
     y:
-      link.start.y +
+      link.outputLocation.y +
       tangent.y * handle +
       normal.y * curveAmplitude * link.bendDirection,
   };
   const control2 = {
     x:
-      link.end.x -
+      link.inputLocation.x -
       tangent.x * handle -
       normal.x * curveAmplitude * link.bendDirection * 0.82,
     y:
-      link.end.y -
+      link.inputLocation.y -
       tangent.y * handle -
       normal.y * curveAmplitude * link.bendDirection * 0.82,
   };
 
-  return cubicBezier(link.start, control1, control2, link.end, t);
+  return cubicBezier(link.outputLocation, control1, control2, link.inputLocation, t);
 }
 
 function getRoundedStepRoute(link: LinkDefinition): Vec2[] {
-  const startAxis = getLinkPointAxis(link.startLinkPoint);
-  const endAxis = getLinkPointAxis(link.endLinkPoint);
+  const outputAxis = getLinkPointAxis(link.outputLinkPoint);
+  const inputAxis = getLinkPointAxis(link.inputLinkPoint);
 
-  if (startAxis === 'horizontal' && endAxis === 'horizontal') {
+  if (outputAxis === 'horizontal' && inputAxis === 'horizontal') {
     if (
-      Math.abs(link.end.x - link.start.x) <= 0.0001 ||
-      Math.abs(link.end.y - link.start.y) <= 0.0001
+      Math.abs(link.inputLocation.x - link.outputLocation.x) <= 0.0001 ||
+      Math.abs(link.inputLocation.y - link.outputLocation.y) <= 0.0001
     ) {
-      return [link.start, link.end];
+      return [link.outputLocation, link.inputLocation];
     }
 
     const leadWeight = clamp(0.36 + link.curveBias * 0.18, 0.32, 0.46);
-    const bendX = link.start.x + (link.end.x - link.start.x) * leadWeight;
+    const bendX = link.outputLocation.x + (link.inputLocation.x - link.outputLocation.x) * leadWeight;
 
     return createRoutePoints(
-      link.start,
-      {x: bendX, y: link.start.y},
-      {x: bendX, y: link.end.y},
-      link.end,
+      link.outputLocation,
+      {x: bendX, y: link.outputLocation.y},
+      {x: bendX, y: link.inputLocation.y},
+      link.inputLocation,
     );
   }
 
-  if (startAxis === 'vertical' && endAxis === 'vertical') {
+  if (outputAxis === 'vertical' && inputAxis === 'vertical') {
     if (
-      Math.abs(link.end.y - link.start.y) <= 0.0001 ||
-      Math.abs(link.end.x - link.start.x) <= 0.0001
+      Math.abs(link.inputLocation.y - link.outputLocation.y) <= 0.0001 ||
+      Math.abs(link.inputLocation.x - link.outputLocation.x) <= 0.0001
     ) {
-      return [link.start, link.end];
+      return [link.outputLocation, link.inputLocation];
     }
 
     const leadWeight = clamp(0.36 + link.curveBias * 0.18, 0.32, 0.46);
-    const bendY = link.start.y + (link.end.y - link.start.y) * leadWeight;
+    const bendY = link.outputLocation.y + (link.inputLocation.y - link.outputLocation.y) * leadWeight;
 
     return createRoutePoints(
-      link.start,
-      {x: link.start.x, y: bendY},
-      {x: link.end.x, y: bendY},
-      link.end,
+      link.outputLocation,
+      {x: link.outputLocation.x, y: bendY},
+      {x: link.inputLocation.x, y: bendY},
+      link.inputLocation,
     );
   }
 
-  if (startAxis === 'horizontal') {
+  if (outputAxis === 'horizontal') {
     return createRoutePoints(
-      link.start,
-      {x: link.end.x, y: link.start.y},
-      link.end,
+      link.outputLocation,
+      {x: link.inputLocation.x, y: link.outputLocation.y},
+      link.inputLocation,
     );
   }
 
   return createRoutePoints(
-    link.start,
-    {x: link.start.x, y: link.end.y},
-    link.end,
+    link.outputLocation,
+    {x: link.outputLocation.x, y: link.inputLocation.y},
+    link.inputLocation,
   );
 }
 
@@ -419,11 +419,11 @@ function getRoundedStepCornerRadius(link: LinkDefinition, routePoints: Vec2[]): 
   );
 }
 
-function getLinkDistance(link: Pick<LinkDefinition, 'start' | 'end'>): number {
-  return Math.hypot(link.end.x - link.start.x, link.end.y - link.start.y);
+function getLinkDistance(link: Pick<LinkDefinition, 'inputLocation' | 'outputLocation'>): number {
+  return Math.hypot(link.inputLocation.x - link.outputLocation.x, link.inputLocation.y - link.outputLocation.y);
 }
 
-function getLinkTangent(link: Pick<LinkDefinition, 'start' | 'end'>): Vec2 {
+function getLinkTangent(link: Pick<LinkDefinition, 'inputLocation' | 'outputLocation'>): Vec2 {
   const distance = getLinkDistance(link);
 
   if (distance <= 0.0001) {
@@ -431,12 +431,12 @@ function getLinkTangent(link: Pick<LinkDefinition, 'start' | 'end'>): Vec2 {
   }
 
   return {
-    x: (link.end.x - link.start.x) / distance,
-    y: (link.end.y - link.start.y) / distance,
+    x: (link.inputLocation.x - link.outputLocation.x) / distance,
+    y: (link.inputLocation.y - link.outputLocation.y) / distance,
   };
 }
 
-function getLinkNormal(link: Pick<LinkDefinition, 'start' | 'end'>): Vec2 {
+function getLinkNormal(link: Pick<LinkDefinition, 'inputLocation' | 'outputLocation'>): Vec2 {
   const tangent = getLinkTangent(link);
 
   return {

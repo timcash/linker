@@ -80,12 +80,12 @@ body {
   position: absolute;
   z-index: 1;
   pointer-events: none;
-  border: 1.5px solid rgb(125 211 252 / 78%);
+  border: 1.5px solid rgb(186 230 253 / 94%);
   border-radius: 14px;
-  background: rgb(125 211 252 / 8%);
+  background: rgb(125 211 252 / 14%);
   box-shadow:
-    0 0 0 1px rgb(125 211 252 / 22%) inset,
-    0 0 22px rgb(56 189 248 / 18%);
+    0 0 0 1px rgb(186 230 253 / 34%) inset,
+    0 0 28px rgb(56 189 248 / 28%);
 }
 
 .status-panel,
@@ -174,6 +174,53 @@ body {
   display: flex;
   flex-wrap: wrap;
   gap: 10px;
+}
+
+.control-stack {
+  display: grid;
+  gap: 12px;
+}
+
+.panel-hint {
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.84rem;
+  line-height: 1.5;
+}
+
+.label-edit-form {
+  display: grid;
+  gap: 10px;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+}
+
+.label-input-field {
+  min-width: 0;
+  width: 100%;
+  padding: 11px 14px;
+  border: 1px solid rgb(125 211 252 / 18%);
+  border-radius: 14px;
+  background: rgb(6 14 27 / 92%);
+  color: var(--ink);
+  font: inherit;
+  font-size: 0.9rem;
+}
+
+.label-input-field::placeholder {
+  color: rgb(144 163 191 / 72%);
+}
+
+.label-input-field:disabled {
+  color: rgb(229 237 249 / 48%);
+  border-color: rgb(125 211 252 / 10%);
+  background: rgb(6 14 27 / 72%);
+  cursor: not-allowed;
+}
+
+.label-input-field:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
 }
 
 .camera-grid {
@@ -343,5 +390,9 @@ body {
   .control-button {
     min-width: 0;
     flex: 1 1 30%;
+  }
+
+  .label-edit-form {
+    grid-template-columns: 1fr;
   }
 }

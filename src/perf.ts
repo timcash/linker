@@ -1,10 +1,17 @@
-import {Buffer, type Device, type QuerySet, type RenderPassProps} from '@luma.gl/core';
+import {Buffer, luma, type Device, type QuerySet, type RenderPassProps} from '@luma.gl/core';
 
-const MAX_SAMPLES = 120;
 const GPU_PASS_QUERY_COUNT = 2;
 const GPU_QUERY_COUNT = GPU_PASS_QUERY_COUNT * 2;
 const GPU_QUERY_RESULT_BYTES = GPU_QUERY_COUNT * BigUint64Array.BYTES_PER_ELEMENT;
 const GPU_TIMER_SLOT_COUNT = 3;
+const LINKER_PERF_STATS_ID = 'Linker Performance';
+const LUMA_RESOURCE_STATS_ID = 'GPU Time and Memory';
+const CPU_DRAW_STAT_NAME = 'CPU Draw Time';
+const CPU_FRAME_STAT_NAME = 'CPU Frame Time';
+const CPU_GRID_STAT_NAME = 'CPU Grid Time';
+const CPU_TEXT_STAT_NAME = 'CPU Text Time';
+const GPU_FRAME_STAT_NAME = 'GPU Frame Time';
+const GPU_TEXT_STAT_NAME = 'GPU Text Time';
 
 const GPU_FRAME_QUERY_RANGE = {
   beginIndex: 0,
@@ -16,14 +23,9 @@ const GPU_TEXT_QUERY_RANGE = {
   endIndex: 3,
 } as const;
 
-type RollingMetricSummary = {
-  averageMs: number;
-  maxMs: number;
-  lastMs: number;
-  sampleCount: number;
-};
-
 export type FrameTelemetrySnapshot = {
+  bufferMemoryBytes: number;
+  buffersActive: number;
   cpuDrawAvgMs: number;
   cpuFrameAvgMs: number;
   cpuFrameMaxMs: number;
@@ -34,9 +36,13 @@ export type FrameTelemetrySnapshot = {
   gpuFrameAvgMs: number | null;
   gpuFrameMaxMs: number | null;
   gpuFrameSamples: number;
+  gpuMemoryBytes: number;
+  gpuSupported: boolean;
   gpuTextAvgMs: number | null;
   gpuTextMaxMs: number | null;
-  gpuSupported: boolean;
+  resourcesActive: number;
+  textureMemoryBytes: number;
+  texturesActive: number;
 };
 
 export type FrameTelemetryOptions = {
@@ -50,82 +56,36 @@ type GpuTimerSlot = {
   resultBuffer: Buffer;
 };
 
-class RollingMetric {
-  private readonly values = new Array<number>(MAX_SAMPLES).fill(0);
-  private count = 0;
-  private cursor = 0;
-  private sum = 0;
-  private max = 0;
-  private last = 0;
-
-  push(value: number): void {
-    const nextValue = Number.isFinite(value) ? Math.max(0, value) : 0;
-
-    this.last = nextValue;
-
-    if (this.count < MAX_SAMPLES) {
-      this.values[this.cursor] = nextValue;
-      this.count += 1;
-      this.sum += nextValue;
-      this.max = Math.max(this.max, nextValue);
-      this.cursor = (this.cursor + 1) % MAX_SAMPLES;
-      return;
-    }
-
-    const replacedValue = this.values[this.cursor];
-    this.values[this.cursor] = nextValue;
-    this.cursor = (this.cursor + 1) % MAX_SAMPLES;
-    this.sum += nextValue - replacedValue;
-
-    if (nextValue >= this.max) {
-      this.max = nextValue;
-      return;
-    }
-
-    if (replacedValue >= this.max) {
-      this.max = 0;
-
-      for (let index = 0; index < this.count; index += 1) {
-        this.max = Math.max(this.max, this.values[index]);
-      }
-    }
-  }
-
-  reset(): void {
-    this.values.fill(0);
-    this.count = 0;
-    this.cursor = 0;
-    this.sum = 0;
-    this.max = 0;
-    this.last = 0;
-  }
-
-  getSummary(): RollingMetricSummary {
-    return {
-      averageMs: this.count > 0 ? this.sum / this.count : 0,
-      maxMs: this.max,
-      lastMs: this.last,
-      sampleCount: this.count,
-    };
-  }
-}
+type TimerStat = ReturnType<ReturnType<typeof luma.stats.get>['get']>;
 
 export class FrameTelemetry {
-  private readonly cpuDraw = new RollingMetric();
-  private readonly cpuFrame = new RollingMetric();
-  private readonly cpuGrid = new RollingMetric();
-  private readonly cpuText = new RollingMetric();
-  private readonly gpuFrame = new RollingMetric();
-  private readonly gpuText = new RollingMetric();
+  private readonly cpuDrawStat: TimerStat;
+  private readonly cpuFrameStat: TimerStat;
+  private readonly cpuGridStat: TimerStat;
+  private readonly cpuTextStat: TimerStat;
+  private readonly gpuFrameStat: TimerStat;
   private readonly gpuSupported: boolean;
   private readonly gpuSlots: GpuTimerSlot[] = [];
+  private readonly gpuTextStat: TimerStat;
+  private readonly perfStats = luma.stats.get(LINKER_PERF_STATS_ID);
   private activeGpuSlot: GpuTimerSlot | null = null;
+  private cpuFrameMaxMs = 0;
   private gpuError: string | null = null;
+  private gpuFrameMaxMs = 0;
+  private gpuTextMaxMs = 0;
 
   constructor(
     private readonly device: Device,
     options: FrameTelemetryOptions = {},
   ) {
+    this.cpuDrawStat = createTimerStat(this.perfStats, CPU_DRAW_STAT_NAME);
+    this.cpuFrameStat = createTimerStat(this.perfStats, CPU_FRAME_STAT_NAME);
+    this.cpuGridStat = createTimerStat(this.perfStats, CPU_GRID_STAT_NAME);
+    this.cpuTextStat = createTimerStat(this.perfStats, CPU_TEXT_STAT_NAME);
+    this.gpuFrameStat = createTimerStat(this.perfStats, GPU_FRAME_STAT_NAME);
+    this.gpuTextStat = createTimerStat(this.perfStats, GPU_TEXT_STAT_NAME);
+    this.reset();
+
     this.gpuSupported = Boolean(options.enableGpuTimestamps) && device.features.has('timestamp-query');
 
     if (!this.gpuSupported) {
@@ -151,10 +111,45 @@ export class FrameTelemetry {
   }
 
   destroy(): void {
+    this.perfStats.reset();
+
     for (const slot of this.gpuSlots) {
       slot.querySet.destroy();
       slot.resultBuffer.destroy();
     }
+  }
+
+  startCpuDraw(): void {
+    this.cpuDrawStat.timeStart();
+  }
+
+  endCpuDraw(): void {
+    this.cpuDrawStat.timeEnd();
+  }
+
+  startCpuFrame(): void {
+    this.cpuFrameStat.timeStart();
+  }
+
+  endCpuFrame(): void {
+    this.cpuFrameStat.timeEnd();
+    this.cpuFrameMaxMs = Math.max(this.cpuFrameMaxMs, this.cpuFrameStat.lastTiming);
+  }
+
+  startCpuGrid(): void {
+    this.cpuGridStat.timeStart();
+  }
+
+  endCpuGrid(): void {
+    this.cpuGridStat.timeEnd();
+  }
+
+  startCpuText(): void {
+    this.cpuTextStat.timeStart();
+  }
+
+  endCpuText(): void {
+    this.cpuTextStat.timeEnd();
   }
 
   async flushGpuSamples(): Promise<void> {
@@ -203,53 +198,36 @@ export class FrameTelemetry {
   }
 
   getSnapshot(): FrameTelemetrySnapshot {
-    const cpuFrame = this.cpuFrame.getSummary();
-    const cpuGrid = this.cpuGrid.getSummary();
-    const cpuText = this.cpuText.getSummary();
-    const cpuDraw = this.cpuDraw.getSummary();
-    const gpuFrame = this.gpuFrame.getSummary();
-    const gpuText = this.gpuText.getSummary();
+    const resourceTable = luma.stats.get(LUMA_RESOURCE_STATS_ID).getTable();
 
     return {
-      cpuDrawAvgMs: cpuDraw.averageMs,
-      cpuFrameAvgMs: cpuFrame.averageMs,
-      cpuFrameMaxMs: cpuFrame.maxMs,
-      cpuFrameSamples: cpuFrame.sampleCount,
-      cpuGridAvgMs: cpuGrid.averageMs,
-      cpuTextAvgMs: cpuText.averageMs,
+      bufferMemoryBytes: getTableCount(resourceTable, 'Buffer Memory'),
+      buffersActive: getTableCount(resourceTable, 'Buffers Active'),
+      cpuDrawAvgMs: this.cpuDrawStat.getAverageTime(),
+      cpuFrameAvgMs: this.cpuFrameStat.getAverageTime(),
+      cpuFrameMaxMs: this.cpuFrameMaxMs,
+      cpuFrameSamples: this.cpuFrameStat.samples,
+      cpuGridAvgMs: this.cpuGridStat.getAverageTime(),
+      cpuTextAvgMs: this.cpuTextStat.getAverageTime(),
       gpuError: this.gpuError,
-      gpuFrameAvgMs: gpuFrame.sampleCount > 0 ? gpuFrame.averageMs : null,
-      gpuFrameMaxMs: gpuFrame.sampleCount > 0 ? gpuFrame.maxMs : null,
-      gpuFrameSamples: gpuFrame.sampleCount,
-      gpuTextAvgMs: gpuText.sampleCount > 0 ? gpuText.averageMs : null,
-      gpuTextMaxMs: gpuText.sampleCount > 0 ? gpuText.maxMs : null,
+      gpuFrameAvgMs: this.gpuFrameStat.samples > 0 ? this.gpuFrameStat.getAverageTime() : null,
+      gpuFrameMaxMs: this.gpuFrameStat.samples > 0 ? this.gpuFrameMaxMs : null,
+      gpuFrameSamples: this.gpuFrameStat.samples,
+      gpuMemoryBytes: getTableCount(resourceTable, 'GPU Memory'),
       gpuSupported: this.gpuSupported,
+      gpuTextAvgMs: this.gpuTextStat.samples > 0 ? this.gpuTextStat.getAverageTime() : null,
+      gpuTextMaxMs: this.gpuTextStat.samples > 0 ? this.gpuTextMaxMs : null,
+      resourcesActive: getTableCount(resourceTable, 'Resources Active'),
+      textureMemoryBytes: getTableCount(resourceTable, 'Texture Memory'),
+      texturesActive: getTableCount(resourceTable, 'Textures Active'),
     };
   }
 
-  recordCpuDraw(valueMs: number): void {
-    this.cpuDraw.push(valueMs);
-  }
-
-  recordCpuFrame(valueMs: number): void {
-    this.cpuFrame.push(valueMs);
-  }
-
-  recordCpuGrid(valueMs: number): void {
-    this.cpuGrid.push(valueMs);
-  }
-
-  recordCpuText(valueMs: number): void {
-    this.cpuText.push(valueMs);
-  }
-
   reset(): void {
-    this.cpuDraw.reset();
-    this.cpuFrame.reset();
-    this.cpuGrid.reset();
-    this.cpuText.reset();
-    this.gpuFrame.reset();
-    this.gpuText.reset();
+    this.perfStats.reset();
+    this.cpuFrameMaxMs = 0;
+    this.gpuFrameMaxMs = 0;
+    this.gpuTextMaxMs = 0;
     this.gpuError = null;
   }
 
@@ -295,11 +273,13 @@ export class FrameTelemetry {
             : mainPassDurationMs + textDurationMs;
 
         if (frameDurationMs !== null) {
-          this.gpuFrame.push(frameDurationMs);
+          this.gpuFrameStat.addTime(frameDurationMs);
+          this.gpuFrameMaxMs = Math.max(this.gpuFrameMaxMs, frameDurationMs);
         }
 
         if (textDurationMs !== null) {
-          this.gpuText.push(textDurationMs);
+          this.gpuTextStat.addTime(textDurationMs);
+          this.gpuTextMaxMs = Math.max(this.gpuTextMaxMs, textDurationMs);
         }
       })
       .catch((error: unknown) => {
@@ -309,6 +289,10 @@ export class FrameTelemetry {
         slot.pendingRead = null;
       });
   }
+}
+
+function createTimerStat(stats: ReturnType<typeof luma.stats.get>, name: string): TimerStat {
+  return stats.get(name, 'time').setSampleSize(1);
 }
 
 function getGpuQueryDurationMs(
@@ -324,4 +308,11 @@ function getGpuQueryDurationMs(
   }
 
   return Number(end - start) / 1_000_000;
+}
+
+function getTableCount(
+  table: ReturnType<ReturnType<typeof luma.stats.get>['getTable']>,
+  key: string,
+): number {
+  return table[key]?.count ?? 0;
 }

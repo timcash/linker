@@ -10,8 +10,10 @@ import {
   clickControl,
   getCameraQueryState,
   getCameraState,
+  getLineState,
   getTextState,
   openRoute,
+  pressNavigationKey,
   resetCamera,
   waitForBrowserUpdate,
   waitForCameraLabel,
@@ -110,12 +112,59 @@ export async function runCameraControlsStep(
   assert.equal(afterPanDown.column, 2, 'Down should stay on the same column.');
   assert.equal(afterPanDown.row, 2, 'Down should advance the row.');
   assert.ok(afterPanDown.centerY < afterPanRight.centerY, 'Down should move the camera center lower.');
+  const lineAfterPanDown = await getLineState(context.page);
+  assert.ok(
+    lineAfterPanDown.lineHighlightedInputLinkCount > 0,
+    'Selecting 2:2:1 should brighten visible input links for that label.',
+  );
+  assert.ok(
+    lineAfterPanDown.lineHighlightedOutputLinkCount > 0,
+    'Selecting 2:2:1 should brighten visible output links for that label.',
+  );
+  assert.ok(
+    lineAfterPanDown.lineDimmedLinkCount > 0,
+    'Selecting 2:2:1 should continue dimming unrelated visible links.',
+  );
   assertCameraQueryClose(
     await getCameraQueryState(context.page),
     {label: '2:2:1', centerX: null, centerY: null, zoom: null},
     'Down should keep the focused label synchronized in the URL.',
   );
 
+  await clickControl(context.page, 'pan-down');
+  await waitForCameraLabel(context.page, '2:3:1');
+  await clickControl(context.page, 'pan-down');
+  await waitForCameraLabel(context.page, '2:4:1');
+
+  const afterNoLinkSelection = await getCameraState(context.page);
+  assert.equal(afterNoLinkSelection.label, '2:4:1', 'Down should continue moving through labels in the same column.');
+  assert.equal(afterNoLinkSelection.column, 2, 'Selecting a no-link label should stay on column 2.');
+  assert.equal(afterNoLinkSelection.row, 4, 'Selecting a no-link label should reach row 4.');
+  const lineAfterNoLinkSelection = await getLineState(context.page);
+  assert.ok(
+    lineAfterNoLinkSelection.lineVisibleLinkCount > 0,
+    'Selecting 2:4:1 should still keep the network visible in the viewport.',
+  );
+  assert.equal(
+    lineAfterNoLinkSelection.lineHighlightedInputLinkCount,
+    0,
+    'Selecting 2:4:1 should not highlight any input links when that label has none.',
+  );
+  assert.equal(
+    lineAfterNoLinkSelection.lineHighlightedOutputLinkCount,
+    0,
+    'Selecting 2:4:1 should not highlight any output links when that label has none.',
+  );
+  assert.equal(
+    lineAfterNoLinkSelection.lineDimmedLinkCount,
+    lineAfterNoLinkSelection.lineVisibleLinkCount,
+    'Selecting 2:4:1 should dim every visible link when the label has no input or output links.',
+  );
+
+  await clickControl(context.page, 'pan-up');
+  await waitForCameraLabel(context.page, '2:3:1');
+  await clickControl(context.page, 'pan-up');
+  await waitForCameraLabel(context.page, '2:2:1');
   await clickControl(context.page, 'pan-up');
   await waitForCameraLabel(context.page, '2:1:1');
 
@@ -143,6 +192,41 @@ export async function runCameraControlsStep(
     {label: null, centerX: null, centerY: null, zoom: null},
     'Left should clear the label query param when it returns to the default label.',
   );
+
+  await pressNavigationKey(context.page, 'ArrowRight');
+  await waitForCameraLabel(context.page, '2:1:1');
+
+  const afterKeyboardRight = await getCameraState(context.page);
+  assert.equal(afterKeyboardRight.label, '2:1:1', 'ArrowRight should move to the next column on the same row.');
+  assert.equal(afterKeyboardRight.column, 2, 'ArrowRight should advance the column.');
+  assert.equal(afterKeyboardRight.row, 1, 'ArrowRight should stay on the same row.');
+
+  await pressNavigationKey(context.page, 'ArrowDown');
+  await waitForCameraLabel(context.page, '2:2:1');
+
+  const afterKeyboardDown = await getCameraState(context.page);
+  assert.equal(afterKeyboardDown.label, '2:2:1', 'ArrowDown should move to the next row on the same column.');
+  assert.equal(afterKeyboardDown.column, 2, 'ArrowDown should stay on the same column.');
+  assert.equal(afterKeyboardDown.row, 2, 'ArrowDown should advance the row.');
+
+  await pressNavigationKey(context.page, 'ArrowUp', {shift: true});
+  await waitForCameraLabel(context.page, '2:2:2');
+
+  const afterShiftArrowUp = await getCameraState(context.page);
+  assert.equal(afterShiftArrowUp.label, '2:2:2', 'Shift+ArrowUp should zoom into the next layer.');
+  assert.equal(afterShiftArrowUp.layer, 2, 'Shift+ArrowUp should advance the layer.');
+  assertCameraQueryClose(
+    await getCameraQueryState(context.page),
+    {label: '2:2:2', centerX: null, centerY: null, zoom: null},
+    'Shift+ArrowUp should synchronize the focused label in the URL.',
+  );
+
+  await pressNavigationKey(context.page, 'ArrowDown', {shift: true});
+  await waitForCameraLabel(context.page, '2:2:1');
+
+  const afterShiftArrowDown = await getCameraState(context.page);
+  assert.equal(afterShiftArrowDown.label, '2:2:1', 'Shift+ArrowDown should zoom back to the prior layer.');
+  assert.equal(afterShiftArrowDown.layer, 1, 'Shift+ArrowDown should return to layer 1.');
 
   await resetCamera(context.page);
 

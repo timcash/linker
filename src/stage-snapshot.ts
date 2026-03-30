@@ -111,6 +111,9 @@ export function createStageSnapshot(input: {
       layoutStrategy: activeLayoutStrategy,
       layoutStrategyLabel,
       lineCurveFingerprint: lineStats?.curveFingerprint ?? '0:0:0:0:0:0:0',
+      lineDimmedLinkCount: String(lineStats?.lineDimmedLinkCount ?? 0),
+      lineHighlightedInputLinkCount: String(lineStats?.lineHighlightedInputLinkCount ?? 0),
+      lineHighlightedOutputLinkCount: String(lineStats?.lineHighlightedOutputLinkCount ?? 0),
       lineLinkCount: String(lineLinkCount),
       lineStrategy: activeLineStrategy,
       lineStrategyLabel,
@@ -122,6 +125,8 @@ export function createStageSnapshot(input: {
       perfCpuFrameSamples: String(perf?.cpuFrameSamples ?? 0),
       perfCpuGridAvgMs: perf ? perf.cpuGridAvgMs.toFixed(3) : '0.000',
       perfCpuTextAvgMs: perf ? perf.cpuTextAvgMs.toFixed(3) : '0.000',
+      perfBuffersActive: String(perf?.buffersActive ?? 0),
+      perfBufferMemoryBytes: String(perf?.bufferMemoryBytes ?? 0),
       perfGpuError: perf?.gpuError ?? '',
       perfGpuFrameAvgMs:
         !gpuTimingEnabled
@@ -130,6 +135,7 @@ export function createStageSnapshot(input: {
           ? 'unsupported'
           : perf.gpuFrameAvgMs.toFixed(3),
       perfGpuFrameSamples: String(perf?.gpuFrameSamples ?? 0),
+      perfGpuMemoryBytes: String(perf?.gpuMemoryBytes ?? 0),
       perfGpuSupported: String(perf?.gpuSupported ?? false),
       perfGpuTextAvgMs:
         !gpuTimingEnabled
@@ -137,6 +143,9 @@ export function createStageSnapshot(input: {
           : perf?.gpuTextAvgMs === null || perf?.gpuTextAvgMs === undefined
           ? 'unsupported'
           : perf.gpuTextAvgMs.toFixed(3),
+      perfResourcesActive: String(perf?.resourcesActive ?? 0),
+      perfTexturesActive: String(perf?.texturesActive ?? 0),
+      perfTextureMemoryBytes: String(perf?.textureMemoryBytes ?? 0),
       strategyPanelMode,
       textBytesUploadedPerFrame: String(bytesUploadedPerFrame),
       textGlyphCount: String(glyphCount),
@@ -158,6 +167,7 @@ export function createStageSnapshot(input: {
         ? `glyphs ${visibleGlyphCount} visible / ${glyphCount} total`
         : 'glyphs 0 visible / 0 total',
       `vertices ${submittedTotalVertexCount}`,
+      perf ? formatMemorySummary(perf) : null,
       perf ? formatPerfSummary(perf, gpuTimingEnabled) : 'cpu 0.00 ms / gpu pending',
     ].filter(Boolean).join('  |  '),
   };
@@ -188,8 +198,29 @@ function formatPerfSummary(perf: FrameTelemetrySnapshot, gpuTimingEnabled: boole
   return `cpu ${cpuFrame} frame / ${cpuText} text / ${gpuSummary}`;
 }
 
+function formatMemorySummary(perf: FrameTelemetrySnapshot): string {
+  return [
+    `mem ${formatBytes(perf.gpuMemoryBytes)} gpu`,
+    `${formatBytes(perf.bufferMemoryBytes)} buf`,
+    `${formatBytes(perf.textureMemoryBytes)} tex`,
+    `${perf.resourcesActive} res`,
+  ].join(' / ');
+}
+
 function formatMs(value: number): string {
   return `${value.toFixed(2)} ms`;
+}
+
+function formatBytes(value: number): string {
+  if (value >= 1024 * 1024) {
+    return `${(value / (1024 * 1024)).toFixed(2)} MB`;
+  }
+
+  if (value >= 1024) {
+    return `${(value / 1024).toFixed(1)} KB`;
+  }
+
+  return `${Math.round(value)} B`;
 }
 
 function formatSpacing(value: number): string {

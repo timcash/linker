@@ -67,6 +67,14 @@ export async function runLineStrategiesStep(
     'The default line strategy should draw visible network links at zoom 0.',
   );
   assert.ok(
+    defaultLineState.lineHighlightedOutputLinkCount > 0,
+    'The selected demo label should brighten at least one visible output link.',
+  );
+  assert.ok(
+    defaultLineState.lineDimmedLinkCount > 0,
+    'The selected demo label should dim unrelated visible links.',
+  );
+  assert.ok(
     defaultLineState.submittedVertexCount > 0,
     'The default line strategy should submit visible line vertices.',
   );
@@ -100,6 +108,10 @@ export async function runLineStrategiesStep(
     assert.ok(
       lineState.submittedVertexCount > 0,
       `${lineStrategy} should continue submitting line vertices.`,
+    );
+    assert.ok(
+      lineState.lineHighlightedOutputLinkCount > 0,
+      `${lineStrategy} should keep visible output links highlighted for the selected label.`,
     );
     fingerprints.set(lineStrategy, lineState.curveFingerprint);
   }

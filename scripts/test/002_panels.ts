@@ -11,6 +11,7 @@ type ReadyUiState = {
   cameraBottomGap: number;
   cameraPanelVisible: boolean;
   cameraRightGap: number;
+  labelEditPanelVisible: boolean;
   layoutStrategyButtonModes: string[];
   layoutStrategyPanelVisible: boolean;
   lineStrategyButtonModes: string[];
@@ -36,6 +37,7 @@ export async function runPanelsStep(context: BrowserTestContext): Promise<void> 
     const message = document.querySelector('[data-testid="app-message"]');
     const cameraPanel = document.querySelector('[data-testid="camera-panel"]');
     const renderPanel = document.querySelector('[data-testid="render-panel"]');
+    const labelEditPanel = document.querySelector('[data-testid="label-edit-panel"]');
     const layoutStrategyPanel = document.querySelector('[data-testid="layout-strategy-panel"]');
     const lineStrategyPanel = document.querySelector('[data-testid="line-strategy-panel"]');
     const strategyModePanel = document.querySelector('[data-testid="strategy-mode-panel"]');
@@ -71,6 +73,10 @@ export async function runPanelsStep(context: BrowserTestContext): Promise<void> 
         window.getComputedStyle(strategyModePanel).display !== 'none',
       renderPanelVisible:
         renderPanel instanceof HTMLElement && window.getComputedStyle(renderPanel).display !== 'none',
+      labelEditPanelVisible:
+        labelEditPanel instanceof HTMLElement &&
+        !labelEditPanel.hidden &&
+        window.getComputedStyle(labelEditPanel).display !== 'none',
       layoutStrategyPanelVisible:
         layoutStrategyPanel instanceof HTMLElement &&
         !layoutStrategyPanel.hidden &&
@@ -113,6 +119,7 @@ export async function runPanelsStep(context: BrowserTestContext): Promise<void> 
   assert.equal(readyUiState.strategyModePanelVisible, true, 'Strategy view panel should be visible.');
   assert.equal(readyUiState.renderPanelVisible, true, 'Render panel should be visible.');
   assert.equal(readyUiState.textStrategyPanelVisible, true, 'Text strategy panel should be visible.');
+  assert.equal(readyUiState.labelEditPanelVisible, false, 'Label edit panel should be hidden by default.');
   assert.equal(readyUiState.lineStrategyPanelVisible, false, 'Line strategy panel should be hidden by default.');
   assert.equal(readyUiState.layoutStrategyPanelVisible, false, 'Layout strategy panel should be hidden by default.');
   assert.equal(readyUiState.strategyPanelLabelText, 'Text Strategy', 'Render panel should default to the text strategy label.');
@@ -133,8 +140,8 @@ export async function runPanelsStep(context: BrowserTestContext): Promise<void> 
   );
   assert.deepEqual(
     readyUiState.strategyModeButtonModes,
-    ['text', 'line', 'layout'],
-    'Strategy view panel should expose text, line, and layout toggles.',
+    ['text', 'line', 'layout', 'label-edit'],
+    'Strategy view panel should expose text, line, layout, and label edit toggles.',
   );
   assert.ok(
     readyUiState.statusLeftGap >= 0 && readyUiState.statusLeftGap <= 32,

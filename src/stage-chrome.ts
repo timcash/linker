@@ -5,6 +5,10 @@ import {TEXT_STRATEGY_OPTIONS} from './text/types';
 export type StageChromeElements = {
   cameraPanel: HTMLElement;
   canvas: HTMLCanvasElement;
+  labelInputField: HTMLInputElement;
+  labelInputForm: HTMLFormElement;
+  labelInputHint: HTMLParagraphElement;
+  labelInputSubmitButton: HTMLButtonElement;
   launchBanner: HTMLDivElement;
   renderPanel: HTMLElement;
   selectionBox: HTMLDivElement;
@@ -60,6 +64,7 @@ export function createStageChrome(root: HTMLElement): StageChromeElements {
     <button type="button" class="control-button" data-strategy-panel-mode="text" aria-pressed="false">Text Strategy</button>
     <button type="button" class="control-button" data-strategy-panel-mode="line" aria-pressed="false">Line Strategy</button>
     <button type="button" class="control-button" data-strategy-panel-mode="layout" aria-pressed="false">Layout Strategy</button>
+    <button type="button" class="control-button" data-strategy-panel-mode="label-edit" aria-pressed="false">Label Edit</button>
   `;
 
   const launchBanner = document.createElement('div');
@@ -95,7 +100,31 @@ export function createStageChrome(root: HTMLElement): StageChromeElements {
     <div class="control-row" data-testid="layout-strategy-panel" hidden>
       ${layoutStrategyButtonsMarkup}
     </div>
+    <div class="control-stack" data-testid="label-edit-panel" hidden>
+      <p class="panel-hint" data-testid="label-input-hint">Focused label 1:1:1</p>
+      <form class="label-edit-form" data-testid="label-input-form">
+        <input
+          type="text"
+          class="label-input-field"
+          data-testid="label-input-field"
+          aria-label="Label text"
+          autocomplete="off"
+          spellcheck="false"
+        />
+        <button type="submit" class="control-button" data-testid="label-input-submit">Submit</button>
+      </form>
+    </div>
   `;
+
+  const labelInputField = renderPanel.querySelector<HTMLInputElement>('[data-testid="label-input-field"]');
+  const labelInputForm = renderPanel.querySelector<HTMLFormElement>('[data-testid="label-input-form"]');
+  const labelInputHint = renderPanel.querySelector<HTMLParagraphElement>('[data-testid="label-input-hint"]');
+  const labelInputSubmitButton =
+    renderPanel.querySelector<HTMLButtonElement>('[data-testid="label-input-submit"]');
+
+  if (!labelInputField || !labelInputForm || !labelInputHint || !labelInputSubmitButton) {
+    throw new Error('Failed to build the label edit controls.');
+  }
 
   const cameraPanel = document.createElement('aside');
   cameraPanel.className = 'camera-panel';
@@ -120,6 +149,10 @@ export function createStageChrome(root: HTMLElement): StageChromeElements {
   return {
     cameraPanel,
     canvas,
+    labelInputField,
+    labelInputForm,
+    labelInputHint,
+    labelInputSubmitButton,
     launchBanner,
     renderPanel,
     selectionBox,

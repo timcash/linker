@@ -7,7 +7,7 @@ import type {LineStrategy} from './line/types';
 import type {LabelSetKind} from './stage-config';
 import type {TextStrategy} from './text/types';
 
-export type StrategyPanelMode = 'text' | 'line' | 'layout';
+export type StrategyPanelMode = 'text' | 'line' | 'layout' | 'label-edit';
 
 export function syncStageStrategyPanels(input: {
   labelSetKind: LabelSetKind;
@@ -42,7 +42,7 @@ export function syncStageStrategyPanels(input: {
 
   for (const button of strategyModePanel.querySelectorAll<HTMLButtonElement>('[data-strategy-panel-mode]')) {
     const mode = button.dataset.strategyPanelMode;
-    const requiresDemoLabelSet = mode === 'layout' || mode === 'line';
+    const requiresDemoLabelSet = mode === 'layout' || mode === 'line' || mode === 'label-edit';
 
     button.disabled = requiresDemoLabelSet && labelSetKind !== 'demo';
     setButtonPressed(button, mode === strategyPanelMode);
@@ -57,6 +57,7 @@ export function syncStageStrategyPanels(input: {
   const textStrategyPanel = renderPanel.querySelector<HTMLElement>('[data-testid="text-strategy-panel"]');
   const lineStrategyPanel = renderPanel.querySelector<HTMLElement>('[data-testid="line-strategy-panel"]');
   const layoutStrategyPanel = renderPanel.querySelector<HTMLElement>('[data-testid="layout-strategy-panel"]');
+  const labelEditPanel = renderPanel.querySelector<HTMLElement>('[data-testid="label-edit-panel"]');
 
   if (textStrategyPanel) {
     textStrategyPanel.hidden = strategyPanelMode !== 'text';
@@ -68,6 +69,10 @@ export function syncStageStrategyPanels(input: {
 
   if (layoutStrategyPanel) {
     layoutStrategyPanel.hidden = strategyPanelMode !== 'layout' || labelSetKind !== 'demo';
+  }
+
+  if (labelEditPanel) {
+    labelEditPanel.hidden = strategyPanelMode !== 'label-edit' || labelSetKind !== 'demo';
   }
 }
 
@@ -105,6 +110,8 @@ function setButtonPressed(button: HTMLButtonElement, isActive: boolean): void {
 
 function getStrategyPanelLabel(mode: StrategyPanelMode): string {
   switch (mode) {
+    case 'label-edit':
+      return 'Label Edit';
     case 'layout':
       return 'Layout Strategy';
     case 'line':

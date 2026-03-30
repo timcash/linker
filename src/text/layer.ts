@@ -562,6 +562,8 @@ const VIEWPORT_BOUNDS_PADDING = 8;
 const VIEWPORT_UNIFORM_BYTES = 4 * Float32Array.BYTES_PER_ELEMENT;
 const CAMERA_UNIFORM_BYTES = 8 * Float32Array.BYTES_PER_ELEMENT;
 const SDF_UNIFORM_BYTES = 4 * Float32Array.BYTES_PER_ELEMENT;
+const FOCUSED_LABEL_ALPHA_SCALE = 1.18;
+const FOCUSED_LABEL_BRIGHTEN = 0.26;
 
 type PreparedTextResources = {
   atlas: GlyphAtlas;
@@ -634,7 +636,8 @@ type TextLayerStrategy = {
   destroy: () => void;
   draw: (renderPass: Parameters<Model['draw']>[0]) => void;
   getStats: () => TextLayerStats;
-  update: (camera: Camera2D, viewport: ViewportSize) => void;
+  supportsSelectedLabelEmphasis: boolean;
+  update: (camera: Camera2D, viewport: ViewportSize, activeLabelKey: string | null) => void;
 };
 
 export class TextLayer {
@@ -703,8 +706,12 @@ export class TextLayer {
     this.strategy = this.createStrategy(this.mode);
   }
 
-  update(camera: Camera2D, viewport: ViewportSize): void {
-    this.strategy.update(camera, viewport);
+  update(camera: Camera2D, viewport: ViewportSize, activeLabelKey: string | null = null): void {
+    const renderableActiveLabelKey = this.strategy.supportsSelectedLabelEmphasis
+      ? activeLabelKey
+      : null;
+
+    this.strategy.update(camera, viewport, renderableActiveLabelKey);
   }
 
   getLabelScreenBounds(
@@ -781,6 +788,7 @@ export class TextLayer {
 }
 
 class BaselineTextStrategy implements TextLayerStrategy {
+  readonly supportsSelectedLabelEmphasis = true;
   private readonly model: Model;
   private positionBuffer;
   private uvBuffer;
@@ -839,12 +847,8 @@ class BaselineTextStrategy implements TextLayerStrategy {
     return this.stats;
   }
 
-  update(camera: Camera2D, viewport: ViewportSize): void {
-    const visibility = analyzeGlyphVisibility(this.resources, camera, viewport, {
-      collectVisibleGlyphs: true,
-      collectVisibleGlyphIndices: false,
-      useChunkedSearch: false,
-    });
+  update(camera: Camera2D, viewport: ViewportSize, activeLabelKey: string | null): void {
+    const visibility = analyzeVisibleGlyphs(this.resources, camera, viewport, activeLabelKey);
     const mesh = buildTextMesh(visibility.visibleGlyphs, viewport);
 
     if (mesh.vertexCount > this.capacity) {
@@ -912,6 +916,7 @@ class BaselineTextStrategy implements TextLayerStrategy {
 }
 
 class InstancedTextStrategy implements TextLayerStrategy {
+  readonly supportsSelectedLabelEmphasis = true;
   private readonly unitPositionBuffer;
   private readonly unitUvBuffer;
   private readonly viewportBuffer;
@@ -1005,12 +1010,8 @@ class InstancedTextStrategy implements TextLayerStrategy {
     return this.stats;
   }
 
-  update(camera: Camera2D, viewport: ViewportSize): void {
-    const visibility = analyzeGlyphVisibility(this.resources, camera, viewport, {
-      collectVisibleGlyphs: true,
-      collectVisibleGlyphIndices: false,
-      useChunkedSearch: false,
-    });
+  update(camera: Camera2D, viewport: ViewportSize, activeLabelKey: string | null): void {
+    const visibility = analyzeVisibleGlyphs(this.resources, camera, viewport, activeLabelKey);
     const instances = buildVisibleGlyphInstances(visibility.visibleGlyphs);
 
     if (instances.instanceCount > this.capacity) {
@@ -1093,6 +1094,7 @@ class InstancedTextStrategy implements TextLayerStrategy {
 }
 
 class PackedTextStrategy implements TextLayerStrategy {
+  readonly supportsSelectedLabelEmphasis = false;
   private readonly unitPositionBuffer;
   private readonly unitUvBuffer;
   private readonly anchorBuffer;
@@ -1161,8 +1163,10 @@ class PackedTextStrategy implements TextLayerStrategy {
     return this.stats;
   }
 
-  update(camera: Camera2D, viewport: ViewportSize): void {
+  update(camera: Camera2D, viewport: ViewportSize, _activeLabelKey: string | null): void {
+    void _activeLabelKey;
     const visibility = analyzeGlyphVisibility(this.resources, camera, viewport, {
+      activeLabelKey: null,
       collectVisibleGlyphs: false,
       collectVisibleGlyphIndices: false,
       useChunkedSearch: false,
@@ -1221,6 +1225,7 @@ class PackedTextStrategy implements TextLayerStrategy {
 }
 
 class VisibleIndexTextStrategy implements TextLayerStrategy {
+  readonly supportsSelectedLabelEmphasis = false;
   private readonly cameraBuffer;
   private readonly sdfBuffer;
   private readonly glyphRecordBuffer;
@@ -1296,8 +1301,10 @@ class VisibleIndexTextStrategy implements TextLayerStrategy {
     return this.stats;
   }
 
-  update(camera: Camera2D, viewport: ViewportSize): void {
+  update(camera: Camera2D, viewport: ViewportSize, _activeLabelKey: string | null): void {
+    void _activeLabelKey;
     const visibility = analyzeGlyphVisibility(this.resources, camera, viewport, {
+      activeLabelKey: null,
       collectVisibleGlyphs: false,
       collectVisibleGlyphIndices: true,
       useChunkedSearch: this.useChunkedSearch,
@@ -1377,6 +1384,7 @@ class VisibleIndexTextStrategy implements TextLayerStrategy {
 }
 
 type VisibilityOptions = {
+  activeLabelKey: string | null;
   collectVisibleGlyphIndices: boolean;
   collectVisibleGlyphs: boolean;
   useChunkedSearch: boolean;
@@ -1462,7 +1470,7 @@ function analyzeGlyphVisibility(
       visibleChunkCount += 1;
 
       for (const glyphIndex of chunk.glyphIndices) {
-        const visibility = inspectGlyph(glyphs[glyphIndex], camera, viewport);
+        const visibility = inspectGlyph(glyphs[glyphIndex], camera, viewport, options.activeLabelKey);
 
         if (!visibility) {
           continue;
@@ -1483,7 +1491,7 @@ function analyzeGlyphVisibility(
   } else {
     for (let glyphIndex = 0; glyphIndex < glyphs.length; glyphIndex += 1) {
       const glyph = glyphs[glyphIndex];
-      const visibility = inspectGlyph(glyph, camera, viewport);
+      const visibility = inspectGlyph(glyph, camera, viewport, options.activeLabelKey);
 
       if (!visibility) {
         continue;
@@ -1510,6 +1518,20 @@ function analyzeGlyphVisibility(
     visibleLabelCount: visibleLabelIds.size,
     visibleLabels,
   };
+}
+
+function analyzeVisibleGlyphs(
+  resources: PreparedTextResources,
+  camera: Camera2D,
+  viewport: ViewportSize,
+  activeLabelKey: string | null,
+): GlyphVisibilityResult {
+  return analyzeGlyphVisibility(resources, camera, viewport, {
+    activeLabelKey,
+    collectVisibleGlyphs: true,
+    collectVisibleGlyphIndices: false,
+    useChunkedSearch: false,
+  });
 }
 
 function buildGlyphChunkIndex(glyphs: GlyphPlacement[]): GlyphChunkIndex {
@@ -1770,6 +1792,7 @@ function inspectGlyph(
   glyph: GlyphPlacement,
   camera: Camera2D,
   viewport: ViewportSize,
+  activeLabelKey: string | null,
 ): VisibleGlyph | null {
   if (!isZoomVisible(camera.zoom, glyph.zoomLevel, glyph.zoomRange)) {
     return null;
@@ -1797,7 +1820,7 @@ function inspectGlyph(
   return {
     ...glyph,
     bottom,
-    color: [glyph.color[0], glyph.color[1], glyph.color[2], glyph.color[3] * zoomOpacity],
+    color: getRenderedGlyphColor(glyph, zoomOpacity, activeLabelKey),
     height,
     left,
     right,
@@ -1820,6 +1843,29 @@ function recordVisibleLabel(
   if (visibleLabels.length < MAX_VISIBLE_LABEL_SAMPLE) {
     visibleLabels.push(glyph.labelText);
   }
+}
+
+function getRenderedGlyphColor(
+  glyph: GlyphPlacement,
+  zoomOpacity: number,
+  activeLabelKey: string | null,
+): GlyphPlacement['color'] {
+  const alpha = glyph.color[3] * zoomOpacity;
+
+  if (glyph.labelKey !== activeLabelKey) {
+    return [glyph.color[0], glyph.color[1], glyph.color[2], alpha];
+  }
+
+  return [
+    mixColorChannel(glyph.color[0], FOCUSED_LABEL_BRIGHTEN),
+    mixColorChannel(glyph.color[1], FOCUSED_LABEL_BRIGHTEN),
+    mixColorChannel(glyph.color[2], FOCUSED_LABEL_BRIGHTEN),
+    Math.min(1, alpha * FOCUSED_LABEL_ALPHA_SCALE),
+  ];
+}
+
+function mixColorChannel(value: number, brightenAmount: number): number {
+  return value + (1 - value) * brightenAmount;
 }
 
 function screenToClip(x: number, y: number, viewport: ViewportSize): {x: number; y: number} {

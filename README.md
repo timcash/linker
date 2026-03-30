@@ -117,13 +117,61 @@ Use these terms consistently:
 - `text-strategy`: label-rendering path; the active product surface exposes `sdf-instanced`
 - `line-strategy`: selectable network-edge path; the current project exposes `rounded-step-links`
 - `network-mapping-strategy`: umbrella term for the selectable text and line strategy controls
+- `label-edit view`: strategy view for editing the focused label text
 - `demo layer-count`: authored number of zoomable label layers per cell, default `12`, min `2`, max `12`
 - `zoom window`: authored reveal band defined by `zoomLevel` and `zoomRange`
 - `link-point`: top-center, right-center, bottom-center, or left-center label anchor retained on each link
+- `input link`: network link that terminates at a selected label's cell
+- `output link`: network link that originates from a selected label's cell
 - `label-focused camera`: demo camera mode where the active camera target is always a label key
   like `2:3:1`, while numeric zoom can continue past the deepest explicit layer
 - `camera-trace`: deterministic camera action sequence used by tests and benchmarks
 - `frame-telemetry`: CPU, GPU, upload, visibility, and submission metrics for the current frame
+
+### Naming Rules
+
+These rules are the canonical extension points for future work. If existing code still uses older
+names, treat those as migration debt and do not copy them into new APIs.
+
+- Reserve `input` and `output` for network-link direction only.
+- For label text editing surfaces, use `label-edit`, `label-text`, `editedLabelText`,
+  `label-edit-panel`, or similar names. Do not use bare `input` for a strategy mode, panel mode,
+  or state field that edits label text.
+- In shared link-set types, prefer `output*` and `input*` names for both endpoint ownership and
+  endpoint geometry.
+- The preferred shared link type names are:
+  - `outputLabelKey`
+  - `inputLabelKey`
+  - `outputLocation`
+  - `inputLocation`
+  - `outputLinkPoint`
+  - `inputLinkPoint`
+- Avoid `start`, `end`, `source`, and `target` in shared app-level link models when they describe
+  the same directional relationship as `output` and `input`.
+- Short-lived local math variables may still use neutral names like `start`, `end`, `from`, or
+  `to` inside a small helper, but those names should not escape into exported types.
+- `root` and `child` are allowed terms only for the demo zoom-band anchors and the authored demo
+  node pair.
+- `sourceColumnIndex` and `sourceRowIndex` are allowed only for demo authoring coordinates before
+  layout. After layout and navigation, use `column`, `row`, `layer`, `input`, and `output`.
+
+### Selected-Label Rules
+
+- There must be one shared selected-label treatment for the `text-layer` and one shared selected-link
+  treatment for the `line-layer`.
+- Strategy-specific classes should differ in upload and draw mechanics, not in selected-label
+  semantics, visibility rules, zoom-window math, or dataset naming.
+- The active selected label key should enter text visibility analysis once, before any
+  strategy-specific buffer building.
+- If a text strategy cannot reproduce the canonical selected-label treatment, it should stay
+  internal or unavailable until it can.
+
+### Migration Targets
+
+These are the intended cleanups when touching the relevant code again:
+
+- Keep selected-label brightness, link dimming, and input/output link emphasis in shared helpers
+  rather than duplicating those rules across every render strategy.
 
 ## Scene Model
 
@@ -135,6 +183,7 @@ Default demo scene:
 - default `line-strategy`: `rounded-step-links`
 - shape: `12 x 12 x 12` labels
 - label format: `column:row:layer`
+- each label tracks its `inputLinkKeys` and `outputLinkKeys`
 - layer `1` uses the root anchor
 - layer `2` uses the child anchor
 - layers `3+` reuse the child anchor and increase `zoomLevel` one step per layer

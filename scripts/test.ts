@@ -14,6 +14,7 @@ import {runCameraControlsStep} from './test/004_camera_controls';
 import {runInputGuardsStep} from './test/005_input_guards';
 import {runLineStrategiesStep} from './test/006_line_strategies';
 import {runDeepZoomCubeStep} from './test/007_deep_zoom_cube';
+import {runLabelEditStep} from './test/008_label_edit_strategy';
 import {runExtendedMatrixStep} from './test/900_extended_matrix';
 import {
   getLineState,
@@ -44,6 +45,7 @@ try {
   const readyResult = await runReadyStep(context);
 
   if (readyResult !== null) {
+    await runLabelEditStep(context);
     await runPanelsStep(context);
     await runLineStrategiesStep(context);
     await runLayoutStrategiesStep(context);

@@ -138,10 +138,14 @@ class LumaStageController {
   private readonly camera = new Camera2D();
   private readonly actionButtons: HTMLButtonElement[] = [];
   private readonly layoutStrategyButtons: HTMLButtonElement[] = [];
+  private readonly labelTextOverrides = new Map<string, string>();
   private readonly lineStrategyButtons: HTMLButtonElement[] = [];
   private readonly strategyModeButtons: HTMLButtonElement[] = [];
   private readonly textStrategyButtons: HTMLButtonElement[] = [];
   private destroyed = false;
+  private labelInputPending = false;
+  private labelInputSyncedKey: string | null = null;
+  private labelInputSyncedText = '';
   private layoutStrategy: LayoutStrategy;
   private lastFrameAt = 0;
   private lineStrategy: LineStrategy;
@@ -235,6 +239,7 @@ class LumaStageController {
       this.installInteractionHandlers();
       this.updateStrategyPanels();
       this.updateCameraPanel();
+      this.syncLabelInputPanel({forceValue: true});
       this.chrome.launchBanner.hidden = true;
       this.chrome.canvas.hidden = false;
       this.setState('ready');
@@ -282,29 +287,31 @@ class LumaStageController {
 
     try {
       const frameStartedAt = performance.now();
+      this.frameTelemetry?.startCpuFrame();
       const deltaMs = this.lastFrameAt === 0 ? 16.67 : frameStartedAt - this.lastFrameAt;
       this.lastFrameAt = frameStartedAt;
       this.camera.advance(deltaMs);
       const viewport = this.getViewportSize();
+      const activeLabelNode = getActiveLabelFocusedCameraNode(this.labelFocusedCamera);
 
-      const gridStartedAt = performance.now();
+      this.frameTelemetry?.startCpuGrid();
       this.gridLayer.update(this.camera, viewport);
-      const gridCpuMs = performance.now() - gridStartedAt;
+      this.frameTelemetry?.endCpuGrid();
 
-      this.lineLayer.update(this.camera, viewport);
+      this.lineLayer.update(this.camera, viewport, activeLabelNode?.label ?? null);
 
-      const textStartedAt = performance.now();
-      this.textLayer.update(this.camera, viewport);
-      const textCpuMs = performance.now() - textStartedAt;
+      this.frameTelemetry?.startCpuText();
+      this.textLayer.update(this.camera, viewport, activeLabelNode?.key ?? null);
+      this.frameTelemetry?.endCpuText();
       syncStageSelectionBox({
-        activeLabelNode: getActiveLabelFocusedCameraNode(this.labelFocusedCamera),
+        activeLabelNode,
         camera: this.camera,
         selectionBox: this.chrome.selectionBox,
         textLayer: this.textLayer,
         viewport,
       });
 
-      const drawStartedAt = performance.now();
+      this.frameTelemetry?.startCpuDraw();
       const framebuffer = this.device
         .getDefaultCanvasContext()
         .getCurrentFramebuffer({depthStencilFormat: false});
@@ -343,12 +350,8 @@ class LumaStageController {
       this.frameTelemetry?.resolveGpuPass();
       this.device.submit();
       this.frameTelemetry?.submitGpuPass();
-      const drawCpuMs = performance.now() - drawStartedAt;
-
-      this.frameTelemetry?.recordCpuGrid(gridCpuMs);
-      this.frameTelemetry?.recordCpuText(textCpuMs);
-      this.frameTelemetry?.recordCpuDraw(drawCpuMs);
-      this.frameTelemetry?.recordCpuFrame(performance.now() - frameStartedAt);
+      this.frameTelemetry?.endCpuDraw();
+      this.frameTelemetry?.endCpuFrame();
       this.updateStatus();
 
       this.frameId = window.requestAnimationFrame(this.render);
@@ -371,6 +374,7 @@ class LumaStageController {
     }
 
     this.updateCameraPanel();
+    this.syncLabelInputPanel();
   }
 
   private applyDemoControlAction(action: ControlAction): boolean {
@@ -483,6 +487,7 @@ class LumaStageController {
     );
     this.syncActiveDemoCameraView({immediate: true});
     this.updateCameraPanel();
+    this.syncLabelInputPanel({forceValue: true});
 
     if (syncQuery) {
       this.syncCurrentCameraQueryParams();
@@ -571,6 +576,29 @@ class LumaStageController {
     }
   };
 
+  private handleWindowKeyDown = (event: KeyboardEvent): void => {
+    if (
+      event.defaultPrevented ||
+      this.destroyed ||
+      document.body.dataset.benchmarkState === 'running' ||
+      isEditableKeyboardTarget(event.target) ||
+      event.altKey ||
+      event.ctrlKey ||
+      event.metaKey
+    ) {
+      return;
+    }
+
+    const action = getKeyboardControlAction(event);
+
+    if (!action) {
+      return;
+    }
+
+    event.preventDefault();
+    this.applyControlAction(action);
+  };
+
   private handleStrategyButtonClick = (event: MouseEvent): void => {
     const button = event.currentTarget;
 
@@ -622,9 +650,36 @@ class LumaStageController {
 
     const mode = button.dataset.strategyPanelMode;
 
-    if (mode === 'text' || mode === 'line' || mode === 'layout') {
+    if (isStrategyPanelMode(mode)) {
       this.setStrategyPanelMode(mode);
     }
+  };
+
+  private handleLabelInputFormSubmit = (event: SubmitEvent): void => {
+    event.preventDefault();
+
+    if (
+      this.labelInputPending ||
+      this.config.labelSetKind !== 'demo' ||
+      document.body.dataset.benchmarkState === 'running'
+    ) {
+      return;
+    }
+
+    const activeNode = getActiveLabelFocusedCameraNode(this.labelFocusedCamera);
+
+    if (!activeNode) {
+      return;
+    }
+
+    const nextText = this.chrome.labelInputField.value;
+
+    if (nextText === activeNode.label.text) {
+      this.syncLabelInputPanel({forceValue: true});
+      return;
+    }
+
+    void this.updateFocusedLabelText(activeNode.key, nextText);
   };
 
   private setTextStrategy(mode: TextStrategy): void {
@@ -639,6 +694,7 @@ class LumaStageController {
     document.body.dataset.benchmarkState = this.config.benchmarkEnabled ? 'pending' : 'disabled';
     syncStageTextStrategyQueryParam(mode);
     this.updateStrategyPanels();
+    this.syncLabelInputPanel();
     this.updateStatus();
   }
 
@@ -659,6 +715,7 @@ class LumaStageController {
     document.body.dataset.benchmarkState = this.config.benchmarkEnabled ? 'pending' : 'disabled';
     syncStageLineStrategyQueryParam(mode);
     this.updateStrategyPanels();
+    this.syncLabelInputPanel();
     this.updateStatus();
   }
 
@@ -674,7 +731,7 @@ class LumaStageController {
     }
 
     this.layoutStrategy = mode;
-    this.scene = createDemoStageScene(mode, this.config.demoLayerCount);
+    this.scene = this.applyLabelTextOverrides(createDemoStageScene(mode, this.config.demoLayerCount));
     this.lineLayer.setLinks(this.scene.links);
     this.textLayer.setLayoutLabels(this.scene.labels);
     this.relayoutDemoCamera(this.labelFocusedCamera?.activeLabelKey ?? null, true);
@@ -683,11 +740,12 @@ class LumaStageController {
     document.body.dataset.benchmarkState = this.config.benchmarkEnabled ? 'pending' : 'disabled';
     syncStageLayoutStrategyQueryParam(mode);
     this.updateStrategyPanels();
+    this.syncLabelInputPanel({forceValue: true});
     this.updateStatus();
   }
 
   private setStrategyPanelMode(mode: StrategyPanelMode): void {
-    if ((mode === 'layout' || mode === 'line') && this.config.labelSetKind !== 'demo') {
+    if ((mode === 'layout' || mode === 'line' || mode === 'label-edit') && this.config.labelSetKind !== 'demo') {
       return;
     }
 
@@ -697,6 +755,7 @@ class LumaStageController {
 
     this.strategyPanelMode = mode;
     this.updateStrategyPanels();
+    this.syncLabelInputPanel();
     this.updateStatus();
   }
 
@@ -710,6 +769,7 @@ class LumaStageController {
       strategyPanelMode: this.strategyPanelMode,
       textStrategy: this.textStrategy,
     });
+    this.syncLabelInputPanel();
   }
 
   private updateCameraPanel(): void {
@@ -756,6 +816,9 @@ class LumaStageController {
     for (const button of this.strategyModeButtons) {
       button.addEventListener('click', this.handleStrategyModeButtonClick);
     }
+
+    this.chrome.labelInputForm.addEventListener('submit', this.handleLabelInputFormSubmit);
+    window.addEventListener('keydown', this.handleWindowKeyDown);
   }
 
   private removeInteractionHandlers(): void {
@@ -779,6 +842,9 @@ class LumaStageController {
       button.removeEventListener('click', this.handleStrategyModeButtonClick);
     }
 
+    this.chrome.labelInputForm.removeEventListener('submit', this.handleLabelInputFormSubmit);
+    window.removeEventListener('keydown', this.handleWindowKeyDown);
+
     this.actionButtons.length = 0;
     this.textStrategyButtons.length = 0;
     this.lineStrategyButtons.length = 0;
@@ -794,6 +860,7 @@ class LumaStageController {
     this.benchmarkStarted = true;
     document.body.dataset.benchmarkState = 'running';
     document.body.dataset.benchmarkError = '';
+    this.syncLabelInputPanel();
     console.info(
       `Starting benchmark strategy=${this.textStrategy} labelSet=${this.config.labelSetKind} labels=${this.scene.labels.length}`,
     );
@@ -826,6 +893,7 @@ class LumaStageController {
 
       document.body.dataset.benchmarkError = '';
       document.body.dataset.benchmarkState = 'complete';
+      this.syncLabelInputPanel();
       this.updateStatus();
       console.info(`Benchmark complete ${JSON.stringify(this.benchmarkSummary)}`);
     } catch (error) {
@@ -833,7 +901,137 @@ class LumaStageController {
 
       document.body.dataset.benchmarkError = message;
       document.body.dataset.benchmarkState = 'error';
+      this.syncLabelInputPanel();
       console.error(`Benchmark failed: ${message}`);
+    }
+  }
+
+  private getEditableLabelHint(): string {
+    const activeNode = getActiveLabelFocusedCameraNode(this.labelFocusedCamera);
+
+    if (this.config.labelSetKind !== 'demo') {
+      return 'Input editing is available for the focused demo label.';
+    }
+
+    if (!activeNode) {
+      return 'No focused demo label is available.';
+    }
+
+    return `Focused label ${activeNode.key}`;
+  }
+
+  private findSceneLabelByKey(labelKey: string): StageScene['labels'][number] | null {
+    return this.scene.labels.find((label) => label.navigation?.key === labelKey) ?? null;
+  }
+
+  private applyLabelTextOverrides(scene: StageScene): StageScene {
+    for (const label of scene.labels) {
+      const labelKey = label.navigation?.key;
+
+      if (!labelKey) {
+        continue;
+      }
+
+      const overrideText = this.labelTextOverrides.get(labelKey);
+
+      if (overrideText !== undefined) {
+        label.text = overrideText;
+      }
+    }
+
+    return scene;
+  }
+
+  private syncLabelInputPanel(options?: {forceValue?: boolean}): void {
+    const activeNode = getActiveLabelFocusedCameraNode(this.labelFocusedCamera);
+    const input = this.chrome.labelInputField;
+    const submitButton = this.chrome.labelInputSubmitButton;
+    const shouldDisableInput =
+      this.labelInputPending ||
+      this.config.labelSetKind !== 'demo' ||
+      activeNode === null ||
+      document.body.dataset.benchmarkState === 'running';
+    const shouldSyncValue =
+      Boolean(options?.forceValue) ||
+      activeNode?.key !== this.labelInputSyncedKey ||
+      (!shouldDisableInput &&
+        document.activeElement !== input &&
+        activeNode !== null &&
+        activeNode.label.text !== this.labelInputSyncedText);
+
+    this.chrome.labelInputHint.textContent = this.getEditableLabelHint();
+    input.disabled = shouldDisableInput;
+    submitButton.disabled = shouldDisableInput;
+
+    if (!activeNode) {
+      this.labelInputSyncedKey = null;
+      this.labelInputSyncedText = '';
+
+      if (shouldSyncValue || options?.forceValue) {
+        input.value = '';
+      }
+
+      return;
+    }
+
+    if (shouldSyncValue) {
+      input.value = activeNode.label.text;
+    }
+
+    this.labelInputSyncedKey = activeNode.key;
+    this.labelInputSyncedText = activeNode.label.text;
+  }
+
+  private async updateFocusedLabelText(labelKey: string, nextText: string): Promise<void> {
+    if (!this.device || !this.textLayer) {
+      return;
+    }
+
+    const label = this.findSceneLabelByKey(labelKey);
+
+    if (!label || label.text === nextText) {
+      this.syncLabelInputPanel({forceValue: true});
+      return;
+    }
+
+    const previousText = label.text;
+    const previousLayer = this.textLayer;
+    let nextLayer: TextLayer | null = null;
+
+    this.labelInputPending = true;
+    label.text = nextText;
+    this.syncLabelInputPanel();
+
+    try {
+      nextLayer = new TextLayer(this.device, this.scene.labels, this.textStrategy);
+      await nextLayer.ready;
+
+      if (this.destroyed) {
+        nextLayer.destroy();
+        return;
+      }
+
+      this.textLayer = nextLayer;
+      previousLayer.destroy();
+      if (label.navigation?.key && nextText !== label.navigation.key) {
+        this.labelTextOverrides.set(label.navigation.key, nextText);
+      } else if (label.navigation?.key) {
+        this.labelTextOverrides.delete(label.navigation.key);
+      }
+      this.benchmarkSummary = null;
+      document.body.dataset.benchmarkError = '';
+      document.body.dataset.benchmarkState = this.config.benchmarkEnabled ? 'pending' : 'disabled';
+      this.syncLabelInputPanel({forceValue: true});
+      this.updateStatus();
+    } catch (error) {
+      label.text = previousText;
+      nextLayer?.destroy();
+      console.error('Failed to rebuild the text layer after editing a label.', error);
+      this.syncLabelInputPanel({forceValue: true});
+      this.updateStatus();
+    } finally {
+      this.labelInputPending = false;
+      this.syncLabelInputPanel({forceValue: true});
     }
   }
 
@@ -976,6 +1174,34 @@ function isLineStrategy(value: string | null | undefined): value is LineStrategy
 
 function isLayoutStrategy(value: string | null | undefined): value is LayoutStrategy {
   return LAYOUT_STRATEGIES.includes(value as LayoutStrategy);
+}
+
+function isStrategyPanelMode(value: string | null | undefined): value is StrategyPanelMode {
+  return value === 'text' || value === 'line' || value === 'layout' || value === 'label-edit';
+}
+
+function getKeyboardControlAction(event: KeyboardEvent): ControlAction | null {
+  switch (event.key) {
+    case 'ArrowLeft':
+      return 'pan-left';
+    case 'ArrowRight':
+      return 'pan-right';
+    case 'ArrowUp':
+      return event.shiftKey ? 'zoom-in' : 'pan-up';
+    case 'ArrowDown':
+      return event.shiftKey ? 'zoom-out' : 'pan-down';
+    default:
+      return null;
+  }
+}
+
+function isEditableKeyboardTarget(target: EventTarget | null): boolean {
+  return (
+    target instanceof HTMLInputElement ||
+    target instanceof HTMLTextAreaElement ||
+    target instanceof HTMLSelectElement ||
+    (target instanceof HTMLElement && target.isContentEditable)
+  );
 }
 
 function isControlAction(value: string | null | undefined): value is ControlAction {
