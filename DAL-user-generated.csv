@@ -1,0 +1,13 @@
+label,type,ip,mac,hostname,parentId,metadata.OS,metadata.VLAN,metadata.CIDR,metadata.Role
+ISP Link,Internet Connection,,,,,,,,,WAN Uplink
+Perimeter FW,Firewall,,,fw-perimeter,ISP Link,,,,Perimeter Security
+Core Router,Router,,,rtr-core,Perimeter FW,,,,Backbone
+Core Switch,Switch,,00:1A:2B:3C:4D:01,sw-core,Core Router,,,,Network Core
+DMZ,Subnet,10.0.1.0/24,,,,Core Switch,,10,10.0.1.0/24,Public-Facing
+Internal,Subnet,10.0.2.0/24,,,,Core Switch,,20,10.0.2.0/24,Operations
+Web Server,Server,10.0.1.5,00:1A:2B:3C:4D:10,web01,DMZ,Ubuntu 22.04,,,HTTP/HTTPS Host
+Mail Server,Server,10.0.1.10,00:1A:2B:3C:4D:11,mail01,DMZ,Ubuntu 22.04,,,SMTP Gateway
+DB Server,Server,10.0.2.10,00:1A:2B:3C:4D:20,db01,Internal,RHEL 9,,,PostgreSQL
+File Server,Server,10.0.2.20,00:1A:2B:3C:4D:21,fs01,Internal,Windows Server 2022,,,SMB Share
+Admin Workstation,Workstation,10.0.2.50,00:1A:2B:3C:4D:30,admin01,Internal,Windows 11,,,SOC Analyst
+PLC Controller,Operational Technology,10.0.2.100,,plc-01,Internal,,,,Floor Control

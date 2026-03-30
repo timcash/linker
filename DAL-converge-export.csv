@@ -1,0 +1,13 @@
+id,label,type,ip,mac,hostname,parentId,metadata.CIDR,metadata.OS,metadata.Role,metadata.VLAN
+d91fd79b-7a4f-4896-9e58-13fe963a6f7d,ISP Link,Internet Connection,,,,,,,,
+5c3eba80-a8e1-4010-89a7-980e0c99c66d,Perimeter FW,Firewall,,,fw-perimeter,d91fd79b-7a4f-4896-9e58-13fe963a6f7d,,,Perimeter Security,
+c6b06670-85e4-4608-b722-85abd81e5314,Core Router,Router,,,rtr-core,5c3eba80-a8e1-4010-89a7-980e0c99c66d,,,Backbone,
+dfa08907-46db-4389-b69a-3b716a29ef1b,Core Switch,Switch,,00:1A:2B:3C:4D:01,sw-core,c6b06670-85e4-4608-b722-85abd81e5314,,,Network Core,
+8d2fb2bf-a952-4f02-894b-0b16c3996710,DMZ,Subnet,10.0.1.0/24,,,dfa08907-46db-4389-b69a-3b716a29ef1b,10,Core Switch,10.0.1.0/24,
+1babb4c3-3874-421b-bc05-d9a2df40ad4f,Internal,Subnet,10.0.2.0/24,,,dfa08907-46db-4389-b69a-3b716a29ef1b,20,Core Switch,10.0.2.0/24,
+44e98aac-2737-43d0-95ba-8ba667a66868,Web Server,Server,10.0.1.5,00:1A:2B:3C:4D:10,web01,8d2fb2bf-a952-4f02-894b-0b16c3996710,,Ubuntu 22.04,HTTP/HTTPS Host,
+2bf63e48-27d7-4dd4-845d-39fba062aa2f,Mail Server,Server,10.0.1.10,00:1A:2B:3C:4D:11,mail01,8d2fb2bf-a952-4f02-894b-0b16c3996710,,Ubuntu 22.04,SMTP Gateway,
+4c95df5f-d3ca-4bf2-8154-76c608a24570,DB Server,Server,10.0.2.10,00:1A:2B:3C:4D:20,db01,1babb4c3-3874-421b-bc05-d9a2df40ad4f,,RHEL 9,PostgreSQL,
+e2f8bd79-4185-4cbb-8337-a05c0a3bbb98,File Server,Server,10.0.2.20,00:1A:2B:3C:4D:21,fs01,1babb4c3-3874-421b-bc05-d9a2df40ad4f,,Windows Server 2022,SMB Share,
+86ed143c-b414-48a1-9d46-7002cc530c04,Admin Workstation,Workstation,10.0.2.50,00:1A:2B:3C:4D:30,admin01,1babb4c3-3874-421b-bc05-d9a2df40ad4f,,Windows 11,SOC Analyst,
+24624b46-7adc-45ae-9a86-d62855b949f2,PLC Controller,Operational Technology,10.0.2.100,,plc-01,1babb4c3-3874-421b-bc05-d9a2df40ad4f,,,Floor Control,
