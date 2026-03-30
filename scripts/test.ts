@@ -1,4 +1,3 @@
-import assert from 'node:assert/strict';
 import {appendFile, readFile, writeFile} from 'node:fs/promises';
 import path from 'node:path';
 
@@ -6,22 +5,13 @@ import {
   createBrowserTestContext,
   destroyBrowserTestContext,
   runStaticUnitTests,
-} from './test/000_setup';
-import {runReadyStep} from './test/001_ready';
-import {runPanelsStep} from './test/002_panels';
-import {runLayoutStrategiesStep} from './test/003_layout_strategies';
-import {runCameraControlsStep} from './test/004_camera_controls';
-import {runInputGuardsStep} from './test/005_input_guards';
-import {runLineStrategiesStep} from './test/006_line_strategies';
-import {runDeepZoomCubeStep} from './test/007_deep_zoom_cube';
-import {runLabelEditStep} from './test/008_label_edit_strategy';
-import {runExtendedMatrixStep} from './test/900_extended_matrix';
+} from './test/setup';
+import {runBootFlow} from './test/boot';
+import {runSessionRestoreFlow} from './test/session-restore';
+import {runViewModesFlow} from './test/view-modes';
+import {runWorkplaneLifecycleFlow} from './test/workplane-lifecycle';
 import {
-  getLineState,
   INTENTIONAL_ERROR_MARKER,
-  RUN_EXTENDED_TEST_MATRIX,
-  openRoute,
-  switchLineStrategy,
   type BrowserTestContext,
 } from './test/shared';
 
@@ -42,22 +32,12 @@ try {
   runStaticUnitTests();
   context = await createBrowserTestContext();
 
-  const readyResult = await runReadyStep(context);
+  const bootResult = await runBootFlow(context);
 
-  if (readyResult !== null) {
-    await runLabelEditStep(context);
-    await runPanelsStep(context);
-    await runLineStrategiesStep(context);
-    await runLayoutStrategiesStep(context);
-    await runCameraControlsStep(context);
-    await runDeepZoomCubeStep(context);
-    await runInputGuardsStep(context);
-
-    if (RUN_EXTENDED_TEST_MATRIX) {
-      await runExtendedMatrixStep(context);
-    }
-
-    await prepareBrowserArtifactState(context);
+  if (bootResult !== null) {
+    await runWorkplaneLifecycleFlow(context);
+    await runSessionRestoreFlow(context);
+    await runViewModesFlow(context);
   }
 
   if (context) {
@@ -107,29 +87,4 @@ function getUnexpectedErrorLogLines(contents: string): string[] {
 
 function formatErrorLogLine(message: string): string {
   return message.replace(/\r?\n/g, '\\n');
-}
-
-async function prepareBrowserArtifactState(context: BrowserTestContext): Promise<void> {
-  const artifactUrl = new URL(context.url);
-  artifactUrl.searchParams.set('lineStrategy', 'rounded-step-links');
-
-  await openRoute(context.page, artifactUrl.toString());
-  await switchLineStrategy(context.page, 'rounded-step-links');
-
-  const lineState = await getLineState(context.page);
-  assert.equal(
-    lineState.lineStrategy,
-    'rounded-step-links',
-    'Final browser screenshot should use rounded-step-links.',
-  );
-  assert.equal(
-    lineState.strategyPanelMode,
-    'line',
-    'Final browser screenshot should keep the line strategy panel visible.',
-  );
-
-  context.addBrowserLog(
-    'artifact.state',
-    `Prepared browser.png with lineStrategy=${lineState.lineStrategy} and strategyPanelMode=${lineState.strategyPanelMode}.`,
-  );
 }

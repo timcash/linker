@@ -3,7 +3,12 @@ import type {GridStats} from './grid';
 import type {LabelFocusedCameraAvailability} from './label-focused-camera';
 import type {LineLayerStats, LineStrategy} from './line/types';
 import type {FrameTelemetrySnapshot} from './perf';
+import {
+  type StageMode,
+  type WorkplaneId,
+} from './plane-stack';
 import type {StageScene} from './scene-model';
+import type {StackCameraState} from './stack-camera';
 import type {LabelSetKind} from './stage-config';
 import type {LabelNavigationNode} from './label-navigation';
 import type {TextLayerStats, TextStrategy} from './text/types';
@@ -21,6 +26,8 @@ export type StageSnapshot = {
 
 export function createStageSnapshot(input: {
   activeLabelNode: LabelNavigationNode | null;
+  activeWorkplaneIndex: number;
+  activeWorkplaneId: WorkplaneId;
   cameraAnimating: boolean;
   cameraAvailability: LabelFocusedCameraAvailability;
   cameraSnapshot: CameraSnapshot;
@@ -31,14 +38,20 @@ export function createStageSnapshot(input: {
   layoutStrategy: LayoutStrategy;
   lineStats: LineLayerStats | null | undefined;
   lineStrategy: LineStrategy;
+  planeCount: number;
   perf: FrameTelemetrySnapshot | null | undefined;
   scene: StageScene;
+  stackCamera: StackCameraState;
+  stageMode: StageMode;
   strategyPanelMode: string;
   textStats: TextLayerStats | null | undefined;
   textStrategy: TextStrategy;
+  workplaneCanDelete: boolean;
 }): StageSnapshot {
   const {
     activeLabelNode,
+    activeWorkplaneIndex,
+    activeWorkplaneId,
     cameraAnimating,
     cameraAvailability,
     cameraSnapshot,
@@ -49,11 +62,15 @@ export function createStageSnapshot(input: {
     layoutStrategy,
     lineStats,
     lineStrategy,
+    planeCount,
     perf,
     scene,
+    stackCamera,
+    stageMode,
     strategyPanelMode,
     textStats,
     textStrategy,
+    workplaneCanDelete,
   } = input;
   const lineCount = gridStats ? gridStats.verticalLines + gridStats.horizontalLines : 0;
   const minorSpacing = gridStats ? formatSpacing(gridStats.minorSpacing) : 'n/a';
@@ -85,10 +102,13 @@ export function createStageSnapshot(input: {
 
   return {
     bodyDataset: {
+      activeWorkplaneIndex: String(activeWorkplaneIndex),
+      activeWorkplaneId,
       cameraCanMoveDown: String(cameraAvailability.canMoveDown),
       cameraCanMoveLeft: String(cameraAvailability.canMoveLeft),
       cameraCanMoveRight: String(cameraAvailability.canMoveRight),
       cameraCanMoveUp: String(cameraAvailability.canMoveUp),
+      cameraCanReset: String(cameraAvailability.canReset),
       cameraCanZoomIn: String(cameraAvailability.canZoomIn),
       cameraCanZoomOut: String(cameraAvailability.canZoomOut),
       cameraAnimating: String(cameraAnimating),
@@ -143,9 +163,14 @@ export function createStageSnapshot(input: {
           : perf?.gpuTextAvgMs === null || perf?.gpuTextAvgMs === undefined
           ? 'unsupported'
           : perf.gpuTextAvgMs.toFixed(3),
+      planeCount: String(planeCount),
       perfResourcesActive: String(perf?.resourcesActive ?? 0),
       perfTexturesActive: String(perf?.texturesActive ?? 0),
       perfTextureMemoryBytes: String(perf?.textureMemoryBytes ?? 0),
+      stageMode,
+      stackCameraAzimuth: stackCamera.azimuthRadians.toFixed(4),
+      stackCameraDistanceScale: stackCamera.distanceScale.toFixed(4),
+      stackCameraElevation: stackCamera.elevationRadians.toFixed(4),
       strategyPanelMode,
       textBytesUploadedPerFrame: String(bytesUploadedPerFrame),
       textGlyphCount: String(glyphCount),
@@ -158,11 +183,18 @@ export function createStageSnapshot(input: {
       textVisibleGlyphCount: String(visibleGlyphCount),
       textVisibleLabelCount: String(visibleLabelCount),
       textVisibleLabels: visibleLabels,
+      workplaneCanDelete: String(workplaneCanDelete),
     },
     statsText: [
+      stageMode,
+      `workplane ${activeWorkplaneIndex} of ${planeCount} (${activeWorkplaneId})`,
       activeLabelNode ? `label ${activeLabelNode.key}` : null,
-      `center ${cameraSnapshot.centerX.toFixed(2)}, ${cameraSnapshot.centerY.toFixed(2)}`,
-      `zoom ${cameraSnapshot.zoom.toFixed(2)}`,
+      stageMode === '3d-mode'
+        ? `stack-camera azimuth ${formatDegrees(stackCamera.azimuthRadians)}`
+        : `center ${cameraSnapshot.centerX.toFixed(2)}, ${cameraSnapshot.centerY.toFixed(2)}`,
+      stageMode === '3d-mode'
+        ? `elevation ${formatDegrees(stackCamera.elevationRadians)} / distance ${stackCamera.distanceScale.toFixed(2)}`
+        : `zoom ${cameraSnapshot.zoom.toFixed(2)}`,
       textStats
         ? `glyphs ${visibleGlyphCount} visible / ${glyphCount} total`
         : 'glyphs 0 visible / 0 total',
@@ -175,7 +207,9 @@ export function createStageSnapshot(input: {
 
 export function writeStageSnapshot(snapshot: StageSnapshot): void {
   for (const [key, value] of Object.entries(snapshot.bodyDataset)) {
-    document.body.dataset[key] = value;
+    if (document.body.dataset[key] !== value) {
+      document.body.dataset[key] = value;
+    }
   }
 }
 
@@ -229,6 +263,10 @@ function formatSpacing(value: number): string {
   }
 
   return value.toPrecision(2);
+}
+
+function formatDegrees(value: number): string {
+  return `${((value * 180) / Math.PI).toFixed(1)}deg`;
 }
 
 function formatVisibleLabelSample(visibleLabels: string[], visibleLabelCount: number): string {

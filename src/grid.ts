@@ -1,7 +1,8 @@
 import {Buffer, type Device} from '@luma.gl/core';
 import {GPUGeometry, Model} from '@luma.gl/engine';
 
-import {type Camera2D, type ViewportSize} from './camera';
+import {type ViewportSize} from './camera';
+import {type StageProjector} from './projector';
 
 const GRID_SHADER = /* wgsl */ `
 struct VertexInputs {
@@ -53,6 +54,7 @@ export class GridLayer {
   private positionBuffer;
   private colorBuffer;
   private capacity = 0;
+  private projectionFingerprint = '';
   private stats: GridStats = {
     vertexCount: 0,
     minorSpacing: 1,
@@ -91,8 +93,15 @@ export class GridLayer {
     this.model.destroy();
   }
 
-  update(camera: Camera2D, viewport: ViewportSize): void {
-    const mesh = buildGridMesh(camera, viewport);
+  update(projector: StageProjector, viewport: ViewportSize): void {
+    const projectionFingerprint = projector.getProjectionFingerprint(viewport);
+
+    if (projectionFingerprint === this.projectionFingerprint) {
+      return;
+    }
+
+    const mesh = buildGridMesh(projector, viewport);
+    this.projectionFingerprint = projectionFingerprint;
     this.stats = mesh.stats;
 
     if (mesh.vertexCount > this.capacity) {
@@ -153,7 +162,7 @@ export class GridLayer {
   }
 }
 
-function buildGridMesh(camera: Camera2D, viewport: ViewportSize): GridMesh {
+function buildGridMesh(projector: StageProjector, viewport: ViewportSize): GridMesh {
   if (viewport.width <= 0 || viewport.height <= 0) {
     return {
       positions: new Float32Array(),
@@ -169,9 +178,9 @@ function buildGridMesh(camera: Camera2D, viewport: ViewportSize): GridMesh {
     };
   }
 
-  const bounds = camera.getVisibleWorldBounds(viewport);
+  const bounds = projector.getVisibleWorldBounds(viewport);
   const targetSpacingInPixels = 72;
-  const minorSpacing = niceStep(targetSpacingInPixels / camera.pixelsPerWorldUnit);
+  const minorSpacing = niceStep(targetSpacingInPixels / projector.pixelsPerWorldUnit);
   const majorSpacing = minorSpacing * 5;
 
   const positions: number[] = [];
@@ -188,7 +197,7 @@ function buildGridMesh(camera: Camera2D, viewport: ViewportSize): GridMesh {
     const color =
       column === 0 ? AXIS_Y_COLOR : column % 5 === 0 ? MAJOR_COLOR : MINOR_COLOR;
     addLine(
-      camera,
+      projector,
       viewport,
       {x, y: bounds.minY - minorSpacing},
       {x, y: bounds.maxY + minorSpacing},
@@ -207,7 +216,7 @@ function buildGridMesh(camera: Camera2D, viewport: ViewportSize): GridMesh {
     const color =
       row === 0 ? AXIS_X_COLOR : row % 5 === 0 ? MAJOR_COLOR : MINOR_COLOR;
     addLine(
-      camera,
+      projector,
       viewport,
       {x: bounds.minX - minorSpacing, y},
       {x: bounds.maxX + minorSpacing, y},
@@ -233,7 +242,7 @@ function buildGridMesh(camera: Camera2D, viewport: ViewportSize): GridMesh {
 }
 
 function addLine(
-  camera: Camera2D,
+  projector: StageProjector,
   viewport: ViewportSize,
   start: {x: number; y: number},
   end: {x: number; y: number},
@@ -241,8 +250,8 @@ function addLine(
   positions: number[],
   colors: number[],
 ): void {
-  const clipStart = camera.worldToClip(start, viewport);
-  const clipEnd = camera.worldToClip(end, viewport);
+  const clipStart = projector.projectWorldPointToClip(start, viewport);
+  const clipEnd = projector.projectWorldPointToClip(end, viewport);
 
   positions.push(clipStart.x, clipStart.y, clipEnd.x, clipEnd.y);
   colors.push(...color, ...color);

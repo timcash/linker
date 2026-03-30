@@ -19,6 +19,28 @@ export type StageScene = {
   links: LinkDefinition[];
 };
 
+export function cloneStageScene(scene: StageScene): StageScene {
+  return {
+    labelSetPreset: scene.labelSetPreset,
+    labels: scene.labels.map((label) => ({
+      ...label,
+      color: label.color ? [...label.color] : undefined,
+      inputLinkKeys: [...label.inputLinkKeys],
+      location: {...label.location},
+      navigation: label.navigation ? {...label.navigation} : undefined,
+      outputLinkKeys: [...label.outputLinkKeys],
+      planeBasisX: label.planeBasisX ? {...label.planeBasisX} : undefined,
+      planeBasisY: label.planeBasisY ? {...label.planeBasisY} : undefined,
+    })),
+    links: scene.links.map((link) => ({
+      ...link,
+      color: [...link.color],
+      inputLocation: {...link.inputLocation},
+      outputLocation: {...link.outputLocation},
+    })),
+  };
+}
+
 export function createStageScene(options: {
   demoLayerCount: number;
   labelSetKind: LabelSetKind;

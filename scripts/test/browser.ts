@@ -17,6 +17,8 @@ import {
   type LineStrategy,
   type NonReadyResult,
   type ReadyResult,
+  type StageState,
+  type StageRouteState,
   type StrategyPanelMode,
   type TextState,
   type TextStrategy,
@@ -46,6 +48,7 @@ export async function readAppResult(page: Page): Promise<ReadyResult | NonReadyR
           canMoveDown: document.body.dataset.cameraCanMoveDown === 'true',
           canMoveLeft: document.body.dataset.cameraCanMoveLeft === 'true',
           canMoveRight: document.body.dataset.cameraCanMoveRight === 'true',
+          canReset: document.body.dataset.cameraCanReset === 'true',
           canMoveUp: document.body.dataset.cameraCanMoveUp === 'true',
           canZoomIn: document.body.dataset.cameraCanZoomIn === 'true',
           canZoomOut: document.body.dataset.cameraCanZoomOut === 'true',
@@ -60,6 +63,15 @@ export async function readAppResult(page: Page): Promise<ReadyResult | NonReadyR
           lineCount: Number(document.body.dataset.gridLineCount ?? '0'),
           minorSpacing: Number(document.body.dataset.gridMinorSpacing ?? '0'),
           majorSpacing: Number(document.body.dataset.gridMajorSpacing ?? '0'),
+          stackCameraAzimuth: Number(document.body.dataset.stackCameraAzimuth ?? '0'),
+          stackCameraDistanceScale: Number(document.body.dataset.stackCameraDistanceScale ?? '0'),
+          stackCameraElevation: Number(document.body.dataset.stackCameraElevation ?? '0'),
+        },
+        stage: {
+          activeWorkplaneId: document.body.dataset.activeWorkplaneId ?? '',
+          planeCount: Number(document.body.dataset.planeCount ?? '0'),
+          stageMode: document.body.dataset.stageMode ?? '',
+          workplaneCanDelete: document.body.dataset.workplaneCanDelete === 'true',
         },
         text: {
           bytesUploadedPerFrame: Number(document.body.dataset.textBytesUploadedPerFrame ?? '0'),
@@ -93,6 +105,7 @@ export async function getCameraState(page: Page): Promise<CameraState> {
     canMoveDown: document.body.dataset.cameraCanMoveDown === 'true',
     canMoveLeft: document.body.dataset.cameraCanMoveLeft === 'true',
     canMoveRight: document.body.dataset.cameraCanMoveRight === 'true',
+    canReset: document.body.dataset.cameraCanReset === 'true',
     canMoveUp: document.body.dataset.cameraCanMoveUp === 'true',
     canZoomIn: document.body.dataset.cameraCanZoomIn === 'true',
     canZoomOut: document.body.dataset.cameraCanZoomOut === 'true',
@@ -107,6 +120,9 @@ export async function getCameraState(page: Page): Promise<CameraState> {
     lineCount: Number(document.body.dataset.gridLineCount ?? '0'),
     minorSpacing: Number(document.body.dataset.gridMinorSpacing ?? '0'),
     majorSpacing: Number(document.body.dataset.gridMajorSpacing ?? '0'),
+    stackCameraAzimuth: Number(document.body.dataset.stackCameraAzimuth ?? '0'),
+    stackCameraDistanceScale: Number(document.body.dataset.stackCameraDistanceScale ?? '0'),
+    stackCameraElevation: Number(document.body.dataset.stackCameraElevation ?? '0'),
   }));
 }
 
@@ -147,6 +163,27 @@ export async function getTextState(page: Page): Promise<TextState> {
     visibleLabels: document.body.dataset.textVisibleLabels ?? '',
     visibleGlyphCount: Number(document.body.dataset.textVisibleGlyphCount ?? '0'),
   }));
+}
+
+export async function getStageState(page: Page): Promise<StageState> {
+  return page.evaluate(() => ({
+    activeWorkplaneId: document.body.dataset.activeWorkplaneId ?? '',
+    planeCount: Number(document.body.dataset.planeCount ?? '0'),
+    stageMode: document.body.dataset.stageMode ?? '',
+    workplaneCanDelete: document.body.dataset.workplaneCanDelete === 'true',
+  }));
+}
+
+export async function getStageRouteState(page: Page): Promise<StageRouteState> {
+  return page.evaluate(() => {
+    const url = new URL(window.location.href);
+
+    return {
+      sessionToken: url.searchParams.get('session'),
+      stageMode: url.searchParams.get('stageMode'),
+      workplaneId: url.searchParams.get('workplane'),
+    };
+  });
 }
 
 export async function getLineState(page: Page): Promise<LineState> {
@@ -325,6 +362,71 @@ export async function waitForCameraLabel(page: Page, label: string): Promise<voi
   await waitForCameraSettled(page);
 }
 
+export async function waitForStageWorkplane(
+  page: Page,
+  expected: {activeWorkplaneId: string; planeCount?: number},
+): Promise<void> {
+  await page.waitForFunction(
+    ({expectedWorkplaneId, expectedPlaneCount}) => {
+      const activeWorkplaneId = document.body.dataset.activeWorkplaneId ?? '';
+      const planeCount = Number(document.body.dataset.planeCount ?? '0');
+
+      return (
+        activeWorkplaneId === expectedWorkplaneId &&
+        (expectedPlaneCount === null || planeCount === expectedPlaneCount)
+      );
+    },
+    {},
+    {
+      expectedPlaneCount: expected.planeCount ?? null,
+      expectedWorkplaneId: expected.activeWorkplaneId,
+    },
+  );
+  await waitForBrowserUpdate(page);
+}
+
+export async function waitForPersistedStageSession(
+  page: Page,
+  sessionToken: string,
+): Promise<void> {
+  await page.waitForFunction(
+    async (expectedSessionToken) => {
+      if (typeof indexedDB === 'undefined') {
+        return true;
+      }
+
+      const database = await new Promise<IDBDatabase>((resolve, reject) => {
+        const request = indexedDB.open('linker-stage', 1);
+
+        request.addEventListener('success', () => resolve(request.result));
+        request.addEventListener('error', () => {
+          reject(request.error ?? new Error('Failed to open stage-session database.'));
+        });
+      });
+
+      try {
+        const snapshot = await new Promise<unknown>((resolve, reject) => {
+          const transaction = database.transaction('stage-sessions', 'readonly');
+          const store = transaction.objectStore('stage-sessions');
+          const request = store.get(expectedSessionToken);
+
+          request.addEventListener('success', () => resolve(request.result ?? null));
+          request.addEventListener('error', () => {
+            reject(request.error ?? new Error('Failed to read stage-session snapshot.'));
+          });
+        });
+
+        return Boolean(snapshot);
+      } finally {
+        database.close();
+      }
+    },
+    {timeout: 10_000},
+    sessionToken,
+  );
+  await waitForBrowserUpdate(page);
+}
+
 export async function selectToggleValue<TValue extends string>(
   page: Page,
   options: {
@@ -496,6 +598,80 @@ export async function pressNavigationKey(
   await waitForBrowserUpdate(page);
 }
 
+export async function pressPlaneStackKey(
+  page: Page,
+  action:
+    | 'delete-active-workplane'
+    | 'select-next-workplane'
+    | 'select-previous-workplane'
+    | 'spawn-workplane',
+): Promise<void> {
+  await page.evaluate(() => {
+    if (document.activeElement instanceof HTMLElement) {
+      document.activeElement.blur();
+    }
+  });
+
+  switch (action) {
+    case 'delete-active-workplane':
+      await page.keyboard.press('Delete');
+      break;
+    case 'select-next-workplane':
+      await page.keyboard.press('BracketRight');
+      break;
+    case 'select-previous-workplane':
+      await page.keyboard.press('BracketLeft');
+      break;
+    case 'spawn-workplane':
+      await page.keyboard.down('Shift');
+
+      try {
+        await page.keyboard.press('Equal');
+      } finally {
+        await page.keyboard.up('Shift');
+      }
+      break;
+  }
+
+  await waitForBrowserUpdate(page);
+}
+
+export async function pressStageModeKey(page: Page): Promise<void> {
+  await page.evaluate(() => {
+    if (document.activeElement instanceof HTMLElement) {
+      document.activeElement.blur();
+    }
+  });
+  await page.keyboard.press('Slash');
+  await waitForBrowserUpdate(page);
+}
+
+export async function dragStackCameraOrbit(
+  page: Page,
+  delta: {x: number; y: number},
+): Promise<void> {
+  const canvas = await page.$('[data-testid="gpu-canvas"]');
+
+  if (!canvas) {
+    throw new Error('Missing GPU canvas for stack-camera orbit test.');
+  }
+
+  const box = await canvas.boundingBox();
+
+  if (!box) {
+    throw new Error('Expected the GPU canvas to have a visible bounding box.');
+  }
+
+  const startX = box.x + box.width * 0.5;
+  const startY = box.y + box.height * 0.5;
+
+  await page.mouse.move(startX, startY);
+  await page.mouse.down();
+  await page.mouse.move(startX + delta.x, startY + delta.y, {steps: 10});
+  await page.mouse.up();
+  await waitForBrowserUpdate(page);
+}
+
 export async function verifyDemoTextStrategyVisibility(
   page: Page,
   textStrategy: TextStrategy,
@@ -527,12 +703,6 @@ export async function verifyDemoTextStrategyVisibility(
     initialText.bytesUploadedPerFrame > 0,
     `${textStrategy} mode should report positive per-frame upload cost while drawing.`,
   );
-  if (textStrategy === 'chunked') {
-    assert.ok(
-      initialText.visibleChunkCount > 0,
-      'Chunked demo mode should report visible chunks.',
-    );
-  }
 
   await clickControl(page, 'zoom-in');
   await waitForCameraLabel(page, '1:1:2');
@@ -585,16 +755,20 @@ export async function waitForAppDatasets(page: Page): Promise<void> {
     }
 
     return Boolean(
-      document.body.dataset.cameraCenterX &&
+      document.body.dataset.activeWorkplaneId &&
+        document.body.dataset.planeCount &&
+        document.body.dataset.cameraCenterX &&
         document.body.dataset.cameraCenterY &&
         document.body.dataset.cameraZoom &&
         document.body.dataset.gridLineCount &&
+        document.body.dataset.stageMode &&
         document.body.dataset.textStrategy &&
         document.body.dataset.textLabelCount &&
         document.body.dataset.textGlyphCount &&
         document.body.dataset.textVisibleLabelCount &&
         document.body.dataset.perfCpuFrameAvgMs &&
-        document.body.dataset.perfCpuTextAvgMs,
+        document.body.dataset.perfCpuTextAvgMs &&
+        document.body.dataset.workplaneCanDelete,
     );
   });
 }

@@ -33,6 +33,7 @@ export type ReadyResult = {
   innerWidth: number;
   innerHeight: number;
   camera: CameraState;
+  stage: StageState;
   text: TextState;
 };
 
@@ -46,6 +47,7 @@ export type CameraState = {
   canMoveDown: boolean;
   canMoveLeft: boolean;
   canMoveRight: boolean;
+  canReset: boolean;
   canMoveUp: boolean;
   canZoomIn: boolean;
   canZoomOut: boolean;
@@ -60,6 +62,9 @@ export type CameraState = {
   lineCount: number;
   minorSpacing: number;
   majorSpacing: number;
+  stackCameraAzimuth: number;
+  stackCameraDistanceScale: number;
+  stackCameraElevation: number;
 };
 
 export type CameraQueryState = {
@@ -67,6 +72,19 @@ export type CameraQueryState = {
   centerX: number | null;
   centerY: number | null;
   zoom: number | null;
+};
+
+export type StageState = {
+  activeWorkplaneId: string;
+  planeCount: number;
+  stageMode: string;
+  workplaneCanDelete: boolean;
+};
+
+export type StageRouteState = {
+  sessionToken: string | null;
+  stageMode: string | null;
+  workplaneId: string | null;
 };
 
 export type StrategyPanelMode = 'text' | 'line' | 'layout' | 'label-edit';
@@ -213,64 +231,7 @@ export const RUN_EXTENDED_TEST_MATRIX = process.env.LINKER_EXTENDED_TEST_MATRIX 
 
 export const BYTE_UPLOAD_RULES: readonly StrategyMetricRule<{
   bytesUploadedPerFrame: number;
-}>[] = [
-  {
-    description: 'upload fewer bytes than',
-    left: 'instanced',
-    operator: '<',
-    readValue: (state) => state.bytesUploadedPerFrame,
-    right: 'baseline',
-  },
-  {
-    description: 'upload fewer bytes than',
-    left: 'visible-index',
-    operator: '<',
-    readValue: (state) => state.bytesUploadedPerFrame,
-    right: 'instanced',
-  },
-  {
-    description: 'upload no more bytes than',
-    left: 'chunked',
-    operator: '<=',
-    readValue: (state) => state.bytesUploadedPerFrame,
-    right: 'visible-index',
-  },
-  {
-    description: 'upload fewer bytes than',
-    left: 'sdf-instanced',
-    operator: '<',
-    readValue: (state) => state.bytesUploadedPerFrame,
-    right: 'baseline',
-  },
-  {
-    description: 'upload at least as many bytes as',
-    left: 'sdf-instanced',
-    operator: '>=',
-    readValue: (state) => state.bytesUploadedPerFrame,
-    right: 'instanced',
-  },
-  {
-    description: 'upload fewer bytes than',
-    left: 'sdf-visible-index',
-    operator: '<',
-    readValue: (state) => state.bytesUploadedPerFrame,
-    right: 'sdf-instanced',
-  },
-  {
-    description: 'upload at least as many bytes as',
-    left: 'sdf-visible-index',
-    operator: '>=',
-    readValue: (state) => state.bytesUploadedPerFrame,
-    right: 'visible-index',
-  },
-  {
-    description: 'upload fewer bytes than',
-    left: 'packed',
-    operator: '<',
-    readValue: (state) => state.bytesUploadedPerFrame,
-    right: 'visible-index',
-  },
-] as const;
+}>[] = [];
 
 export const LARGE_SCALE_CAMERA_TRACE: readonly CameraTraceStep[] = [
   {name: 'zoom-out-visible', control: 'zoom-out', repeat: 1},
@@ -290,9 +251,10 @@ export function getLineStrategies(): LineStrategy[] {
 }
 
 export function isSdfTextStrategy(textStrategy: TextStrategy): boolean {
-  return textStrategy === 'sdf-instanced' || textStrategy === 'sdf-visible-index';
+  return textStrategy === 'sdf-instanced';
 }
 
 export function preservesBaselinePixels(textStrategy: TextStrategy): boolean {
-  return !isSdfTextStrategy(textStrategy);
+  void textStrategy;
+  return false;
 }

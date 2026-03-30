@@ -8,32 +8,18 @@ import puppeteer, {
 } from 'puppeteer';
 import {createServer} from 'vite';
 
+import {runStaticUnitTests} from './unit';
 import {
   ERROR_PING_TOKEN,
   INTENTIONAL_ERROR_MARKER,
   type BrowserTestContext,
-  runCameraUnitTests,
-  runCanonicalLabelIdUnitTests,
-  runLabelNavigationUnitTests,
-  runLinkPointUnitTests,
-  runLayoutStrategyUnitTests,
-  runRoundedStepCurveUnitTests,
-  runZoomBandUnitTests,
-} from './shared';
+} from './types';
 
 const logPath = path.resolve(process.cwd(), 'test.log');
 const errorLogPath = path.resolve(process.cwd(), 'error.log');
 const screenshotPath = path.resolve(process.cwd(), 'browser.png');
 
-export function runStaticUnitTests(): void {
-  runCameraUnitTests();
-  runCanonicalLabelIdUnitTests();
-  runLabelNavigationUnitTests();
-  runLinkPointUnitTests();
-  runLayoutStrategyUnitTests();
-  runRoundedStepCurveUnitTests();
-  runZoomBandUnitTests();
-}
+export {runStaticUnitTests};
 
 export async function createBrowserTestContext(): Promise<BrowserTestContext> {
   if (process.env.LINKER_APPEND_TEST_LOG !== '1') {
@@ -171,6 +157,8 @@ export async function destroyBrowserTestContext(
   context: BrowserTestContext,
 ): Promise<void> {
   try {
+    await ensureScreenshotUsesStackView(context);
+
     const screenshot = await context.page.screenshot({
       fullPage: true,
     });
@@ -179,10 +167,7 @@ export async function destroyBrowserTestContext(
     context.addBrowserLog('artifact', `Saved screenshot to ${context.screenshotPath}`);
   } catch (error) {
     const message = `Failed to save screenshot: ${error instanceof Error ? error.message : String(error)}`;
-    context.addBrowserLog(
-      'artifact.error',
-      message,
-    );
+    context.addBrowserLog('artifact.error', message);
     context.addErrorLog('artifact.error', message);
   }
 
@@ -203,6 +188,21 @@ export async function destroyBrowserTestContext(
 
   await context.browser.close();
   await context.server.close();
+}
+
+async function ensureScreenshotUsesStackView(
+  context: BrowserTestContext,
+): Promise<void> {
+  const currentUrl = new URL(context.page.url() || context.url);
+  currentUrl.searchParams.set('stageMode', '3d-mode');
+
+  await context.page.goto(currentUrl.toString(), {waitUntil: 'load'});
+  await context.page.waitForFunction(
+    () =>
+      document.body.dataset.appState === 'ready' &&
+      (document.body.dataset.stageMode ?? '2d-mode') === '3d-mode',
+  );
+  await context.page.waitForFunction(() => document.body.dataset.cameraAnimating !== 'true');
 }
 
 function formatErrorLogMessage(message: string): string {

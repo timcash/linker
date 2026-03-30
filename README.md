@@ -3,9 +3,10 @@
 ![Linker UI](./browser.png)
 
 Linker is a pure `luma.gl` + WebGPU repo for network mapping. It renders a deterministic demo
-scene, uses `sdf-instanced` as the active production text path, exposes selectable line and layout
-controls, and exports live runtime state through `document.body.dataset` so the browser tests and
-the live app observe the same stage.
+scene, uses `sdf-instanced` as the only production text path, supports a multi-workplane
+`plane-stack` with `2d-mode` and `3d-mode`, exposes selectable line and layout controls, and
+exports live runtime state through `document.body.dataset` so the browser tests and the live app
+observe the same stage.
 
 ## CLI
 
@@ -53,8 +54,6 @@ Linker is route-driven. The fastest way to reproduce a scene is to keep a concre
 
 Main query params:
 
-- `textStrategy=sdf-instanced`: pin the production text path. Other text modes are not part of the
-  active UI surface right now.
 - `lineStrategy=...`: choose the active `line-strategy`.
 - `layoutStrategy=...`: choose the demo layout strategy.
 - `demoLayers=...`: choose the demo layer depth from `2` to `12`. The default route uses `12`.
@@ -66,13 +65,18 @@ Main query params:
 - `labelCount=...`: choose the benchmark label count.
 - `benchmarkFrames=...`: choose the benchmark trace length.
 - `gpuTiming=0`: disable GPU timestamp collection.
+- `session=stk-...`: restore a persisted local `plane-stack` session.
+- `stageMode=3d-mode`: boot directly into `stack view`.
+- `workplane=wp-N`: boot directly into a specific `active workplane` when it exists.
+
+Legacy compatibility:
+
+- `textStrategy=...` is accepted for older URLs, but the app always normalizes to `sdf-instanced`.
 
 Useful URLs:
 
 - Demo scene:
   - `http://127.0.0.1:5173/`
-- Demo with a specific `text-strategy`:
-  - `http://127.0.0.1:5173/?textStrategy=sdf-instanced`
 - Demo with the current line path:
   - `http://127.0.0.1:5173/?lineStrategy=rounded-step-links`
 - Demo with the canonical layout:
@@ -82,8 +86,10 @@ Useful URLs:
 - Demo focused on a specific label:
   - `http://127.0.0.1:5173/?cameraLabel=1:1:1`
   - `http://127.0.0.1:5173/?cameraLabel=3:4:2`
+- Demo in `stack view` on workplane 2:
+  - `http://127.0.0.1:5173/?stageMode=3d-mode&workplane=wp-2`
 - Benchmark route:
-  - `http://127.0.0.1:5173/?labelSet=benchmark&benchmark=1&textStrategy=sdf-instanced&labelCount=4096&benchmarkFrames=8`
+  - `http://127.0.0.1:5173/?labelSet=benchmark&benchmark=1&labelCount=4096&benchmarkFrames=8`
 - Benchmark route with GPU timing disabled:
   - `http://127.0.0.1:5173/?labelSet=benchmark&benchmark=1&gpuTiming=0`
 
@@ -112,9 +118,14 @@ Use these terms consistently:
 - `text-layer`: atlas-backed label rendering layer
 - `line-layer`: curved network-edge rendering layer
 - `grid-layer`: background grid rendered behind text and links
+- `plane-stack`: ordered set of `workplanes` arranged along a depth axis
+- `workplane`: one complete 2D network-mapping surface with its own scene, camera memory, and label edits
+- `active workplane`: the currently selected workplane inside the `plane-stack`
+- `plane-focus view`: the single-workplane presentation used by `2d-mode`
+- `stack view`: the fixed isometric multi-workplane presentation used by `3d-mode`
 - `label-set`: deterministic collection of labels used by the text-layer
 - `link-set`: deterministic collection of network links used by the line-layer
-- `text-strategy`: label-rendering path; the active product surface exposes `sdf-instanced`
+- `text-strategy`: label-rendering path; the active product surface only exposes `sdf-instanced`
 - `line-strategy`: selectable network-edge path; the current project exposes `rounded-step-links`
 - `network-mapping-strategy`: umbrella term for the selectable text and line strategy controls
 - `label-edit view`: strategy view for editing the focused label text
@@ -212,13 +223,18 @@ Benchmark scene:
 Runtime shell:
 
 - [`src/main.ts`](/Users/user/linker/src/main.ts): app entry point
-- [`src/app.ts`](/Users/user/linker/src/app.ts): URL parsing, stage chrome, camera state, render loop, dataset exports
+- [`src/app.ts`](/Users/user/linker/src/app.ts): URL parsing, plane-stack control flow, camera state, render loop, dataset exports
 - [`src/style.css`](/Users/user/linker/src/style.css): fullscreen stage layout and UI styling
 
 Camera and navigation:
 
 - [`src/camera.ts`](/Users/user/linker/src/camera.ts): numeric 2D camera model and world/screen transforms
 - [`src/label-navigation.ts`](/Users/user/linker/src/label-navigation.ts): demo label navigation index for left/right/up/down/zoom/reset behavior
+- [`src/projector.ts`](/Users/user/linker/src/projector.ts): `plane-focus view` and `stack view` projection contracts
+- [`src/plane-stack.ts`](/Users/user/linker/src/plane-stack.ts): `plane-stack` document/session state helpers
+- [`src/stack-view.ts`](/Users/user/linker/src/stack-view.ts): derived `stack view` scene composition
+- [`src/stage-session.ts`](/Users/user/linker/src/stage-session.ts): plane-stack hydration rules
+- [`src/stage-session-store.ts`](/Users/user/linker/src/stage-session-store.ts): IndexedDB session persistence
 
 Scene data:
 
@@ -234,6 +250,7 @@ Render layers:
 - [`src/line/types.ts`](/Users/user/linker/src/line/types.ts): line strategy and link types
 - [`src/line/curves.ts`](/Users/user/linker/src/line/curves.ts): line path sampling
 - [`src/line/layer.ts`](/Users/user/linker/src/line/layer.ts): line-layer draw submission
+- [`src/stack-backplate.ts`](/Users/user/linker/src/stack-backplate.ts): `stack view` workplane backplate rendering
 - [`src/text/types.ts`](/Users/user/linker/src/text/types.ts): label, glyph, and active text-path types
 - [`src/text/atlas.ts`](/Users/user/linker/src/text/atlas.ts): bitmap and SDF atlas generation
 - [`src/text/charset.ts`](/Users/user/linker/src/text/charset.ts): character collection for atlas building
@@ -253,8 +270,9 @@ Telemetry and tests:
 The main runtime flow is:
 
 1. [`src/main.ts`](/Users/user/linker/src/main.ts) creates the root node and starts the app.
-2. [`src/app.ts`](/Users/user/linker/src/app.ts) reads the URL, builds the `luma-stage`, and creates:
-   the `Camera2D`, `GridLayer`, `LineLayer`, and `TextLayer`.
+2. [`src/app.ts`](/Users/user/linker/src/app.ts) reads the URL, builds the `luma-stage`, hydrates the
+   `plane-stack`, and creates the `Camera2D`, `GridLayer`, `LineLayer`, `TextLayer`, and stack-view
+   backplate layer.
 3. For the demo route, [`src/data/labels.ts`](/Users/user/linker/src/data/labels.ts),
    [`src/data/links.ts`](/Users/user/linker/src/data/links.ts), and
    [`src/data/demo-layout.ts`](/Users/user/linker/src/data/demo-layout.ts) build the deterministic

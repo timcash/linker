@@ -1,13 +1,6 @@
 export type RgbaColor = [number, number, number, number];
 
-export type TextStrategy =
-  | 'baseline'
-  | 'instanced'
-  | 'packed'
-  | 'visible-index'
-  | 'chunked'
-  | 'sdf-instanced'
-  | 'sdf-visible-index';
+export type TextStrategy = 'sdf-instanced';
 
 export const TEXT_STRATEGIES = [
   'sdf-instanced',
@@ -24,7 +17,10 @@ export type AtlasMode = 'bitmap' | 'sdf';
 export type LabelLocation = {
   x: number;
   y: number;
+  z?: number;
 };
+
+export type LabelPlaneBasis = LabelLocation;
 
 export type LabelNavigation = {
   key: string;
@@ -36,12 +32,15 @@ export type LabelNavigation = {
 export type LabelBounds = {
   anchorX: number;
   anchorY: number;
+  anchorZ: number;
   labelKey: string;
   labelText: string;
   maxX: number;
   maxY: number;
   minX: number;
   minY: number;
+  planeBasisX?: LabelPlaneBasis;
+  planeBasisY?: LabelPlaneBasis;
   zoomLevel: number;
   zoomRange: number;
 };
@@ -52,6 +51,8 @@ export type LabelDefinition = {
   location: LabelLocation;
   navigation?: LabelNavigation;
   outputLinkKeys: string[];
+  planeBasisX?: LabelPlaneBasis;
+  planeBasisY?: LabelPlaneBasis;
   size: number;
   text: string;
   zoomLevel: number;
@@ -90,6 +91,7 @@ export type GlyphPlacement = {
   labelKey: string;
   anchorX: number;
   anchorY: number;
+  anchorZ: number;
   labelText: string;
   offsetX: number;
   offsetY: number;
@@ -100,6 +102,8 @@ export type GlyphPlacement = {
   u1: number;
   v1: number;
   color: RgbaColor;
+  planeBasisX?: LabelPlaneBasis;
+  planeBasisY?: LabelPlaneBasis;
   zoomLevel: number;
   zoomRange: number;
 };

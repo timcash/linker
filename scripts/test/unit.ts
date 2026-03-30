@@ -1,12 +1,13 @@
 import assert from 'node:assert/strict';
 
-import {Camera2D, type ViewportSize} from '../../src/camera';
+import {Camera2D, type ScreenPoint, type ViewportSize} from '../../src/camera';
 import {
   layoutDemoEntries,
   type DemoLayoutEntry,
   type DemoLayoutNodeBox,
 } from '../../src/data/demo-layout';
 import {getDemoLinks} from '../../src/data/links';
+import {DEMO_LABELS} from '../../src/data/labels';
 import {
   createLabelNavigationIndex,
   getLabelNavigationNode,
@@ -14,7 +15,43 @@ import {
   hasLabelNavigationTarget,
 } from '../../src/label-navigation';
 import {sampleLineCurve} from '../../src/line/curves';
-import {DEMO_LABELS} from '../../src/data/labels';
+import {
+  INITIAL_WORKPLANE_ID,
+  MAX_WORKPLANE_COUNT,
+  canDeleteActiveWorkplane,
+  canSpawnWorkplane,
+  createStageSystemState,
+  deleteActiveWorkplane,
+  getActiveWorkplaneDocument,
+  getActiveWorkplaneView,
+  getPlaneCount,
+  replaceWorkplaneLabelTextOverride,
+  replaceWorkplaneView,
+  selectNextWorkplane,
+  selectPreviousWorkplane,
+  spawnWorkplaneAfterActive,
+  type StageSystemState,
+  type WorkplaneId,
+} from '../../src/plane-stack';
+import {
+  PlaneFocusProjector,
+  StackCameraProjector,
+  type StageProjector,
+} from '../../src/projector';
+import {createStageScene} from '../../src/scene-model';
+import {readStageConfig} from '../../src/stage-config';
+import {hydrateStageBootState} from '../../src/stage-session';
+import {type PersistedStageSessionSnapshot} from '../../src/stage-session-store';
+import {
+  DEFAULT_STACK_CAMERA_STATE,
+  getStackCameraForward,
+  isStackCameraAtDefault,
+  orbitStackCamera,
+  scaleStackCameraDistance,
+} from '../../src/stack-camera';
+import {createStackViewState} from '../../src/stack-view';
+import {projectGlyphQuadToScreen} from '../../src/text/projection';
+import type {GlyphPlacement, LabelDefinition} from '../../src/text/types';
 import {
   MIN_ZOOM_OPACITY,
   createZoomBand,
@@ -27,26 +64,225 @@ import {
 import {
   DEMO_CHILD_LABEL_SIZE,
   DEMO_LABEL_COUNT,
-  DEMO_ROOT_LABEL_COUNT,
   DEMO_ROOT_LABEL_SIZE,
   DEMO_ROWS_PER_SOURCE_COLUMN,
   DEMO_SOURCE_COLUMN_COUNT,
-  FIRST_CHILD_LABEL,
   FIRST_ROOT_LABEL,
-  LAST_DEMO_LABEL,
   LAST_CHILD_LABEL,
-  LAST_ROOT_LABEL,
 } from './types';
 
-export function runCameraUnitTests(): void {
-  const viewport: ViewportSize = {width: 800, height: 600};
-  const camera = new Camera2D();
+export function runStaticUnitTests(): void {
+  runRouteAndSessionTests();
+  runPlaneStackStateTests();
+  runCameraAndProjectionTests();
+  runLayoutAndLinkTests();
+  runNavigationAndZoomTests();
+}
 
+function runRouteAndSessionTests(): void {
+  const defaultConfig = readStageConfig('');
+  assert.equal(defaultConfig.stageMode, '2d-mode', 'Default config should boot in 2d-mode.');
+  assert.equal(defaultConfig.requestedSessionToken, null, 'Default config should not request a persisted session.');
+  assert.equal(defaultConfig.requestedStageMode, null, 'Default config should not request a stage-mode override.');
+  assert.equal(defaultConfig.requestedWorkplaneId, null, 'Default config should not request a workplane override.');
+
+  const explicitConfig = readStageConfig('?session=stk-42&stageMode=3d-mode&workplane=wp-7');
+  assert.equal(explicitConfig.requestedSessionToken, 'stk-42', 'Valid session routes should preserve the requested session token.');
+  assert.equal(explicitConfig.requestedStageMode, '3d-mode', 'Valid stage routes should preserve the requested stage mode.');
+  assert.equal(explicitConfig.stageMode, '3d-mode', 'Valid stage routes should parse 3d-mode.');
+  assert.equal(explicitConfig.requestedWorkplaneId, 'wp-7', 'Valid routes should preserve the requested workplane.');
+
+  const invalidConfig = readStageConfig('?session=%20%20&stageMode=sideways&workplane=plane-7');
+  assert.equal(invalidConfig.requestedSessionToken, null, 'Blank session routes should be ignored.');
+  assert.equal(invalidConfig.requestedStageMode, null, 'Invalid stage routes should not preserve a requested override.');
+  assert.equal(invalidConfig.stageMode, '2d-mode', 'Invalid stage routes should fall back to 2d-mode.');
+  assert.equal(invalidConfig.requestedWorkplaneId, null, 'Invalid workplane routes should be ignored.');
+
+  const missingSessionBootState = hydrateStageBootState(readStageConfig('?session=stk-missing'), null);
+  assert.equal(
+    getPlaneCount(missingSessionBootState.initialState),
+    1,
+    'Missing persisted sessions should fall back to a fresh one-workplane stage.',
+  );
+  assert.equal(
+    missingSessionBootState.initialState.session.activeWorkplaneId,
+    INITIAL_WORKPLANE_ID,
+    'Missing persisted sessions should boot on the initial workplane.',
+  );
+  assert.equal(
+    missingSessionBootState.initialState.session.stageMode,
+    '2d-mode',
+    'Missing persisted sessions should keep the default stage mode.',
+  );
+  assert.equal(
+    isStackCameraAtDefault(missingSessionBootState.initialState.session.stackCamera),
+    true,
+    'Missing persisted sessions should boot with the default stack-camera orbit.',
+  );
+
+  const snapshot = createPersistedStageSessionSnapshot();
+  const stageModeOverrideBootState = hydrateStageBootState(
+    readStageConfig('?session=stk-snapshot&stageMode=2d-mode'),
+    snapshot,
+  );
+  assert.equal(
+    stageModeOverrideBootState.initialState.session.stageMode,
+    '2d-mode',
+    'Route stageMode should override the stored session stage mode.',
+  );
+  assert.equal(
+    isStackCameraAtDefault(stageModeOverrideBootState.initialState.session.stackCamera),
+    false,
+    'Persisted sessions should restore their saved stack-camera orbit.',
+  );
+
+  const existingWorkplaneOverrideBootState = hydrateStageBootState(
+    readStageConfig('?session=stk-snapshot&workplane=wp-2'),
+    snapshot,
+  );
+  assert.equal(
+    existingWorkplaneOverrideBootState.initialState.session.activeWorkplaneId,
+    'wp-2',
+    'Route workplane overrides should apply when the requested workplane exists.',
+  );
+
+  const missingWorkplaneOverrideBootState = hydrateStageBootState(
+    readStageConfig('?session=stk-snapshot&workplane=wp-7'),
+    snapshot,
+  );
+  assert.equal(
+    missingWorkplaneOverrideBootState.initialState.session.activeWorkplaneId,
+    INITIAL_WORKPLANE_ID,
+    'Route workplane overrides should be ignored when the requested workplane is missing.',
+  );
+
+  const legacySnapshot = createPersistedStageSessionSnapshot();
+  delete (legacySnapshot.session as Partial<typeof legacySnapshot.session>).stackCamera;
+
+  const legacyBootState = hydrateStageBootState(
+    readStageConfig('?session=stk-snapshot'),
+    legacySnapshot,
+  );
+  assert.equal(
+    isStackCameraAtDefault(legacyBootState.initialState.session.stackCamera),
+    true,
+    'Legacy persisted sessions without stack-camera state should restore the default orbit safely.',
+  );
+}
+
+function runPlaneStackStateTests(): void {
+  const scene = createStageScene({
+    demoLayerCount: 12,
+    labelSetKind: 'demo',
+    labelTargetCount: DEMO_LABEL_COUNT,
+    layoutStrategy: 'flow-columns',
+  });
+  const state = createStageSystemState(scene, {
+    activeWorkplaneId: 'wp-7',
+    initialCamera: {centerX: 9, centerY: -4, zoom: 3},
+    initialCameraLabel: '2:2:1',
+    stageMode: '3d-mode',
+  });
+
+  assert.equal(state.session.stageMode, '3d-mode', 'Initial plane-stack state should retain the requested stage mode.');
+  assert.equal(getPlaneCount(state), 1, 'Initial plane-stack state should contain one workplane.');
+  assert.deepEqual(
+    state.document.workplaneOrder,
+    [INITIAL_WORKPLANE_ID],
+    'Initial plane-stack state should boot with workplane 1 only.',
+  );
+  assert.equal(
+    state.session.activeWorkplaneId,
+    INITIAL_WORKPLANE_ID,
+    'Initial plane-stack state should fall back to workplane 1 when the requested workplane is missing.',
+  );
+  assert.equal(
+    getActiveWorkplaneDocument(state).scene.labelSetPreset,
+    scene.labelSetPreset,
+    'The active workplane should carry the boot scene.',
+  );
+  assert.equal(
+    getActiveWorkplaneView(state).selectedLabelKey,
+    '2:2:1',
+    'Initial demo workplane view should store the resolved active label per workplane.',
+  );
+  assert.equal(
+    canDeleteActiveWorkplane(state),
+    false,
+    'Initial plane-stack state should block deleting the only workplane.',
+  );
+
+  const storedViewState = replaceWorkplaneView(state, INITIAL_WORKPLANE_ID, {
+    selectedLabelKey: '3:3:1',
+    camera: {centerX: 12, centerY: 14, zoom: 5},
+  });
+  const spawnedState = spawnWorkplaneAfterActive(
+    replaceWorkplaneLabelTextOverride(storedViewState, INITIAL_WORKPLANE_ID, '1:1:1', 'Signal'),
+  );
+
+  assert.equal(getPlaneCount(spawnedState), 2, 'Spawning should add a second workplane.');
+  assert.equal(spawnedState.session.activeWorkplaneId, 'wp-2', 'Spawning should select the new workplane.');
+  assert.equal(
+    getActiveWorkplaneView(spawnedState).selectedLabelKey,
+    '3:3:1',
+    'Spawning should clone the active workplane camera target.',
+  );
+  assert.deepEqual(
+    getActiveWorkplaneView(spawnedState).camera,
+    {centerX: 12, centerY: 14, zoom: 5},
+    'Spawning should clone the active workplane numeric camera memory.',
+  );
+  assert.equal(
+    getActiveWorkplaneDocument(spawnedState).labelTextOverrides['1:1:1'],
+    'Signal',
+    'Spawning should clone per-workplane label text overrides.',
+  );
+  spawnedState.document.workplanesById['wp-2'].scene.labels[0].text = 'Plane Two';
+  assert.notEqual(
+    spawnedState.document.workplanesById[INITIAL_WORKPLANE_ID].scene.labels[0].text,
+    spawnedState.document.workplanesById['wp-2'].scene.labels[0].text,
+    'Spawning should deep-clone the scene so workplane edits stay isolated.',
+  );
+
+  const previousSelectedState = selectPreviousWorkplane(spawnedState);
+  assert.equal(
+    previousSelectedState.session.activeWorkplaneId,
+    INITIAL_WORKPLANE_ID,
+    'Selecting the previous workplane should return to wp-1.',
+  );
+  const nextSelectedState = selectNextWorkplane(previousSelectedState);
+  assert.equal(
+    nextSelectedState.session.activeWorkplaneId,
+    'wp-2',
+    'Selecting the next workplane should advance back to wp-2.',
+  );
+
+  const deletedState = deleteActiveWorkplane(nextSelectedState);
+  assert.equal(getPlaneCount(deletedState), 1, 'Deleting the active workplane should reduce the stack size.');
+  assert.equal(
+    deletedState.session.activeWorkplaneId,
+    INITIAL_WORKPLANE_ID,
+    'Deleting the trailing workplane should keep the nearest surviving neighbor active.',
+  );
+
+  let cappedState = state;
+  for (let index = 0; index < MAX_WORKPLANE_COUNT - 1; index += 1) {
+    cappedState = spawnWorkplaneAfterActive(cappedState);
+  }
+  assert.equal(getPlaneCount(cappedState), MAX_WORKPLANE_COUNT, 'The plane stack should stop at the hard cap.');
+  assert.equal(canSpawnWorkplane(cappedState), false, 'The hard cap should block further spawns.');
+  assert.equal(spawnWorkplaneAfterActive(cappedState), cappedState, 'Spawning at the cap should no-op.');
+}
+
+function runCameraAndProjectionTests(): void {
+  const viewport: ViewportSize = {width: 1280, height: 800};
+  const camera = new Camera2D();
   const beforePan = camera.getSnapshot();
+
   camera.panByPixels(112, 56);
   camera.advance(1000);
-  const afterPan = camera.getSnapshot();
 
+  const afterPan = camera.getSnapshot();
   assert.notEqual(afterPan.centerX, beforePan.centerX, 'Camera pan should change centerX.');
   assert.notEqual(afterPan.centerY, beforePan.centerY, 'Camera pan should change centerY.');
 
@@ -58,7 +294,6 @@ export function runCameraUnitTests(): void {
   camera.advance(1000);
 
   const worldAfterZoom = camera.screenToWorld(anchorScreenPoint, viewport);
-
   assert.notEqual(camera.zoom, zoomBefore, 'Camera zoom should change after wheel zoom input.');
   assert.ok(
     Math.abs(worldAfterZoom.x - worldBeforeZoom.x) < 0.0001,
@@ -68,11 +303,347 @@ export function runCameraUnitTests(): void {
     Math.abs(worldAfterZoom.y - worldBeforeZoom.y) < 0.0001,
     'Zooming around a screen point should preserve world Y at the anchor.',
   );
+
+  camera.setView(12.5, -8.75, 3.25);
+  const projector = new PlaneFocusProjector(camera);
+  const worldPoint = {x: 16.25, y: -4.5};
+
+  assertScreenPointClose(
+    projector.projectWorldPoint(worldPoint, viewport),
+    camera.worldToScreen(worldPoint, viewport),
+    'PlaneFocusProjector.projectWorldPoint should match the current camera screen projection.',
+  );
+  assertScreenPointClose(
+    {
+      x: projector.projectWorldPointToClip(worldPoint, viewport).x,
+      y: projector.projectWorldPointToClip(worldPoint, viewport).y,
+    },
+    camera.worldToClip(worldPoint, viewport),
+    'PlaneFocusProjector clip x/y should match the current camera clip projection on the active workplane.',
+  );
+  assertWorldBoundsClose(
+    projector.getVisibleWorldBounds(viewport),
+    camera.getVisibleWorldBounds(viewport),
+    'PlaneFocusProjector visible bounds should match the current camera visible bounds.',
+  );
+
+  const stageState = spawnWorkplaneAfterActive(
+    createStageSystemState(
+      createStageScene({
+        demoLayerCount: 12,
+        labelSetKind: 'demo',
+        labelTargetCount: DEMO_LABEL_COUNT,
+        layoutStrategy: 'flow-columns',
+      }),
+      {stageMode: '3d-mode'},
+    ),
+  );
+  const stackViewState = createStackViewState(stageState);
+  const stackProjector = new StackCameraProjector();
+
+  stackProjector.setSceneBounds(stackViewState.sceneBounds);
+  stackProjector.setViewport(viewport);
+
+  const visibleBounds = stackProjector.getVisibleWorldBounds(viewport);
+  const sceneCenter = {
+    x: (stackViewState.sceneBounds.minX + stackViewState.sceneBounds.maxX) * 0.5,
+    y: (stackViewState.sceneBounds.minY + stackViewState.sceneBounds.maxY) * 0.5,
+    z: (stackViewState.sceneBounds.minZ + stackViewState.sceneBounds.maxZ) * 0.5,
+  };
+  const centerPoint = stackProjector.projectWorldPoint(
+    sceneCenter,
+    viewport,
+  );
+  const orbitSamplePoint = {
+    x: sceneCenter.x + 1.25,
+    y: sceneCenter.y + 0.75,
+    z: sceneCenter.z,
+  };
+  const defaultStackProjection = stackProjector.projectWorldPoint(orbitSamplePoint, viewport);
+
+  assert.equal(
+    stackViewState.backplates.length,
+    2,
+    'Stack view state should create one backplate per workplane.',
+  );
+  assert.equal(
+    stackViewState.backplates.filter((backplate) => backplate.isActive).length,
+    1,
+    'Stack view state should keep exactly one active workplane backplate.',
+  );
+  assert.ok(
+    stackViewState.scene.labels.length > getActiveWorkplaneDocument(stageState).scene.labels.length,
+    'Stack view state should combine labels from all workplanes.',
+  );
+  assert.ok(
+    Math.abs(centerPoint.x - viewport.width / 2) < 0.0001 &&
+      Math.abs(centerPoint.y - viewport.height / 2) < 0.0001,
+    'StackCameraProjector should center the stack-view bounds in the viewport.',
+  );
+  assert.ok(
+    visibleBounds.minX <= stackViewState.sceneBounds.minX &&
+      visibleBounds.maxX >= stackViewState.sceneBounds.maxX &&
+      visibleBounds.minY <= stackViewState.sceneBounds.minY &&
+      visibleBounds.maxY >= stackViewState.sceneBounds.maxY,
+    'StackCameraProjector visible bounds should contain the stack-view scene bounds.',
+  );
+  assertSceneVectorClose(
+    getStackCameraForward(stackProjector.getStackCamera()),
+    getStackCameraForward(DEFAULT_STACK_CAMERA_STATE),
+    'StackCameraProjector should boot with the default stack-camera orbit.',
+  );
+
+  const orbitedStackCamera = orbitStackCamera(
+    stackProjector.getStackCamera(),
+    Math.PI / 9,
+    -Math.PI / 18,
+  );
+  stackProjector.setStackCamera(orbitedStackCamera);
+  const orbitedCenterPoint = stackProjector.projectWorldPoint(orbitSamplePoint, viewport);
+
+  assert.ok(
+    Math.abs(orbitedCenterPoint.x - defaultStackProjection.x) > 0.0001 ||
+      Math.abs(orbitedCenterPoint.y - defaultStackProjection.y) > 0.0001,
+    'Changing the stack-camera orbit should change the projected stack geometry.',
+  );
+
+  const zoomedStackCamera = scaleStackCameraDistance(orbitedStackCamera, 0.8);
+  stackProjector.setStackCamera(zoomedStackCamera);
+
+  assert.ok(
+    stackProjector.getStackCamera().distanceScale < orbitedStackCamera.distanceScale,
+    'Stack-camera zoom should move the camera closer by reducing its distance scale.',
+  );
+
+  const activePlaneLabel = findVisibleLabelForZoom(
+    getActiveWorkplaneDocument(stageState).scene.labels,
+    projector.zoom,
+  );
+  assert.ok(activePlaneLabel, 'Projection tests need a visible plane-focus label sample.');
+
+  if (!activePlaneLabel) {
+    return;
+  }
+
+  const planeFocusQuad = projectGlyphQuadToScreen(
+    createProjectedGlyphSample(activePlaneLabel),
+    projector,
+    viewport,
+  );
+  assert.ok(planeFocusQuad, 'Plane-focus label glyph geometry should project into screen space.');
+
+  if (!planeFocusQuad) {
+    return;
+  }
+
+  assert.ok(
+    Math.abs(planeFocusQuad.basisX.y) <= 0.0001 && planeFocusQuad.basisX.x > 0,
+    'Plane-focus label glyphs should stay aligned to the readable workplane X axis.',
+  );
+  assert.ok(
+    Math.abs(planeFocusQuad.basisY.x) <= 0.0001 && planeFocusQuad.basisY.y > 0,
+    'Plane-focus label glyphs should stay aligned to the readable workplane down axis.',
+  );
+
+  const stackLabel = findVisibleLabelForZoom(stackViewState.scene.labels, stackProjector.zoom);
+  assert.ok(stackLabel, 'Projection tests need a visible stack-view label sample.');
+  assert.ok(
+    stackLabel?.planeBasisX && stackLabel?.planeBasisY,
+    'Stack-view labels should carry workplane text bases.',
+  );
+
+  if (!stackLabel || !stackLabel.planeBasisX || !stackLabel.planeBasisY) {
+    return;
+  }
+
+  const stackQuad = projectGlyphQuadToScreen(
+    createProjectedGlyphSample(stackLabel),
+    stackProjector,
+    viewport,
+  );
+  assert.ok(stackQuad, 'Stack-view label glyph geometry should project into screen space.');
+
+  if (!stackQuad) {
+    return;
+  }
+
+  const expectedStackBasisX = projectScreenBasis(
+    stackLabel.location,
+    stackLabel.planeBasisX,
+    stackProjector,
+    viewport,
+  );
+  const expectedStackBasisY = projectScreenBasis(
+    stackLabel.location,
+    stackLabel.planeBasisY,
+    stackProjector,
+    viewport,
+  );
+
+  assert.ok(
+    Math.abs(stackQuad.basisX.y) > 0.001 || Math.abs(stackQuad.basisY.x) > 0.001,
+    'Stack-view label glyphs should pick up the stack-camera perspective instead of staying perfectly camera-flat.',
+  );
+  assert.ok(
+    Math.abs(stackQuad.basisY.x) > 0.001 && stackQuad.basisY.y > 0,
+    'Stack-view label glyphs should follow the projected workplane down axis instead of flipping upside down.',
+  );
+  assert.ok(
+    screenVectorAlignment(stackQuad.basisX, expectedStackBasisX) > 0.999,
+    'Stack-view label X geometry should follow the projected workplane basis.',
+  );
+  assert.ok(
+    screenVectorAlignment(stackQuad.basisY, expectedStackBasisY) > 0.999,
+    'Stack-view label Y geometry should follow the projected workplane down basis.',
+  );
+
+  const stackLink = stackViewState.scene.links[0];
+  assert.ok(stackLink, 'Projection tests need a stack-view link sample.');
+
+  if (!stackLink) {
+    return;
+  }
+
+  const projectedLinkPoints = sampleLineCurve(stackLink, 'rounded-step-links', 20).map((point) =>
+    stackProjector.projectWorldPoint(point, viewport),
+  );
+  assert.ok(
+    projectedLinkPoints.some((point, index) => {
+      if (index === 0) {
+        return false;
+      }
+
+      return isObliqueScreenSegment(projectedLinkPoints[index - 1], point);
+    }),
+    'Stack-view link geometry should stay projected onto the workplane instead of flattening to camera axes.',
+  );
 }
 
-export function runLabelNavigationUnitTests(): void {
-  const navigationIndex = createLabelNavigationIndex(DEMO_LABELS);
+function runLayoutAndLinkTests(): void {
+  const viewport: ViewportSize = {width: 1280, height: 800};
+  const visibleBounds = new Camera2D().getVisibleWorldBounds(viewport);
+  const entries = createCanonicalDemoLayoutEntries();
+  const placement = layoutDemoEntries(entries, 'flow-columns');
+  const rootBoxes = placement.boxes.filter((box) => box.node === 'root');
+  const rootBoxByLabel = new Map<string, DemoLayoutNodeBox>();
 
+  entries.forEach((entry, index) => {
+    const rootBox = placement.boxes.find((box) => box.entryIndex === index && box.node === 'root');
+
+    if (rootBox) {
+      rootBoxByLabel.set(entry.nodes.root.text, rootBox);
+    }
+  });
+
+  assert.equal(
+    placement.locations.length,
+    entries.length,
+    'The canonical demo scene should place every root entry.',
+  );
+  assert.equal(
+    placement.columnCount,
+    DEMO_SOURCE_COLUMN_COUNT,
+    'Flow-columns layout should preserve all source columns.',
+  );
+  assert.equal(
+    rootBoxes.length,
+    DEMO_SOURCE_COLUMN_COUNT * DEMO_ROWS_PER_SOURCE_COLUMN,
+    'Flow-columns layout should create one visible root box per root label.',
+  );
+
+  for (let index = 0; index < rootBoxes.length; index += 1) {
+    const rootBox = rootBoxes[index];
+
+    assert.ok(
+      rootBox.minX >= visibleBounds.minX && rootBox.maxX <= visibleBounds.maxX,
+      'Every root label should fit inside the zoom-0 camera width.',
+    );
+    assert.ok(
+      rootBox.minY >= visibleBounds.minY && rootBox.maxY <= visibleBounds.maxY,
+      'Every root label should fit inside the zoom-0 camera height.',
+    );
+
+    for (let otherIndex = index + 1; otherIndex < rootBoxes.length; otherIndex += 1) {
+      assert.equal(
+        boxesOverlap(rootBox, rootBoxes[otherIndex]),
+        false,
+        'The canonical root grid should avoid overlapping root labels.',
+      );
+    }
+  }
+
+  const links = getDemoLinks('flow-columns');
+  const horizontalStartBox = getRequiredRootBox(rootBoxByLabel, '1:2:1');
+  const horizontalEndBox = getRequiredRootBox(rootBoxByLabel, '2:2:1');
+  const horizontalLink = links.find((link) => {
+    return (
+      Math.abs(link.outputLocation.x - horizontalStartBox.maxX) < 0.0001 &&
+      Math.abs(link.outputLocation.y - getBoxCenterY(horizontalStartBox)) < 0.0001 &&
+      Math.abs(link.inputLocation.x - horizontalEndBox.minX) < 0.0001 &&
+      Math.abs(link.inputLocation.y - getBoxCenterY(horizontalEndBox)) < 0.0001
+    );
+  });
+
+  assert.ok(
+    horizontalLink,
+    'Horizontal demo links should connect source right-center to target left-center.',
+  );
+  assert.equal(horizontalLink?.outputLinkPoint, 'right-center', 'Horizontal links should use the source right-center link-point.');
+  assert.equal(horizontalLink?.inputLinkPoint, 'left-center', 'Horizontal links should use the target left-center link-point.');
+
+  const verticalStartBox = getRequiredRootBox(rootBoxByLabel, '3:1:1');
+  const verticalEndBox = getRequiredRootBox(rootBoxByLabel, '3:2:1');
+  const verticalLink = links.find((link) => {
+    return (
+      Math.abs(link.outputLocation.x - getBoxCenterX(verticalStartBox)) < 0.0001 &&
+      Math.abs(link.outputLocation.y - verticalStartBox.minY) < 0.0001 &&
+      Math.abs(link.inputLocation.x - getBoxCenterX(verticalEndBox)) < 0.0001 &&
+      Math.abs(link.inputLocation.y - verticalEndBox.maxY) < 0.0001
+    );
+  });
+
+  assert.ok(
+    verticalLink,
+    'Vertical demo links should connect source bottom-center to target top-center.',
+  );
+  assert.equal(verticalLink?.outputLinkPoint, 'bottom-center', 'Vertical links should use the source bottom-center link-point.');
+  assert.equal(verticalLink?.inputLinkPoint, 'top-center', 'Vertical links should use the target top-center link-point.');
+
+  const diagonalLink = links.find((link) => {
+    return (
+      link.outputLinkPoint === 'right-center' &&
+      link.inputLinkPoint === 'left-center' &&
+      link.outputLocation.x < link.inputLocation.x &&
+      link.outputLocation.y > link.inputLocation.y
+    );
+  });
+
+  assert.ok(diagonalLink, 'The demo link set should include a diagonal right-to-left link.');
+
+  if (!diagonalLink) {
+    return;
+  }
+
+  const roundedStepPoints = sampleLineCurve(diagonalLink, 'rounded-step-links', 20);
+  assert.equal(
+    roundedStepPoints.length > 4,
+    true,
+    'Rounded-step links should sample extra points for rounded corners.',
+  );
+  assert.deepEqual(
+    roundedStepPoints[0],
+    diagonalLink.outputLocation,
+    'Rounded-step links should preserve the source endpoint.',
+  );
+  assert.deepEqual(
+    roundedStepPoints[roundedStepPoints.length - 1],
+    diagonalLink.inputLocation,
+    'Rounded-step links should preserve the target endpoint.',
+  );
+}
+
+function runNavigationAndZoomTests(): void {
+  const navigationIndex = createLabelNavigationIndex(DEMO_LABELS);
   assert.ok(navigationIndex, 'Demo labels should build a navigation index.');
 
   if (!navigationIndex) {
@@ -84,7 +655,6 @@ export function runLabelNavigationUnitTests(): void {
   assert.equal(firstRootNode?.column, 1, '1:1:1 should report column 1.');
   assert.equal(firstRootNode?.row, 1, '1:1:1 should report row 1.');
   assert.equal(firstRootNode?.layer, 1, '1:1:1 should report layer 1.');
-  assert.equal(firstRootNode?.label.text, FIRST_ROOT_LABEL, 'The navigation node should reference the matching label.');
 
   assert.equal(
     getLabelNavigationTarget(navigationIndex, FIRST_ROOT_LABEL, 'pan-right')?.key,
@@ -97,34 +667,9 @@ export function runLabelNavigationUnitTests(): void {
     'Up should move to the visually higher row.',
   );
   assert.equal(
-    getLabelNavigationTarget(navigationIndex, '2:2:1', 'pan-down')?.key,
-    '2:3:1',
-    'Down should move to the visually lower row.',
-  );
-  assert.equal(
     getLabelNavigationTarget(navigationIndex, '2:2:1', 'zoom-in')?.key,
     '2:2:2',
     'Zoom In should move to the next layer in the same cell.',
-  );
-  assert.equal(
-    getLabelNavigationTarget(navigationIndex, '2:2:2', 'zoom-out')?.key,
-    '2:2:1',
-    'Zoom Out should move to the previous layer in the same cell.',
-  );
-  assert.equal(
-    getLabelNavigationTarget(navigationIndex, FIRST_ROOT_LABEL, 'pan-left')?.key,
-    FIRST_ROOT_LABEL,
-    'Missing left neighbors should no-op.',
-  );
-  assert.equal(
-    getLabelNavigationTarget(navigationIndex, FIRST_ROOT_LABEL, 'zoom-out')?.key,
-    FIRST_ROOT_LABEL,
-    'Zoom Out should no-op at the root layer.',
-  );
-  assert.equal(
-    getLabelNavigationTarget(navigationIndex, LAST_CHILD_LABEL, 'pan-right')?.key,
-    LAST_CHILD_LABEL,
-    'Missing right neighbors should no-op.',
   );
   assert.equal(
     hasLabelNavigationTarget(navigationIndex, FIRST_ROOT_LABEL, 'pan-left'),
@@ -132,366 +677,107 @@ export function runLabelNavigationUnitTests(): void {
     'The first root label should not advertise a left move.',
   );
   assert.equal(
-    hasLabelNavigationTarget(navigationIndex, FIRST_ROOT_LABEL, 'zoom-out'),
-    false,
-    'The first root label should not advertise a zoom-out move.',
-  );
-  assert.equal(
     hasLabelNavigationTarget(navigationIndex, FIRST_ROOT_LABEL, 'zoom-in'),
     true,
     'The first root label should advertise a zoom-in move.',
   );
+  assert.equal(
+    getLabelNavigationTarget(navigationIndex, LAST_CHILD_LABEL, 'pan-right')?.key,
+    LAST_CHILD_LABEL,
+    'Missing right neighbors should no-op.',
+  );
+
+  const detailBand = createZoomBand(3.5, 4.5);
+  assert.equal(detailBand.zoomLevel, 4, 'Zoom bands should store the focal zoom midpoint.');
+  assert.equal(detailBand.zoomRange, 0.5, 'Zoom bands should store half of the visible zoom span.');
+  assert.equal(getMinVisibleZoom(detailBand.zoomLevel, detailBand.zoomRange), 3.5, 'Zoom bands should expose the lower visible bound.');
+  assert.equal(getMaxVisibleZoom(detailBand.zoomLevel, detailBand.zoomRange), 4.5, 'Zoom bands should expose the upper visible bound.');
+  assert.equal(isZoomVisible(3.49, detailBand.zoomLevel, detailBand.zoomRange), false, 'Zoom bands should hide labels before the reveal threshold.');
+  assert.equal(isZoomVisible(3.5, detailBand.zoomLevel, detailBand.zoomRange), true, 'Zoom bands should reveal labels at the threshold.');
+  assert.equal(isZoomVisible(4.51, detailBand.zoomLevel, detailBand.zoomRange), false, 'Zoom bands should hide labels after the upper threshold.');
+  assert.ok(
+    Math.abs(getZoomScale(3.5, detailBand.zoomLevel, detailBand.zoomRange) - 2 ** -0.5) <= 0.0001,
+    'Zoom-band scaling should follow the relative zoom delta at the reveal edge.',
+  );
+  assert.equal(getZoomScale(4, detailBand.zoomLevel, detailBand.zoomRange), 1, 'Zoom-band scaling should reach full size at the focal zoom.');
+  assert.equal(getZoomOpacity(3.5, detailBand.zoomLevel, detailBand.zoomRange), 1, 'Zoom-band opacity should stay readable at the reveal threshold.');
+  assert.ok(
+    getZoomOpacity(3.75, detailBand.zoomLevel, detailBand.zoomRange) >= MIN_ZOOM_OPACITY &&
+      getZoomOpacity(3.75, detailBand.zoomLevel, detailBand.zoomRange) <= 1,
+    'Zoom-band opacity should remain in a valid visible range while the label scales in.',
+  );
 }
 
-export function runLayoutStrategyUnitTests(): void {
-  const viewport: ViewportSize = {width: 1280, height: 800};
-  const camera = new Camera2D();
-  const visibleBounds = camera.getVisibleWorldBounds(viewport);
-  const entries = createCanonicalDemoLayoutEntries();
-  const placement = layoutDemoEntries(entries, 'flow-columns');
-  const rootBoxes = placement.boxes.filter((box) => box.node === 'root');
-  const rootColumns = new Set(rootBoxes.map((box) => box.column));
-  const rootRows = new Set(rootBoxes.map((box) => box.row));
-  const rowYByIndex = new Map<number, number>();
-
-  assert.equal(
-    placement.locations.length,
-    entries.length,
-    'The canonical 12x12 scene should place every root entry.',
-  );
-  assert.equal(
-    placement.bandCount,
-    DEMO_SOURCE_COLUMN_COUNT,
-    'Flow Columns should preserve all 12 source columns.',
-  );
-  assert.equal(
-    placement.columnCount,
-    DEMO_SOURCE_COLUMN_COUNT,
-    'Flow Columns should expose one compact root column per source column.',
-  );
-  assert.equal(
-    rootBoxes.length,
-    DEMO_ROOT_LABEL_COUNT,
-    'Flow Columns should create one visible root box for each 12x12 grid cell.',
-  );
-  assert.equal(
-    rootColumns.size,
-    DEMO_SOURCE_COLUMN_COUNT,
-    'Flow Columns should populate all 12 root columns.',
-  );
-  assert.equal(
-    rootRows.size,
-    DEMO_ROWS_PER_SOURCE_COLUMN,
-    'Flow Columns should populate all 12 root rows.',
-  );
-
-  entries.forEach((entry, index) => {
-    const existingY = rowYByIndex.get(entry.sourceRowIndex);
-    const rootY = placement.locations[index].root.y;
-
-    if (existingY === undefined) {
-      rowYByIndex.set(entry.sourceRowIndex, rootY);
-      return;
-    }
-
-    assert.equal(
-      rootY,
-      existingY,
-      'Flow Columns should align each row to the same y position across every source column.',
-    );
+function createPersistedStageSessionSnapshot(): PersistedStageSessionSnapshot {
+  const scene = createStageScene({
+    demoLayerCount: 12,
+    labelSetKind: 'demo',
+    labelTargetCount: DEMO_LABEL_COUNT,
+    layoutStrategy: 'flow-columns',
+  });
+  let state = createStageSystemState(scene, {
+    initialCameraLabel: '2:2:1',
+    stageMode: '2d-mode',
   });
 
-  for (let index = 0; index < rootBoxes.length; index += 1) {
-    for (let otherIndex = index + 1; otherIndex < rootBoxes.length; otherIndex += 1) {
-      assert.equal(
-        boxesOverlap(rootBoxes[index], rootBoxes[otherIndex]),
-        false,
-        'The canonical 12x12 root grid should avoid overlapping root labels at zoom 0.',
-      );
-    }
+  state = replaceWorkplaneLabelTextOverride(state, INITIAL_WORKPLANE_ID, '2:2:1', 'Alpha');
+  applyWorkplaneSceneLabelText(state, INITIAL_WORKPLANE_ID, '2:2:1', 'Alpha');
+  state = replaceWorkplaneView(state, INITIAL_WORKPLANE_ID, {
+    selectedLabelKey: '2:2:1',
+    camera: {centerX: 22, centerY: 18, zoom: 2},
+  });
+
+  state = spawnWorkplaneAfterActive(state);
+  state = replaceWorkplaneLabelTextOverride(state, 'wp-2', '3:3:1', 'Vector');
+  applyWorkplaneSceneLabelText(state, 'wp-2', '3:3:1', 'Vector');
+  state = replaceWorkplaneView(state, 'wp-2', {
+    selectedLabelKey: '3:3:1',
+    camera: {centerX: 44, centerY: 39, zoom: 4},
+  });
+
+  state = selectPreviousWorkplane(state);
+  state = {
+    ...state,
+    session: {
+      ...state.session,
+      stackCamera: orbitStackCamera(DEFAULT_STACK_CAMERA_STATE, Math.PI / 8, -Math.PI / 18),
+      stageMode: '3d-mode',
+    },
+  };
+
+  return {
+    version: 1,
+    sessionToken: 'stk-snapshot',
+    savedAt: '2026-03-30T00:00:00.000Z',
+    config: {
+      demoLayerCount: 12,
+      labelSetKind: 'demo',
+    },
+    document: state.document,
+    session: state.session,
+    ui: {
+      layoutStrategy: 'flow-columns',
+      lineStrategy: 'rounded-step-links',
+      strategyPanelMode: 'label-edit',
+      textStrategy: 'sdf-instanced',
+    },
+  };
+}
+
+function applyWorkplaneSceneLabelText(
+  state: StageSystemState,
+  workplaneId: WorkplaneId,
+  labelKey: string,
+  text: string,
+): void {
+  const workplane = state.document.workplanesById[workplaneId];
+  const label = workplane?.scene.labels.find(
+    (candidateLabel) => candidateLabel.navigation?.key === labelKey,
+  );
+
+  if (label) {
+    label.text = text;
   }
-
-  for (const rootBox of rootBoxes) {
-    assert.ok(
-      rootBox.minX >= visibleBounds.minX && rootBox.maxX <= visibleBounds.maxX,
-      'Every root label should fit inside the zoom 0 camera width.',
-    );
-    assert.ok(
-      rootBox.minY >= visibleBounds.minY && rootBox.maxY <= visibleBounds.maxY,
-      'Every root label should fit inside the zoom 0 camera height.',
-    );
-  }
-}
-
-export function runLinkPointUnitTests(): void {
-  const entries = createCanonicalDemoLayoutEntries();
-  const placement = layoutDemoEntries(entries, 'flow-columns');
-  const links = getDemoLinks('flow-columns');
-  const rootBoxByLabel = new Map<string, DemoLayoutNodeBox>();
-
-  entries.forEach((entry, index) => {
-    const rootBox = placement.boxes.find((box) => box.entryIndex === index && box.node === 'root');
-
-    if (!rootBox) {
-      return;
-    }
-
-    rootBoxByLabel.set(entry.nodes.root.text, rootBox);
-  });
-
-  const horizontalLink = links.find((link) => {
-    const startBox = getRequiredRootBox(rootBoxByLabel, '1:2:1');
-    const endBox = getRequiredRootBox(rootBoxByLabel, '2:2:1');
-
-    return (
-      Math.abs(link.outputLocation.x - startBox.maxX) < 0.0001 &&
-      Math.abs(link.outputLocation.y - getBoxCenterY(startBox)) < 0.0001 &&
-      Math.abs(link.inputLocation.x - endBox.minX) < 0.0001 &&
-      Math.abs(link.inputLocation.y - getBoxCenterY(endBox)) < 0.0001
-    );
-  });
-
-  assert.ok(
-    horizontalLink,
-    'Horizontal demo links should connect from the source right-center to the target left-center.',
-  );
-  assert.equal(
-    horizontalLink?.outputLinkPoint,
-    'right-center',
-    'Horizontal demo links should retain the source right-center link-point.',
-  );
-  assert.equal(
-    horizontalLink?.inputLinkPoint,
-    'left-center',
-    'Horizontal demo links should retain the target left-center link-point.',
-  );
-
-  const startVerticalBox = getRequiredRootBox(rootBoxByLabel, '3:1:1');
-  const endVerticalBox = getRequiredRootBox(rootBoxByLabel, '3:2:1');
-  const verticalLink = links.find((link) => {
-    return (
-      Math.abs(link.outputLocation.x - getBoxCenterX(startVerticalBox)) < 0.0001 &&
-      Math.abs(link.outputLocation.y - startVerticalBox.minY) < 0.0001 &&
-      Math.abs(link.inputLocation.x - getBoxCenterX(endVerticalBox)) < 0.0001 &&
-      Math.abs(link.inputLocation.y - endVerticalBox.maxY) < 0.0001
-    );
-  });
-
-  assert.ok(
-    verticalLink,
-    'Vertical demo links should connect from the lower label bottom-center to the upper label top-center.',
-  );
-  assert.equal(
-    verticalLink?.outputLinkPoint,
-    'bottom-center',
-    'Vertical demo links should retain the source bottom-center link-point.',
-  );
-  assert.equal(
-    verticalLink?.inputLinkPoint,
-    'top-center',
-    'Vertical demo links should retain the target top-center link-point.',
-  );
-
-  const firstDiagonalStartBox = getRequiredRootBox(rootBoxByLabel, '1:1:1');
-  const firstDiagonalEndBox = getRequiredRootBox(rootBoxByLabel, '2:2:1');
-  const diagonalLink = links.find((link) => {
-    return (
-      Math.abs(link.outputLocation.x - firstDiagonalStartBox.maxX) < 0.0001 &&
-      Math.abs(link.outputLocation.y - getBoxCenterY(firstDiagonalStartBox)) < 0.0001 &&
-      Math.abs(link.inputLocation.x - firstDiagonalEndBox.minX) < 0.0001 &&
-      Math.abs(link.inputLocation.y - getBoxCenterY(firstDiagonalEndBox)) < 0.0001
-    );
-  });
-
-  assert.ok(
-    diagonalLink,
-    'Diagonal demo links should include 1:1:1 to 2:2:1 using right-center to left-center link-points.',
-  );
-  assert.equal(
-    diagonalLink?.outputLinkPoint,
-    'right-center',
-    'Diagonal demo links should retain the source right-center link-point.',
-  );
-  assert.equal(
-    diagonalLink?.inputLinkPoint,
-    'left-center',
-    'Diagonal demo links should retain the target left-center link-point.',
-  );
-
-  const firstFanoutEndBox = getRequiredRootBox(rootBoxByLabel, '2:3:1');
-  const fanoutLink = links.find((link) => {
-    return (
-      Math.abs(link.outputLocation.x - firstDiagonalStartBox.maxX) < 0.0001 &&
-      Math.abs(link.outputLocation.y - getBoxCenterY(firstDiagonalStartBox)) < 0.0001 &&
-      Math.abs(link.inputLocation.x - firstFanoutEndBox.minX) < 0.0001 &&
-      Math.abs(link.inputLocation.y - getBoxCenterY(firstFanoutEndBox)) < 0.0001
-    );
-  });
-
-  assert.ok(
-    fanoutLink,
-    'Demo links should include 1:1:1 to 2:3:1 using right-center to left-center link-points across columns.',
-  );
-  assert.equal(
-    fanoutLink?.outputLinkPoint,
-    'right-center',
-    'Cross-column fanout demo links should retain the source right-center link-point.',
-  );
-  assert.equal(
-    fanoutLink?.inputLinkPoint,
-    'left-center',
-    'Cross-column fanout demo links should retain the target left-center link-point.',
-  );
-
-  assert.deepEqual(
-    horizontalLink?.color,
-    diagonalLink?.color,
-    'Distance-1 links should share the same color across different link families.',
-  );
-  assert.deepEqual(
-    horizontalLink?.color,
-    fanoutLink?.color,
-    'All distance-1 links should share the same color.',
-  );
-  assert.notDeepEqual(
-    verticalLink?.color,
-    horizontalLink?.color,
-    'Distance-0 links should use a different color than distance-1 links.',
-  );
-
-  const firstSpineStartBox = getRequiredRootBox(rootBoxByLabel, '1:1:1');
-  const firstSpineEndBox = getRequiredRootBox(rootBoxByLabel, '12:1:1');
-  const spineLink = links.find((link) => {
-    return (
-      Math.abs(link.outputLocation.x - firstSpineStartBox.maxX) < 0.0001 &&
-      Math.abs(link.outputLocation.y - getBoxCenterY(firstSpineStartBox)) < 0.0001 &&
-      Math.abs(link.inputLocation.x - firstSpineEndBox.minX) < 0.0001 &&
-      Math.abs(link.inputLocation.y - getBoxCenterY(firstSpineEndBox)) < 0.0001
-    );
-  });
-
-  assert.ok(
-    spineLink,
-    'Demo links should include a same-row spine link from 1:1:1 to 12:1:1.',
-  );
-  assert.notDeepEqual(
-    spineLink?.color,
-    horizontalLink?.color,
-    'Distance-11 links should use a different color than distance-1 links.',
-  );
-  assert.notDeepEqual(
-    spineLink?.color,
-    verticalLink?.color,
-    'Distance-11 links should use a different color than distance-0 links.',
-  );
-}
-
-export function runRoundedStepCurveUnitTests(): void {
-  const links = getDemoLinks('flow-columns');
-  const diagonalLink = links.find((link) => {
-    return (
-      link.outputLinkPoint === 'right-center' &&
-      link.inputLinkPoint === 'left-center' &&
-      link.outputLocation.x < link.inputLocation.x &&
-      link.outputLocation.y > link.inputLocation.y
-    );
-  });
-
-  assert.ok(
-    diagonalLink,
-    'Expected a diagonal demo link that leaves from right-center and enters through left-center.',
-  );
-
-  if (!diagonalLink) {
-    return;
-  }
-
-  const roundedStepPoints = sampleLineCurve(diagonalLink, 'rounded-step-links', 20);
-
-  assert.equal(
-    roundedStepPoints.length > 4,
-    true,
-    'Rounded step links should sample extra points for the two rounded corners.',
-  );
-
-  const firstPoint = roundedStepPoints[0];
-  const lastPoint = roundedStepPoints[roundedStepPoints.length - 1];
-
-  assert.ok(firstPoint, 'Rounded step links should keep the source point.');
-  assert.ok(lastPoint, 'Rounded step links should keep the target point.');
-  assert.ok(
-    firstPoint && Math.abs(firstPoint.x - diagonalLink.outputLocation.x) < 0.0001,
-    'Rounded step links should start at the source link-point.',
-  );
-  assert.ok(
-    lastPoint && Math.abs(lastPoint.x - diagonalLink.inputLocation.x) < 0.0001,
-    'Rounded step links should end at the target link-point.',
-  );
-
-  const minX = Math.min(diagonalLink.outputLocation.x, diagonalLink.inputLocation.x);
-  const maxX = Math.max(diagonalLink.outputLocation.x, diagonalLink.inputLocation.x);
-  const minY = Math.min(diagonalLink.outputLocation.y, diagonalLink.inputLocation.y);
-  const maxY = Math.max(diagonalLink.outputLocation.y, diagonalLink.inputLocation.y);
-
-  roundedStepPoints.forEach((point, index) => {
-    assert.ok(
-      point.x >= minX - 0.0001 && point.x <= maxX + 0.0001,
-      'Rounded step links should stay within the source/target X bounds.',
-    );
-    assert.ok(
-      point.y >= minY - 0.0001 && point.y <= maxY + 0.0001,
-      'Rounded step links should stay within the source/target Y bounds.',
-    );
-
-    if (index === 0) {
-      return;
-    }
-
-    const previous = roundedStepPoints[index - 1];
-
-    assert.ok(previous, 'Rounded step curve checks require the previous sampled point.');
-    assert.ok(
-      previous && point.x >= previous.x - 0.0001,
-      'Rounded step links should progress monotonically across X for the diagonal demo link.',
-    );
-    assert.ok(
-      previous && point.y <= previous.y + 0.0001,
-      'Rounded step links should progress monotonically across Y for the diagonal demo link.',
-    );
-  });
-}
-
-export function runCanonicalLabelIdUnitTests(): void {
-  assert.equal(
-    DEMO_LABELS[0]?.text,
-    FIRST_ROOT_LABEL,
-    'The first generated label should be the first root id.',
-  );
-  assert.equal(
-    DEMO_LABELS[0]?.navigation?.key,
-    FIRST_ROOT_LABEL,
-    'The first generated label should retain its navigation key.',
-  );
-  assert.equal(
-    DEMO_LABELS[DEMO_ROOT_LABEL_COUNT - 1]?.text,
-    LAST_ROOT_LABEL,
-    'The last level-1 label should be the last root id.',
-  );
-  assert.equal(
-    DEMO_LABELS[DEMO_ROOT_LABEL_COUNT]?.text,
-    FIRST_CHILD_LABEL,
-    'The first level-2 label should be the first child id.',
-  );
-  assert.equal(
-    DEMO_LABELS[DEMO_LABEL_COUNT - 1]?.text,
-    LAST_DEMO_LABEL,
-    'The last generated label should be the deepest default demo id.',
-  );
-  assert.equal(
-    DEMO_LABELS[DEMO_LABEL_COUNT - 1]?.navigation?.key,
-    LAST_DEMO_LABEL,
-    'The last generated label should retain its navigation key.',
-  );
 }
 
 function createCanonicalDemoLayoutEntries(): DemoLayoutEntry[] {
@@ -516,6 +802,17 @@ function createCanonicalDemoLayoutEntries(): DemoLayoutEntry[] {
   return entries;
 }
 
+function boxesOverlap(left: DemoLayoutNodeBox, right: DemoLayoutNodeBox): boolean {
+  const epsilon = 0.0001;
+
+  return (
+    left.minX < right.maxX - epsilon &&
+    left.maxX > right.minX + epsilon &&
+    left.minY < right.maxY - epsilon &&
+    left.maxY > right.minY + epsilon
+  );
+}
+
 function getRequiredRootBox(
   rootBoxByLabel: Map<string, DemoLayoutNodeBox>,
   label: string,
@@ -534,79 +831,128 @@ function getBoxCenterY(box: DemoLayoutNodeBox): number {
   return (box.minY + box.maxY) * 0.5;
 }
 
-export function runZoomBandUnitTests(): void {
-  const detailBand = createZoomBand(3.5, 4.5);
+function findVisibleLabelForZoom(
+  labels: LabelDefinition[],
+  zoom: number,
+): LabelDefinition | null {
+  return labels.find((label) => isZoomVisible(zoom, label.zoomLevel, label.zoomRange)) ?? null;
+}
 
-  assert.equal(detailBand.zoomLevel, 4, 'Zoom bands should store the focal zoom midpoint.');
-  assert.equal(detailBand.zoomRange, 0.5, 'Zoom bands should store half of the visible zoom span.');
-  assert.equal(
-    getMinVisibleZoom(detailBand.zoomLevel, detailBand.zoomRange),
-    3.5,
-    'Zoom bands should expose the lower visible bound.',
+function createProjectedGlyphSample(label: LabelDefinition): GlyphPlacement {
+  return {
+    labelId: 0,
+    labelKey: label.navigation?.key ?? label.text,
+    anchorX: label.location.x,
+    anchorY: label.location.y,
+    anchorZ: label.location.z ?? 0,
+    color: label.color ?? [0.92, 0.96, 1, 1],
+    height: label.size,
+    labelText: label.text,
+    offsetX: -label.size * 0.4,
+    offsetY: -label.size,
+    planeBasisX: label.planeBasisX ? {...label.planeBasisX} : undefined,
+    planeBasisY: label.planeBasisY ? {...label.planeBasisY} : undefined,
+    u0: 0,
+    u1: 1,
+    v0: 0,
+    v1: 1,
+    width: label.size * 0.8,
+    zoomLevel: label.zoomLevel,
+    zoomRange: label.zoomRange,
+  };
+}
+
+function projectScreenBasis(
+  anchor: LabelDefinition['location'],
+  basis: NonNullable<LabelDefinition['planeBasisX']>,
+  projector: StageProjector,
+  viewport: ViewportSize,
+): ScreenPoint {
+  const anchorPoint = projector.projectWorldPoint(anchor, viewport);
+  const targetPoint = projector.projectWorldPoint(
+    {
+      x: anchor.x + basis.x,
+      y: anchor.y + basis.y,
+      z: (anchor.z ?? 0) + (basis.z ?? 0),
+    },
+    viewport,
   );
-  assert.equal(
-    getMaxVisibleZoom(detailBand.zoomLevel, detailBand.zoomRange),
-    4.5,
-    'Zoom bands should expose the upper visible bound.',
-  );
-  assert.equal(
-    isZoomVisible(3.49, detailBand.zoomLevel, detailBand.zoomRange),
-    false,
-    'Zoom bands should keep labels hidden before the reveal threshold.',
-  );
-  assert.equal(
-    isZoomVisible(3.5, detailBand.zoomLevel, detailBand.zoomRange),
-    true,
-    'Zoom bands should reveal labels at the threshold.',
-  );
-  assert.equal(
-    isZoomVisible(4.5, detailBand.zoomLevel, detailBand.zoomRange),
-    true,
-    'Zoom bands should remain visible through the upper threshold.',
-  );
-  assert.equal(
-    isZoomVisible(4.51, detailBand.zoomLevel, detailBand.zoomRange),
-    false,
-    'Zoom bands should hide labels once the zoom passes the upper threshold.',
-  );
+
+  return {
+    x: targetPoint.x - anchorPoint.x,
+    y: targetPoint.y - anchorPoint.y,
+  };
+}
+
+function screenVectorAlignment(left: ScreenPoint, right: ScreenPoint): number {
+  const normalizedLeft = normalizeScreenVector(left);
+  const normalizedRight = normalizeScreenVector(right);
+
+  return normalizedLeft.x * normalizedRight.x + normalizedLeft.y * normalizedRight.y;
+}
+
+function normalizeScreenVector(vector: ScreenPoint): ScreenPoint {
+  const length = Math.hypot(vector.x, vector.y);
+
+  if (length <= 0.0001) {
+    return {x: 0, y: 0};
+  }
+
+  return {
+    x: vector.x / length,
+    y: vector.y / length,
+  };
+}
+
+function isObliqueScreenSegment(start: ScreenPoint, end: ScreenPoint): boolean {
+  const deltaX = Math.abs(end.x - start.x);
+  const deltaY = Math.abs(end.y - start.y);
+
+  return deltaX > 0.01 && deltaY > 0.01;
+}
+
+function assertScreenPointClose(
+  actual: ScreenPoint,
+  expected: ScreenPoint,
+  message: string,
+): void {
   assert.ok(
-    Math.abs(getZoomScale(3.5, detailBand.zoomLevel, detailBand.zoomRange) - 2 ** -0.5) <= 0.0001,
-    'Zoom-band scaling should follow the relative zoom delta at the reveal edge.',
-  );
-  assert.equal(
-    getZoomScale(4, detailBand.zoomLevel, detailBand.zoomRange),
-    1,
-    'Zoom-band scaling should reach full size at the focal zoom.',
-  );
-  assert.equal(
-    getZoomOpacity(3.5, detailBand.zoomLevel, detailBand.zoomRange),
-    1,
-    'Zoom-band opacity should stay fully readable once the label has reached readable scale.',
-  );
-  assert.equal(
-    getZoomOpacity(4, detailBand.zoomLevel, detailBand.zoomRange),
-    1,
-    'Zoom-band opacity should reach full strength at the focal zoom.',
-  );
-  assert.ok(
-    getZoomScale(3.75, detailBand.zoomLevel, detailBand.zoomRange) > getZoomScale(3.5, detailBand.zoomLevel, detailBand.zoomRange) &&
-      getZoomScale(3.75, detailBand.zoomLevel, detailBand.zoomRange) < 1,
-    'Zoom-band scaling should grow smoothly between the reveal edge and the focal zoom.',
-  );
-  assert.ok(
-    getZoomOpacity(3.75, detailBand.zoomLevel, detailBand.zoomRange) >= MIN_ZOOM_OPACITY &&
-      getZoomOpacity(3.75, detailBand.zoomLevel, detailBand.zoomRange) <= 1,
-    'Zoom-band opacity should remain in a valid visible range while the label scales in.',
+    Math.abs(actual.x - expected.x) <= 0.0001 &&
+      Math.abs(actual.y - expected.y) <= 0.0001,
+    `${message} actual=(${actual.x}, ${actual.y}) expected=(${expected.x}, ${expected.y})`,
   );
 }
 
-function boxesOverlap(left: DemoLayoutNodeBox, right: DemoLayoutNodeBox): boolean {
-  const epsilon = 0.0001;
-
-  return (
-    left.minX < right.maxX - epsilon &&
-    left.maxX > right.minX + epsilon &&
-    left.minY < right.maxY - epsilon &&
-    left.maxY > right.minY + epsilon
+function assertWorldBoundsClose(
+  actual: ViewportBoundsLike,
+  expected: ViewportBoundsLike,
+  message: string,
+): void {
+  assert.ok(
+    Math.abs(actual.minX - expected.minX) <= 0.0001 &&
+      Math.abs(actual.maxX - expected.maxX) <= 0.0001 &&
+      Math.abs(actual.minY - expected.minY) <= 0.0001 &&
+      Math.abs(actual.maxY - expected.maxY) <= 0.0001,
+    `${message} actual=${JSON.stringify(actual)} expected=${JSON.stringify(expected)}`,
   );
 }
+
+function assertSceneVectorClose(
+  actual: {x: number; y: number; z: number},
+  expected: {x: number; y: number; z: number},
+  message: string,
+): void {
+  assert.ok(
+    Math.abs(actual.x - expected.x) <= 0.0001 &&
+      Math.abs(actual.y - expected.y) <= 0.0001 &&
+      Math.abs(actual.z - expected.z) <= 0.0001,
+    `${message} actual=${JSON.stringify(actual)} expected=${JSON.stringify(expected)}`,
+  );
+}
+
+type ViewportBoundsLike = {
+  maxX: number;
+  maxY: number;
+  minX: number;
+  minY: number;
+};

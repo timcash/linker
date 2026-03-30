@@ -1,5 +1,12 @@
 import type {CameraSnapshot} from './camera';
 import {
+  DEFAULT_STAGE_MODE,
+  isStageMode,
+  isWorkplaneId,
+  type StageMode,
+  type WorkplaneId,
+} from './plane-stack';
+import {
   DEFAULT_DEMO_LAYER_COUNT,
   DEFAULT_LAYOUT_STRATEGY,
   LAYOUT_STRATEGIES,
@@ -10,7 +17,7 @@ import {
 } from './data/labels';
 import {DEFAULT_BENCHMARK_LABEL_COUNT} from './data/static-benchmark';
 import {DEFAULT_LINE_STRATEGY, LINE_STRATEGIES, type LineStrategy} from './line/types';
-import {DEFAULT_TEXT_STRATEGY, TEXT_STRATEGIES, type TextStrategy} from './text/types';
+import {DEFAULT_TEXT_STRATEGY, type TextStrategy} from './text/types';
 
 export type LabelSetKind = 'demo' | 'benchmark';
 
@@ -27,6 +34,10 @@ export type StageConfig = {
   layoutStrategy: LayoutStrategy;
   labelTargetCount: number;
   lineStrategy: LineStrategy;
+  requestedSessionToken: string | null;
+  requestedStageMode: StageMode | null;
+  requestedWorkplaneId: WorkplaneId | null;
+  stageMode: StageMode;
   textStrategy: TextStrategy;
 };
 
@@ -37,6 +48,7 @@ export function readStageConfig(search: string): StageConfig {
   const labelSetKind: LabelSetKind = params.get('labelSet') === 'benchmark' ? 'benchmark' : 'demo';
   const layoutStrategy = parseLayoutStrategy(params.get('layoutStrategy'));
   const lineStrategy = parseLineStrategy(params.get('lineStrategy'));
+  const requestedStageMode = parseRequestedStageMode(params.get('stageMode'));
   const demoLayerCount = parseBoundedInteger(
     params.get('demoLayers'),
     DEFAULT_DEMO_LAYER_COUNT,
@@ -68,17 +80,18 @@ export function readStageConfig(search: string): StageConfig {
     layoutStrategy,
     labelTargetCount,
     lineStrategy,
+    requestedSessionToken: parseSessionToken(params.get('session')),
+    requestedStageMode,
+    requestedWorkplaneId: parseWorkplaneId(params.get('workplane')),
+    stageMode: requestedStageMode ?? DEFAULT_STAGE_MODE,
     textStrategy: parseTextStrategy(params.get('textStrategy')),
   };
 }
 
 export function syncStageTextStrategyQueryParam(textStrategy: TextStrategy): void {
+  void textStrategy;
   updateRouteSearchParams((searchParams) => {
-    if (textStrategy === DEFAULT_TEXT_STRATEGY) {
-      searchParams.delete('textStrategy');
-    } else {
-      searchParams.set('textStrategy', textStrategy);
-    }
+    searchParams.delete('textStrategy');
   });
 }
 
@@ -98,6 +111,37 @@ export function syncStageLayoutStrategyQueryParam(layoutStrategy: LayoutStrategy
       searchParams.delete('layoutStrategy');
     } else {
       searchParams.set('layoutStrategy', layoutStrategy);
+    }
+  });
+}
+
+export function syncStageModeQueryParam(stageMode: StageMode): void {
+  updateRouteSearchParams((searchParams) => {
+    if (stageMode === DEFAULT_STAGE_MODE) {
+      searchParams.delete('stageMode');
+    } else {
+      searchParams.set('stageMode', stageMode);
+    }
+  });
+}
+
+export function syncStageSessionQueryParam(sessionToken: string | null): void {
+  updateRouteSearchParams((searchParams) => {
+    if (!sessionToken) {
+      searchParams.delete('session');
+      return;
+    }
+
+    searchParams.set('session', sessionToken);
+  });
+}
+
+export function syncStageWorkplaneQueryParam(activeWorkplaneId: WorkplaneId): void {
+  updateRouteSearchParams((searchParams) => {
+    if (activeWorkplaneId === 'wp-1') {
+      searchParams.delete('workplane');
+    } else {
+      searchParams.set('workplane', activeWorkplaneId);
     }
   });
 }
@@ -126,7 +170,8 @@ export function syncStageDemoCameraQueryParams(labelKey: string, defaultLabelKey
 }
 
 function parseTextStrategy(value: string | null): TextStrategy {
-  return isTextStrategy(value) ? value : DEFAULT_TEXT_STRATEGY;
+  void value;
+  return DEFAULT_TEXT_STRATEGY;
 }
 
 function parseLineStrategy(value: string | null): LineStrategy {
@@ -135,6 +180,23 @@ function parseLineStrategy(value: string | null): LineStrategy {
 
 function parseLayoutStrategy(value: string | null): LayoutStrategy {
   return isLayoutStrategy(value) ? value : DEFAULT_LAYOUT_STRATEGY;
+}
+
+function parseRequestedStageMode(value: string | null): StageMode | null {
+  return isStageMode(value) ? value : null;
+}
+
+function parseWorkplaneId(value: string | null): WorkplaneId | null {
+  return isWorkplaneId(value) ? value : null;
+}
+
+function parseSessionToken(value: string | null): string | null {
+  if (!value) {
+    return null;
+  }
+
+  const sessionToken = value.trim();
+  return sessionToken.length > 0 ? sessionToken : null;
 }
 
 function parseBoundedInteger(
@@ -150,10 +212,6 @@ function parseBoundedInteger(
   }
 
   return Math.min(max, Math.max(min, parsed));
-}
-
-function isTextStrategy(value: string | null | undefined): value is TextStrategy {
-  return value !== null && value !== undefined && TEXT_STRATEGIES.some((strategy) => strategy === value);
 }
 
 function isLineStrategy(value: string | null | undefined): value is LineStrategy {

@@ -1,7 +1,8 @@
 import {Buffer, type Device} from '@luma.gl/core';
 import {GPUGeometry, Model} from '@luma.gl/engine';
 
-import {type Camera2D, type ScreenPoint, type ViewportSize} from '../camera';
+import {type ScreenPoint, type ViewportSize} from '../camera';
+import {type StageProjector} from '../projector';
 import type {LabelDefinition} from '../text/types';
 import {getZoomOpacity, isZoomVisible} from '../text/zoom';
 import {sampleLineCurve} from './curves';
@@ -10,7 +11,7 @@ import type {LinkDefinition, LineLayerStats, LineStrategy} from './types';
 
 const LINE_SHADER = /* wgsl */ `
 struct VertexInputs {
-  @location(0) position: vec2<f32>,
+  @location(0) position: vec3<f32>,
   @location(1) color: vec4<f32>
 }
 
@@ -22,7 +23,7 @@ struct FragmentInputs {
 @vertex
 fn vertexMain(inputs: VertexInputs) -> FragmentInputs {
   var outputs: FragmentInputs;
-  outputs.clipPosition = vec4<f32>(inputs.position, 0.0, 1.0);
+  outputs.clipPosition = vec4<f32>(inputs.position, 1.0);
   outputs.color = inputs.color;
   return outputs;
 }
@@ -38,6 +39,7 @@ fn fragmentMain(inputs: FragmentInputs) -> @location(0) vec4<f32> {
 `;
 
 const LINE_BLEND_PARAMETERS = {
+  depthCompare: 'less-equal',
   depthWriteEnabled: false,
   blend: true,
   blendColorOperation: 'add',
@@ -68,12 +70,18 @@ type LineMesh = {
 };
 
 type FocusedLinkState = 'dimmed' | 'input' | 'normal' | 'output';
+type ProjectedLinePoint = {
+  clipZ: number;
+  screen: ScreenPoint;
+};
 
 export class LineLayer {
   private positionBuffer;
   private colorBuffer;
   private model: Model;
   private capacity = 6;
+  private projectionFingerprint = '';
+  private activeLabelKey: string | null = null;
   private links: LinkDefinition[];
   private mode: LineStrategy;
   private stats: LineLayerStats;
@@ -88,7 +96,7 @@ export class LineLayer {
     this.positionBuffer = device.createBuffer({
       id: 'line-positions',
       usage: Buffer.VERTEX | Buffer.COPY_DST,
-      byteLength: this.capacity * 2 * Float32Array.BYTES_PER_ELEMENT,
+      byteLength: this.capacity * 3 * Float32Array.BYTES_PER_ELEMENT,
     });
     this.colorBuffer = device.createBuffer({
       id: 'line-colors',
@@ -125,6 +133,8 @@ export class LineLayer {
 
   setLinks(links: LinkDefinition[]): void {
     this.links = links;
+    this.projectionFingerprint = '';
+    this.activeLabelKey = null;
     this.stats = createEmptyLineLayerStats(this.links, this.mode);
   }
 
@@ -134,11 +144,25 @@ export class LineLayer {
     }
 
     this.mode = mode;
+    this.projectionFingerprint = '';
+    this.activeLabelKey = null;
     this.stats = createEmptyLineLayerStats(this.links, this.mode);
   }
 
-  update(camera: Camera2D, viewport: ViewportSize, activeLabel: LabelDefinition | null = null): void {
-    const mesh = buildLineMesh(this.links, this.mode, camera, viewport, activeLabel);
+  update(projector: StageProjector, viewport: ViewportSize, activeLabel: LabelDefinition | null = null): void {
+    const projectionFingerprint = projector.getProjectionFingerprint(viewport);
+    const activeLabelKey = activeLabel?.navigation?.key ?? null;
+
+    if (
+      projectionFingerprint === this.projectionFingerprint &&
+      activeLabelKey === this.activeLabelKey
+    ) {
+      return;
+    }
+
+    const mesh = buildLineMesh(this.links, this.mode, projector, viewport, activeLabel);
+    this.projectionFingerprint = projectionFingerprint;
+    this.activeLabelKey = activeLabelKey;
 
     if (mesh.vertexCount > this.capacity) {
       this.capacity = mesh.vertexCount;
@@ -148,7 +172,7 @@ export class LineLayer {
       this.positionBuffer = this.device.createBuffer({
         id: 'line-positions',
         usage: Buffer.VERTEX | Buffer.COPY_DST,
-        byteLength: this.capacity * 2 * Float32Array.BYTES_PER_ELEMENT,
+        byteLength: this.capacity * 3 * Float32Array.BYTES_PER_ELEMENT,
       });
       this.colorBuffer = this.device.createBuffer({
         id: 'line-colors',
@@ -176,7 +200,7 @@ export class LineLayer {
       topology: 'triangle-list',
       vertexCount,
       bufferLayout: [
-        {name: 'position', format: 'float32x2'},
+        {name: 'position', format: 'float32x3'},
         {name: 'color', format: 'float32x4'},
       ],
       attributes: {
@@ -190,7 +214,7 @@ export class LineLayer {
 function buildLineMesh(
   links: LinkDefinition[],
   mode: LineStrategy,
-  camera: Camera2D,
+  projector: StageProjector,
   viewport: ViewportSize,
   activeLabel: LabelDefinition | null,
 ): LineMesh {
@@ -209,11 +233,11 @@ function buildLineMesh(
   let visibleLinkCount = 0;
 
   for (const link of links) {
-    if (!isZoomVisible(camera.zoom, link.zoomLevel, link.zoomRange)) {
+    if (!isZoomVisible(projector.zoom, link.zoomLevel, link.zoomRange)) {
       continue;
     }
 
-    const alpha = link.color[3] * getZoomOpacity(camera.zoom, link.zoomLevel, link.zoomRange);
+    const alpha = link.color[3] * getZoomOpacity(projector.zoom, link.zoomLevel, link.zoomRange);
 
     if (alpha <= 0.01) {
       continue;
@@ -222,14 +246,18 @@ function buildLineMesh(
     const focusedLinkState = getFocusedLinkState(link, inputLinkKeys, outputLinkKeys, hasActiveLabel);
 
     const curvePoints = sampleLineCurve(link, mode, getLineSegmentCount(mode));
-    const screenPoints = curvePoints.map((point) => camera.worldToScreen(point, viewport));
+    const projectedPoints = curvePoints.map((point) => ({
+      clipZ: projector.projectWorldPointToClip(point, viewport).z,
+      screen: projector.projectWorldPoint(point, viewport),
+    }));
+    const screenPoints = projectedPoints.map((point) => point.screen);
 
     if (!curveTouchesViewport(screenPoints, viewport, link.lineWidth + VIEWPORT_PADDING)) {
       continue;
     }
 
     appendRibbonMesh(
-      screenPoints,
+      projectedPoints,
       link.lineWidth,
       getRenderedLinkColor(link.color, alpha, focusedLinkState),
       positions,
@@ -265,30 +293,32 @@ function buildLineMesh(
     highlightedInputLinkCount,
     highlightedOutputLinkCount,
     positions: new Float32Array(positions),
-    vertexCount: positions.length / 2,
+    vertexCount: positions.length / 3,
     visibleLinkCount,
   };
 }
 
 function appendRibbonMesh(
-  screenPoints: ScreenPoint[],
+  projectedPoints: ProjectedLinePoint[],
   lineWidth: number,
   color: [number, number, number, number],
   positions: number[],
   colors: number[],
   viewport: ViewportSize,
 ): void {
-  if (screenPoints.length < 2) {
+  if (projectedPoints.length < 2) {
     return;
   }
 
   const halfWidth = lineWidth * 0.5;
 
-  for (let pointIndex = 0; pointIndex < screenPoints.length - 1; pointIndex += 1) {
-    const start = screenPoints[pointIndex];
-    const end = screenPoints[pointIndex + 1];
+  for (let pointIndex = 0; pointIndex < projectedPoints.length - 1; pointIndex += 1) {
+    const startPoint = projectedPoints[pointIndex];
+    const endPoint = projectedPoints[pointIndex + 1];
+    const start = startPoint?.screen;
+    const end = endPoint?.screen;
 
-    if (!start || !end) {
+    if (!start || !end || !startPoint || !endPoint) {
       continue;
     }
 
@@ -321,18 +351,12 @@ function appendRibbonMesh(
     );
 
     positions.push(
-      startLeft.x,
-      startLeft.y,
-      startRight.x,
-      startRight.y,
-      endLeft.x,
-      endLeft.y,
-      endLeft.x,
-      endLeft.y,
-      startRight.x,
-      startRight.y,
-      endRight.x,
-      endRight.y,
+      startLeft.x, startLeft.y, startPoint.clipZ,
+      startRight.x, startRight.y, startPoint.clipZ,
+      endLeft.x, endLeft.y, endPoint.clipZ,
+      endLeft.x, endLeft.y, endPoint.clipZ,
+      startRight.x, startRight.y, startPoint.clipZ,
+      endRight.x, endRight.y, endPoint.clipZ,
     );
     colors.push(...color, ...color, ...color, ...color, ...color, ...color);
   }
@@ -383,7 +407,7 @@ function createCurveFingerprint(positions: number[]): string {
   let minY = Number.POSITIVE_INFINITY;
   let maxY = Number.NEGATIVE_INFINITY;
 
-  for (let index = 0; index < positions.length; index += 2) {
+  for (let index = 0; index < positions.length; index += 3) {
     const x = positions[index] ?? 0;
     const y = positions[index + 1] ?? 0;
     const weight = index + 1;
@@ -396,7 +420,7 @@ function createCurveFingerprint(positions: number[]): string {
   }
 
   return [
-    positions.length / 2,
+    positions.length / 3,
     weightedX.toFixed(3),
     weightedY.toFixed(3),
     minX.toFixed(3),

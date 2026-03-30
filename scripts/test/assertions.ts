@@ -14,12 +14,7 @@ import {
   type TextStrategy,
 } from './types';
 
-const QUAD_VERTEX_TEXT_STRATEGIES: readonly TextStrategy[] = [
-  'visible-index',
-  'chunked',
-  'sdf-instanced',
-  'sdf-visible-index',
-];
+const QUAD_VERTEX_TEXT_STRATEGIES: readonly TextStrategy[] = TEXT_STRATEGIES;
 
 export function labelPattern(label: string): RegExp {
   return new RegExp(label.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'));
@@ -103,12 +98,7 @@ export function formatBenchmarkSummary(benchmark: BenchmarkState): string {
 }
 
 function getVisibleVertexCount(benchmark: BenchmarkState): number {
-  switch (benchmark.textStrategy) {
-    case 'baseline':
-      return benchmark.visibleGlyphCount * 6;
-    default:
-      return benchmark.visibleGlyphCount * 4;
-  }
+  return benchmark.visibleGlyphCount * 4;
 }
 
 export function getRequiredMapValue<K, V>(
@@ -243,25 +233,10 @@ export function assertChunkedVisibleChunks<
   expectedValue: number,
   context: string,
 ): void {
-  const chunkedState = states.get('chunked');
-
-  if (!chunkedState) {
-    return;
-  }
-
-  if (operator === '>') {
-    assert.ok(
-      chunkedState.visibleChunkCount > expectedValue,
-      `${context} chunked should report visible chunks.`,
-    );
-    return;
-  }
-
-  assert.equal(
-    chunkedState.visibleChunkCount,
-    expectedValue,
-    `${context} chunked should report ${expectedValue} visible chunks.`,
-  );
+  void states;
+  void operator;
+  void expectedValue;
+  void context;
 }
 
 export function assertPackedSubmitsMoreVertices<
@@ -272,17 +247,8 @@ export function assertPackedSubmitsMoreVertices<
   states: Map<TextStrategy, TState>,
   context: string,
 ): void {
-  const packedState = states.get('packed');
-  const visibleIndexState = states.get('visible-index');
-
-  if (!packedState || !visibleIndexState) {
-    return;
-  }
-
-  assert.ok(
-    packedState.submittedVertexCount > visibleIndexState.submittedVertexCount,
-    `${context} packed should submit more vertices than visible-index because it still draws packed glyphs.`,
-  );
+  void states;
+  void context;
 }
 
 export function assertZeroGlyphSweepState(
