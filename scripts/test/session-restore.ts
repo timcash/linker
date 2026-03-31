@@ -19,7 +19,9 @@ export async function runSessionRestoreFlow(
   context: BrowserTestContext,
 ): Promise<void> {
   const seededSession = createPreparedTwoWorkplaneSessionRecord('stk-session-restore');
-  await openPersistedSessionRoute(context.page, context.url, seededSession);
+  await openPersistedSessionRoute(context.page, context.url, seededSession, {
+    historyTrackingEnabled: true,
+  });
 
   const routeState = await getStageRouteState(context.page);
   assert.equal(
@@ -33,7 +35,9 @@ export async function runSessionRestoreFlow(
   await waitForPersistedStageSession(context.page, seededSession.sessionToken);
 
   const persistedUrl = await context.page.evaluate(() => window.location.href);
-  await openPersistedSessionRoute(context.page, persistedUrl, seededSession);
+  await openPersistedSessionRoute(context.page, persistedUrl, seededSession, {
+    historyTrackingEnabled: true,
+  });
 
   assert.equal(
     (await getStageState(context.page)).planeCount,
@@ -64,6 +68,7 @@ export async function runSessionRestoreFlow(
   const historyOverrideUrl = new URL(persistedUrl);
   historyOverrideUrl.searchParams.set('history', '0');
   await openPersistedSessionRoute(context.page, historyOverrideUrl.toString(), seededSession, {
+    historyTrackingEnabled: true,
     historyStep: 0,
   });
   assert.equal(
@@ -76,6 +81,7 @@ export async function runSessionRestoreFlow(
   workplaneOverrideUrl.searchParams.delete('history');
   workplaneOverrideUrl.searchParams.set('workplane', 'wp-1');
   await openPersistedSessionRoute(context.page, workplaneOverrideUrl.toString(), seededSession, {
+    historyTrackingEnabled: true,
     historyStep: null,
     workplaneId: 'wp-1',
   });

@@ -449,6 +449,7 @@ export async function openPersistedSessionRoute(
   baseUrl: string,
   record: PersistedStageSessionRecord,
   options?: {
+    historyTrackingEnabled?: boolean;
     historyStep?: number | null;
     stageMode?: StageMode | null;
     workplaneId?: WorkplaneId | null;
@@ -458,6 +459,12 @@ export async function openPersistedSessionRoute(
 
   const url = new URL(baseUrl);
   url.searchParams.set('session', record.sessionToken);
+
+  if (options?.historyTrackingEnabled) {
+    url.searchParams.set('historyTracking', '1');
+  } else {
+    url.searchParams.delete('historyTracking');
+  }
 
   if (options && 'historyStep' in options) {
     if (options.historyStep === null) {

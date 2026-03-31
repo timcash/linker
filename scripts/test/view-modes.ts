@@ -30,6 +30,7 @@ export async function runViewModesFlow(
 ): Promise<void> {
   const seededSession = createPreparedTwoWorkplaneSessionRecord('stk-view-modes');
   await openPersistedSessionRoute(context.page, context.url, seededSession, {
+    historyTrackingEnabled: true,
     workplaneId: 'wp-1',
   });
 

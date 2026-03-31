@@ -179,7 +179,7 @@ function buildScenarioUrl(
   url.searchParams.set('cameraLabel', PLANE_FOCUS_HIGH_ZOOM_START_LABEL);
 
   if (options.historyTrackingEnabled) {
-    url.searchParams.delete('historyTracking');
+    url.searchParams.set('historyTracking', '1');
   } else {
     url.searchParams.set('historyTracking', '0');
   }
