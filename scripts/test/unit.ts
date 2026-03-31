@@ -34,6 +34,13 @@ import {
   type WorkplaneId,
 } from '../../src/plane-stack';
 import {
+  appendStageHistoryCheckpoint,
+  appendStageHistoryView,
+  createStageHistoryState,
+  moveStageHistoryCursor,
+  replayStageHistoryToStep,
+} from '../../src/stage-history';
+import {
   PlaneFocusProjector,
   StackCameraProjector,
   type StageProjector,
@@ -73,6 +80,7 @@ import {
 
 export function runStaticUnitTests(): void {
   runRouteAndSessionTests();
+  runStageHistoryTests();
   runPlaneStackStateTests();
   runCameraAndProjectionTests();
   runLayoutAndLinkTests();
@@ -272,6 +280,91 @@ function runPlaneStackStateTests(): void {
   assert.equal(getPlaneCount(cappedState), MAX_WORKPLANE_COUNT, 'The plane stack should stop at the hard cap.');
   assert.equal(canSpawnWorkplane(cappedState), false, 'The hard cap should block further spawns.');
   assert.equal(spawnWorkplaneAfterActive(cappedState), cappedState, 'Spawning at the cap should no-op.');
+}
+
+function runStageHistoryTests(): void {
+  const scene = createStageScene({
+    demoLayerCount: 12,
+    labelSetKind: 'demo',
+    labelTargetCount: DEMO_LABEL_COUNT,
+    layoutStrategy: 'flow-columns',
+  });
+  const initialState = createStageSystemState(scene, {
+    initialCameraLabel: '2:2:1',
+    stageMode: '2d-mode',
+  });
+  const movedPlaneFocusState = replaceWorkplaneView(initialState, INITIAL_WORKPLANE_ID, {
+    selectedLabelKey: '3:3:1',
+    camera: {centerX: 24, centerY: 18, zoom: 3},
+  });
+  const spawnedState = spawnWorkplaneAfterActive(movedPlaneFocusState);
+  const orbitedState = {
+    ...spawnedState,
+    session: {
+      ...spawnedState.session,
+      stackCamera: orbitStackCamera(DEFAULT_STACK_CAMERA_STATE, Math.PI / 5, -Math.PI / 16),
+      stageMode: '3d-mode' as const,
+    },
+  };
+
+  let history = createStageHistoryState(initialState);
+  history = appendStageHistoryView(history, movedPlaneFocusState, 'Move plane-focus camera');
+  history = appendStageHistoryCheckpoint(history, spawnedState, 'Spawn workplane');
+  history = appendStageHistoryView(history, orbitedState, 'Orbit stack camera');
+
+  const dedupedHistory = appendStageHistoryView(history, orbitedState, 'Orbit stack camera');
+  assert.equal(
+    dedupedHistory.headStep,
+    history.headStep,
+    'Identical history view samples should be deduplicated.',
+  );
+
+  const spawnedReplayHistory = moveStageHistoryCursor(history, 2);
+  const spawnedReplayState = replayStageHistoryToStep(
+    spawnedReplayHistory,
+    spawnedReplayHistory.cursorStep,
+  );
+  assert.equal(
+    spawnedReplayState.session.activeWorkplaneId,
+    'wp-2',
+    'Checkpoint replay should restore the spawned active workplane.',
+  );
+  assert.equal(
+    spawnedReplayState.session.stageMode,
+    '2d-mode',
+    'Checkpoint replay should restore the stage mode stored in the checkpoint.',
+  );
+  assert.deepEqual(
+    spawnedReplayState.session.workplaneViewsById['wp-2']?.camera,
+    spawnedState.session.workplaneViewsById['wp-2']?.camera,
+    'Checkpoint replay should restore the active workplane camera memory.',
+  );
+
+  const orbitedReplayHistory = moveStageHistoryCursor(history, 3);
+  const orbitedReplayState = replayStageHistoryToStep(
+    orbitedReplayHistory,
+    orbitedReplayHistory.cursorStep,
+  );
+  assert.equal(
+    orbitedReplayState.session.stageMode,
+    '3d-mode',
+    'View replay should restore the stored stack-view mode.',
+  );
+  assert.equal(
+    orbitedReplayState.session.activeWorkplaneId,
+    'wp-2',
+    'View replay should restore the active workplane referenced by the view sample.',
+  );
+  assert.equal(
+    orbitedReplayState.session.stackCamera.azimuthRadians,
+    orbitedState.session.stackCamera.azimuthRadians,
+    'View replay should restore the stack-camera azimuth.',
+  );
+  assert.equal(
+    orbitedReplayState.session.stackCamera.elevationRadians,
+    orbitedState.session.stackCamera.elevationRadians,
+    'View replay should restore the stack-camera elevation.',
+  );
 }
 
 function runCameraAndProjectionTests(): void {

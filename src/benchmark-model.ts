@@ -143,7 +143,9 @@ export function createStageBenchmarkDatasets(input: {
 
 export function writeStageBenchmarkDatasets(datasets: Record<string, string>): void {
   for (const [key, value] of Object.entries(datasets)) {
-    document.body.dataset[key] = value;
+    if (document.body.dataset[key] !== value) {
+      document.body.dataset[key] = value;
+    }
   }
 }
 

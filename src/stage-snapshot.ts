@@ -24,6 +24,8 @@ export type StageSnapshot = {
   statsText: string;
 };
 
+const layoutFingerprintCache = new WeakMap<StageScene['labels'], string>();
+
 export function createStageSnapshot(input: {
   activeLabelNode: LabelNavigationNode | null;
   activeWorkplaneIndex: number;
@@ -301,6 +303,12 @@ function formatVisibleLabelSample(visibleLabels: string[], visibleLabelCount: nu
 }
 
 function getLayoutFingerprint(labels: StageScene['labels']): string {
+  const cachedFingerprint = layoutFingerprintCache.get(labels);
+
+  if (cachedFingerprint !== undefined) {
+    return cachedFingerprint;
+  }
+
   let weightedX = 0;
   let weightedY = 0;
   let minX = Number.POSITIVE_INFINITY;
@@ -318,7 +326,7 @@ function getLayoutFingerprint(labels: StageScene['labels']): string {
     maxY = Math.max(maxY, label.location.y);
   });
 
-  return [
+  const fingerprint = [
     labels.length,
     weightedX.toFixed(3),
     weightedY.toFixed(3),
@@ -327,6 +335,10 @@ function getLayoutFingerprint(labels: StageScene['labels']): string {
     minY.toFixed(3),
     maxY.toFixed(3),
   ].join(':');
+
+  layoutFingerprintCache.set(labels, fingerprint);
+
+  return fingerprint;
 }
 
 function getTextStrategyLabel(textStrategy: TextStrategy): string {

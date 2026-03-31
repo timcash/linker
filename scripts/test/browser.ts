@@ -598,6 +598,20 @@ export async function pressNavigationKey(
   await waitForBrowserUpdate(page);
 }
 
+export async function pressHistoryKey(
+  page: Page,
+  action: 'history-back' | 'history-forward',
+): Promise<void> {
+  await page.evaluate(() => {
+    if (document.activeElement instanceof HTMLElement) {
+      document.activeElement.blur();
+    }
+  });
+
+  await page.keyboard.press(action === 'history-back' ? 'Comma' : 'Period');
+  await waitForBrowserUpdate(page);
+}
+
 export async function pressPlaneStackKey(
   page: Page,
   action:

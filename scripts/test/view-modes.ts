@@ -8,6 +8,7 @@ import {
   getStageState,
   getTextState,
   openRoute,
+  pressHistoryKey,
   pressNavigationKey,
   pressPlaneStackKey,
   pressStageModeKey,
@@ -124,6 +125,45 @@ export async function runViewModesFlow(
     draggedStackCamera.canReset,
     true,
     'Orbiting away from the default stack-camera should enable reset.',
+  );
+
+  await pressHistoryKey(context.page, 'history-back');
+  const rewoundStackStage = await getStageState(context.page);
+  const rewoundStackCamera = await getCameraState(context.page);
+
+  assert.equal(
+    rewoundStackStage.stageMode,
+    '3d-mode',
+    'History back should keep the stack-view mode when rewinding a stack-camera view sample.',
+  );
+  assert.equal(
+    rewoundStackStage.activeWorkplaneId,
+    'wp-2',
+    'History back should keep the active workplane when rewinding a stack-camera view sample.',
+  );
+  assert.equal(
+    rewoundStackCamera.stackCameraAzimuth,
+    stackCamera.stackCameraAzimuth,
+    'History back should restore the pre-drag stack-camera azimuth.',
+  );
+  assert.equal(
+    rewoundStackCamera.stackCameraElevation,
+    stackCamera.stackCameraElevation,
+    'History back should restore the pre-drag stack-camera elevation.',
+  );
+
+  await pressHistoryKey(context.page, 'history-forward');
+  const replayedStackCamera = await getCameraState(context.page);
+
+  assert.equal(
+    replayedStackCamera.stackCameraAzimuth,
+    draggedStackCamera.stackCameraAzimuth,
+    'History forward should restore the dragged stack-camera azimuth.',
+  );
+  assert.equal(
+    replayedStackCamera.stackCameraElevation,
+    draggedStackCamera.stackCameraElevation,
+    'History forward should restore the dragged stack-camera elevation.',
   );
 
   await pressNavigationKey(context.page, 'ArrowRight');

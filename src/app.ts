@@ -50,6 +50,16 @@ import {
   type WorkplaneCameraView,
 } from './plane-stack';
 import {
+  appendStageHistoryCheckpoint,
+  appendStageHistoryView,
+  canStageHistoryGoBack,
+  canStageHistoryGoForward,
+  createStageHistoryState,
+  moveStageHistoryCursor,
+  replayStageHistoryToStep,
+  type StageHistoryState,
+} from './stage-history';
+import {
   createDemoStageScene,
   type StageScene,
 } from './scene-model';
@@ -158,6 +168,7 @@ const QUAD_UVS = new Float32Array([
 
 const DEMO_DEEP_ZOOM_STEP = 1;
 const SESSION_SAVE_DEBOUNCE_MS = 0;
+const STACK_CAMERA_HISTORY_SETTLE_MS = 250;
 const STACK_CAMERA_CONTROL_AZIMUTH_STEP_RADIANS = Math.PI / 18;
 const STACK_CAMERA_CONTROL_ELEVATION_STEP_RADIANS = Math.PI / 24;
 const STACK_CAMERA_DRAG_RADIANS_PER_PIXEL = 0.0055;
@@ -169,6 +180,7 @@ const MAX_RENDER_FRAME_DELTA_MS = 33.34;
 type AppState = 'loading' | 'ready' | 'unsupported' | 'error';
 
 type ControlAction = LabelFocusedCameraAction;
+type HistoryAction = 'history-back' | 'history-forward';
 type StageModeAction = 'toggle-stage-mode';
 type WorkplaneAction =
   | 'delete-active-workplane'
@@ -219,6 +231,7 @@ class LumaStageController {
   private benchmarkSummary: StageBenchmarkSummary | null = null;
   private frameTelemetry: FrameTelemetry | null = null;
   private gridLayer: GridLayer | null = null;
+  private history: StageHistoryState;
   private labelFocusedCamera: LabelFocusedCameraState | null = null;
   private lineLayer: LineLayer | null = null;
   private state: StageSystemState;
@@ -247,6 +260,8 @@ class LumaStageController {
   private readonly sessionToken: SessionToken;
   private sessionSaveTimeoutId: number | null = null;
   private sessionSaveQueue = Promise.resolve();
+  private stackCameraHistoryTimeoutId: number | null = null;
+  private suppressHistoryRecording = false;
   private textStrategy: TextStrategy;
   private workplaneSyncGeneration = 0;
   private workplaneSyncPending = false;
@@ -259,6 +274,7 @@ class LumaStageController {
     strategyPanelMode: StrategyPanelMode,
   ) {
     this.state = initialState;
+    this.history = createStageHistoryState(initialState);
     this.scene = getActiveWorkplaneDocument(initialState).scene;
     const stackViewState = createStackViewState(initialState);
     this.renderScene =
@@ -285,6 +301,7 @@ class LumaStageController {
       initialView.camera.centerY,
       initialView.camera.zoom,
     );
+    this.syncHistorySnapshot();
   }
 
   async start(): Promise<void> {
@@ -377,6 +394,10 @@ class LumaStageController {
     if (this.sessionSaveTimeoutId !== null) {
       window.clearTimeout(this.sessionSaveTimeoutId);
       this.sessionSaveTimeoutId = null;
+    }
+    if (this.stackCameraHistoryTimeoutId !== null) {
+      window.clearTimeout(this.stackCameraHistoryTimeoutId);
+      this.stackCameraHistoryTimeoutId = null;
     }
     cancelAnimationFrame(this.frameId);
     this.removeInteractionHandlers();
@@ -535,6 +556,7 @@ class LumaStageController {
       this.state = this.captureActiveWorkplaneRuntimeState(this.state);
       this.syncCurrentCameraQueryParams();
       this.scheduleSessionSnapshotSave();
+      this.recordStageHistoryView('Move plane-focus camera');
       this.requestRender();
     }
 
@@ -691,12 +713,19 @@ class LumaStageController {
         break;
     }
 
-    return this.applyStackCameraState(nextStackCamera, {persist: true});
+    const changed = this.applyStackCameraState(nextStackCamera, {persist: true});
+
+    if (changed) {
+      this.scheduleStackCameraHistoryView('Adjust stack camera');
+    }
+
+    return changed;
   }
 
   private applyStackCameraOrbitDelta(
     deltaAzimuthRadians: number,
     deltaElevationRadians: number,
+    options?: {syncUi?: boolean},
   ): boolean {
     return this.applyStackCameraState(
       orbitStackCamera(
@@ -704,12 +733,13 @@ class LumaStageController {
         deltaAzimuthRadians,
         deltaElevationRadians,
       ),
+      options,
     );
   }
 
   private applyStackCameraZoomFactor(
     factor: number,
-    options?: {persist?: boolean},
+    options?: {persist?: boolean; syncUi?: boolean},
   ): boolean {
     return this.applyStackCameraState(
       scaleStackCameraDistance(this.state.session.stackCamera, factor),
@@ -719,7 +749,7 @@ class LumaStageController {
 
   private applyStackCameraState(
     nextStackCamera: StackCameraState | null,
-    options?: {persist?: boolean},
+    options?: {persist?: boolean; syncUi?: boolean},
   ): boolean {
     if (!nextStackCamera) {
       return false;
@@ -742,8 +772,10 @@ class LumaStageController {
       this.scheduleSessionSnapshotSave();
     }
 
-    this.updateCameraPanel();
-    this.updateStatus();
+    if (options?.syncUi !== false) {
+      this.updateCameraPanel();
+      this.updateStatus();
+    }
     this.requestRender();
 
     return true;
@@ -907,6 +939,7 @@ class LumaStageController {
       forceLabelInput: true,
       syncQuery: true,
     });
+    this.recordStageHistoryCheckpoint(getWorkplaneHistorySummary(action), nextState);
   }
 
   private getViewportSize(): ViewportSize {
@@ -963,6 +996,14 @@ class LumaStageController {
       return;
     }
 
+    const historyAction = getKeyboardHistoryAction(event);
+
+    if (historyAction) {
+      event.preventDefault();
+      this.applyHistoryAction(historyAction);
+      return;
+    }
+
     const action = getKeyboardControlAction(event);
 
     if (!action) {
@@ -991,6 +1032,7 @@ class LumaStageController {
       clientY: event.clientY,
       pointerId: event.pointerId,
     };
+    this.clearPendingStackCameraHistoryView();
     this.chrome.canvas.setPointerCapture?.(event.pointerId);
     event.preventDefault();
   };
@@ -1023,6 +1065,7 @@ class LumaStageController {
     this.applyStackCameraOrbitDelta(
       -deltaX * STACK_CAMERA_DRAG_RADIANS_PER_PIXEL,
       deltaY * STACK_CAMERA_DRAG_RADIANS_PER_PIXEL,
+      {syncUi: false},
     );
     event.preventDefault();
   };
@@ -1034,7 +1077,10 @@ class LumaStageController {
 
     this.stackCameraDrag = null;
     this.chrome.canvas.releasePointerCapture?.(event.pointerId);
+    this.updateCameraPanel();
+    this.updateStatus();
     this.scheduleSessionSnapshotSave();
+    this.recordStageHistoryView('Orbit stack camera');
   };
 
   private handleCanvasWheel = (event: WheelEvent): void => {
@@ -1052,6 +1098,7 @@ class LumaStageController {
     const zoomFactor = 2 ** (event.deltaY * STACK_CAMERA_WHEEL_ZOOM_EXPONENT);
 
     if (this.applyStackCameraZoomFactor(zoomFactor, {persist: true})) {
+      this.scheduleStackCameraHistoryView('Zoom stack camera');
       event.preventDefault();
     }
   };
@@ -1223,6 +1270,7 @@ class LumaStageController {
     this.syncLabelInputPanel({forceValue: true});
     this.updateStatus();
     this.scheduleSessionSnapshotSave();
+    this.recordStageHistoryCheckpoint('Change layout strategy');
     this.requestRender();
   }
 
@@ -1545,6 +1593,7 @@ class LumaStageController {
       this.syncLabelInputPanel({forceValue: true});
       this.updateStatus();
       this.scheduleSessionSnapshotSave();
+      this.recordStageHistoryCheckpoint('Edit label text');
       this.requestRender();
     } catch (error) {
       label.text = previousText;
@@ -1583,6 +1632,38 @@ class LumaStageController {
       forceLabelInput: true,
       syncQuery: true,
     });
+    this.recordStageHistoryCheckpoint('Toggle stage mode', nextState);
+  }
+
+  private applyHistoryAction(action: HistoryAction): void {
+    if (this.workplaneSyncPending || this.labelInputPending) {
+      return;
+    }
+
+    const nextStep =
+      action === 'history-back' ? this.history.cursorStep - 1 : this.history.cursorStep + 1;
+    const nextHistory = moveStageHistoryCursor(this.history, nextStep);
+
+    if (nextHistory.cursorStep === this.history.cursorStep) {
+      return;
+    }
+
+    this.clearPendingStackCameraHistoryView();
+    this.history = nextHistory;
+    this.syncHistorySnapshot();
+
+    const replayState = replayStageHistoryToStep(this.history, this.history.cursorStep);
+
+    this.suppressHistoryRecording = true;
+
+    try {
+      this.applyStageSystemState(replayState, {
+        forceLabelInput: true,
+        syncQuery: true,
+      });
+    } finally {
+      this.suppressHistoryRecording = false;
+    }
   }
 
   private applyStageSystemState(
@@ -1794,6 +1875,78 @@ class LumaStageController {
     }
   }
 
+  private clearPendingStackCameraHistoryView(): void {
+    if (this.stackCameraHistoryTimeoutId === null) {
+      return;
+    }
+
+    window.clearTimeout(this.stackCameraHistoryTimeoutId);
+    this.stackCameraHistoryTimeoutId = null;
+  }
+
+  private scheduleStackCameraHistoryView(summary: string): void {
+    if (!this.isHistoryRecordingEnabled()) {
+      return;
+    }
+
+    this.clearPendingStackCameraHistoryView();
+    this.stackCameraHistoryTimeoutId = window.setTimeout(() => {
+      this.stackCameraHistoryTimeoutId = null;
+      this.recordStageHistoryView(summary);
+    }, STACK_CAMERA_HISTORY_SETTLE_MS);
+  }
+
+  private recordStageHistoryCheckpoint(
+    summary: string,
+    state?: StageSystemState,
+  ): void {
+    if (!this.isHistoryRecordingEnabled()) {
+      return;
+    }
+
+    this.clearPendingStackCameraHistoryView();
+    this.history = appendStageHistoryCheckpoint(
+      this.history,
+      state ?? this.captureHistoryState(),
+      summary,
+    );
+    this.syncHistorySnapshot();
+  }
+
+  private recordStageHistoryView(summary: string, state?: StageSystemState): void {
+    if (!this.isHistoryRecordingEnabled()) {
+      return;
+    }
+
+    this.history = appendStageHistoryView(
+      this.history,
+      state ?? this.captureHistoryState(),
+      summary,
+    );
+    this.syncHistorySnapshot();
+  }
+
+  private captureHistoryState(): StageSystemState {
+    this.state = this.captureActiveWorkplaneRuntimeState(this.state);
+    return this.state;
+  }
+
+  private isHistoryRecordingEnabled(): boolean {
+    return (
+      !this.destroyed &&
+      !this.suppressHistoryRecording &&
+      !this.benchmarkStarted &&
+      document.body.dataset.benchmarkState !== 'running'
+    );
+  }
+
+  private syncHistorySnapshot(): void {
+    document.body.dataset.historyCanGoBack = String(canStageHistoryGoBack(this.history));
+    document.body.dataset.historyCanGoForward = String(canStageHistoryGoForward(this.history));
+    document.body.dataset.historyCursorStep = String(this.history.cursorStep);
+    document.body.dataset.historyHeadStep = String(this.history.headStep);
+  }
+
   private getEffectiveCameraAvailability() {
     if (this.state.session.stageMode === '3d-mode') {
       const stackCamera = this.state.session.stackCamera;
@@ -1911,6 +2064,18 @@ function isStrategyPanelMode(value: string | null | undefined): value is Strateg
   return value === 'text' || value === 'line' || value === 'layout' || value === 'label-edit';
 }
 
+function getKeyboardHistoryAction(event: KeyboardEvent): HistoryAction | null {
+  if (event.code === 'Comma') {
+    return 'history-back';
+  }
+
+  if (event.code === 'Period') {
+    return 'history-forward';
+  }
+
+  return null;
+}
+
 function getKeyboardStageModeAction(event: KeyboardEvent): StageModeAction | null {
   return event.code === 'Slash' ? 'toggle-stage-mode' : null;
 }
@@ -2004,6 +2169,21 @@ function reduceWorkplaneAction(
       return spawnWorkplaneAfterActive(state);
     default:
       return state;
+  }
+}
+
+function getWorkplaneHistorySummary(action: WorkplaneAction): string {
+  switch (action) {
+    case 'delete-active-workplane':
+      return 'Delete workplane';
+    case 'select-next-workplane':
+      return 'Select next workplane';
+    case 'select-previous-workplane':
+      return 'Select previous workplane';
+    case 'spawn-workplane':
+      return 'Spawn workplane';
+    default:
+      return 'Change workplane';
   }
 }
 

@@ -3,3 +3,4 @@ error.log
 dist
 node_modules
 vite.dev.log
+artifacts
