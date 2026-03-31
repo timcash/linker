@@ -314,6 +314,21 @@ export async function getBenchmarkState(page: Page): Promise<BenchmarkState> {
   }));
 }
 
+export async function waitForBenchmarkResult(
+  page: Page,
+  options?: {timeoutMs?: number},
+): Promise<BenchmarkState> {
+  await page.waitForFunction(
+    () => {
+      const state = document.body.dataset.benchmarkState;
+      return state === 'complete' || state === 'error';
+    },
+    {timeout: options?.timeoutMs ?? 60_000},
+  );
+  await waitForBrowserUpdate(page);
+  return getBenchmarkState(page);
+}
+
 export async function openRoute(page: Page, url: string): Promise<void> {
   await page.goto(url, {waitUntil: 'load'});
   await waitForAppDatasets(page);

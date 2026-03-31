@@ -6,6 +6,8 @@ import {
   destroyBrowserTestContext,
   runStaticUnitTests,
 } from './test/setup';
+import {runBenchmarkFlow} from './test/benchmark';
+import {createTestPerformanceCollector} from './test/performance';
 import {runBootFlow} from './test/boot';
 import {runSessionRestoreFlow} from './test/session-restore';
 import {runStackOrbitCoverageFlow} from './test/stack-orbit-coverage';
@@ -18,9 +20,11 @@ import {
 
 const logPath = path.resolve(process.cwd(), 'test.log');
 const errorLogPath = path.resolve(process.cwd(), 'error.log');
+const performanceCollector = createTestPerformanceCollector();
 
 let context: BrowserTestContext | undefined;
 let testError: Error | undefined;
+let performanceSummaryReported = false;
 
 try {
   if (process.env.LINKER_APPEND_TEST_LOG !== '1') {
@@ -40,9 +44,11 @@ try {
     await runSessionRestoreFlow(context);
     await runViewModesFlow(context);
     await runStackOrbitCoverageFlow(context);
+    await runBenchmarkFlow(context, performanceCollector);
   }
 
   if (context) {
+    reportPerformanceSummary(context);
     await context.flushErrorLog();
   }
   if (await hasUnexpectedErrorLogEntries()) {
@@ -61,6 +67,9 @@ try {
     await appendFile(errorLogPath, `${formatErrorLogLine(testError.stack ?? testError.message)}\n`, 'utf8');
   }
 } finally {
+  if (context && testError) {
+    reportPerformanceSummary(context);
+  }
   if (context) {
     await destroyBrowserTestContext(context);
   }
@@ -89,4 +98,21 @@ function getUnexpectedErrorLogLines(contents: string): string[] {
 
 function formatErrorLogLine(message: string): string {
   return message.replace(/\r?\n/g, '\\n');
+}
+
+function reportPerformanceSummary(context: BrowserTestContext): void {
+  if (performanceSummaryReported) {
+    return;
+  }
+
+  performanceSummaryReported = true;
+
+  if (performanceCollector.hasEntries()) {
+    context.addBrowserLog('perf.report', 'Collected benchmark performance summary.');
+  }
+
+  for (const line of performanceCollector.formatReportLines()) {
+    console.log(line);
+    context.addBrowserLog('perf.report', line);
+  }
 }
