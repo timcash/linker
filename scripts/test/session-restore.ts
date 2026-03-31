@@ -30,7 +30,8 @@ export async function runSessionRestoreFlow(
     'Session restore should expose the seeded session token in the route.',
   );
   assert.ok(routeState.historyStep !== null, 'Session restore should expose a persisted history step in the route.');
-  assert.equal(routeState.workplaneId, 'wp-2', 'The route should mirror the active workplane before reload.');
+  assert.equal(routeState.workplaneId, null, 'The route should keep workplane selection out of the URL.');
+  assert.equal(routeState.stageMode, null, 'The route should keep stage mode out of the URL.');
 
   await waitForPersistedStageSession(context.page, seededSession.sessionToken);
 
@@ -77,24 +78,9 @@ export async function runSessionRestoreFlow(
     'A persisted history route should restore the requested opening history step.',
   );
 
-  const workplaneOverrideUrl = new URL(persistedUrl);
-  workplaneOverrideUrl.searchParams.delete('history');
-  workplaneOverrideUrl.searchParams.set('workplane', 'wp-1');
-  await openPersistedSessionRoute(context.page, workplaneOverrideUrl.toString(), seededSession, {
-    historyTrackingEnabled: true,
-    historyStep: null,
-    workplaneId: 'wp-1',
-  });
-  assert.equal(
-    (await getCameraState(context.page)).label,
-    '2:2:1',
-    'A persisted session route should still honor an explicit workplane override.',
-  );
-  assert.equal(
-    (await readLabelEditInputState(context)).value,
-    'Alpha',
-    'A persisted session route should restore the overridden workplane label edits.',
-  );
+  const latestRoute = await getStageRouteState(context.page);
+  assert.equal(latestRoute.workplaneId, null, 'Reloaded session routes should continue to omit workplane state.');
+  assert.equal(latestRoute.stageMode, null, 'Reloaded session routes should continue to omit stage mode state.');
 }
 
 async function readLabelEditInputState(

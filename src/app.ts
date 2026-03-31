@@ -54,7 +54,10 @@ import {
   type StageHistoryState,
   type StageHistorySnapshot,
 } from './stage-history';
-import {StageHistoryController} from './stage-history-controller';
+import {
+  StageHistoryController,
+  type StageHistoryPersistenceChange,
+} from './stage-history-controller';
 import {
   createDemoStageScene,
   type StageScene,
@@ -66,17 +69,9 @@ import {
 } from './projector';
 import {StackBackplateLayer} from './stack-backplate';
 import {
-  readStageHistoryRouteState,
   readStageConfig,
-  syncStageModeQueryParam,
-  syncStageDemoCameraQueryParams,
   syncStageHistoryQueryParam,
-  syncStageLayoutStrategyQueryParam,
-  syncStageLineStrategyQueryParam,
-  syncStageNumericCameraQueryParams,
   syncStageSessionQueryParam,
-  syncStageTextStrategyQueryParam,
-  syncStageWorkplaneQueryParam,
   type StageConfig,
 } from './stage-config';
 import {
@@ -93,10 +88,16 @@ import {
 } from './stage-session';
 import {
   createSessionToken,
+  flushStageSessionIncrementalUpdates,
   loadStageSessionSnapshot,
+  saveStageSessionMetadata,
   saveStageSessionSnapshot,
   writeLastStageSessionToken,
+  type PersistedIncrementalStageHistorySession,
+  type PersistedStageSessionConfig,
+  type PersistedStageSessionIncrementalFlush,
   type PersistedStageSessionRecord,
+  type PersistedStageSessionUi,
   type SessionToken,
 } from './stage-session-store';
 import {
@@ -248,7 +249,6 @@ class LumaStageController {
   private frameTelemetry: FrameTelemetry | null = null;
   private gridLayer: GridLayer | null = null;
   private historyReplayPending = false;
-  private historyRouteSyncSuspended = false;
   private historySnapshot: StageHistorySnapshot = {
     canGoBack: false,
     canGoForward: false,
@@ -279,7 +279,10 @@ class LumaStageController {
   private layoutStrategy: LayoutStrategy;
   private lastFrameAt = 0;
   private lineStrategy: LineStrategy;
+  private pendingHistoryPersistenceAppends: PersistedStageSessionIncrementalFlush['appends'] = [];
+  private pendingHistoryPersistenceSnapshot: Pick<StageHistorySnapshot, 'cursorStep' | 'headStep'> | null = null;
   private strategyPanelMode: StrategyPanelMode;
+  private readonly initialHistory: StageHistoryState;
   private readonly sessionToken: SessionToken;
   private readonly stageHistory: StageHistoryController;
   private sessionSaveTimeoutId: number | null = null;
@@ -298,8 +301,13 @@ class LumaStageController {
     sessionToken: SessionToken,
     strategyPanelMode: StrategyPanelMode,
   ) {
+    this.initialHistory = initialHistory;
     this.state = initialState;
-    this.stageHistory = new StageHistoryController(initialHistory, this.handleHistorySnapshot);
+    this.stageHistory = new StageHistoryController(
+      initialHistory,
+      this.handleHistorySnapshot,
+      this.handleHistoryPersistenceChange,
+    );
     this.scene = getActiveWorkplaneDocument(initialState).scene;
     const stackViewState =
       initialState.session.stageMode === '3d-mode' ? createStackViewState(initialState) : null;
@@ -401,7 +409,7 @@ class LumaStageController {
       this.setState('ready');
       this.syncCurrentRouteQueryParams();
       this.updateStatus();
-      this.scheduleSessionSnapshotSave();
+      this.persistInitialStageSessionSnapshot();
       this.requestRender();
 
       if (this.config.benchmarkEnabled) {
@@ -594,8 +602,6 @@ class LumaStageController {
 
     if (!areStageHistoryViewsEqual(previousView, nextView)) {
       this.state = nextState;
-      this.syncCurrentCameraQueryParams();
-      this.scheduleSessionSnapshotSave();
       this.recordStageHistoryView('Adjust plane-focus view', nextState);
       this.requestRender();
     }
@@ -808,10 +814,6 @@ class LumaStageController {
     this.state = replaceStackCamera(this.state, nextStackCamera);
     this.stackProjector.setStackCamera(this.state.session.stackCamera);
 
-    if (options?.persist) {
-      this.scheduleSessionSnapshotSave();
-    }
-
     if (options?.syncUi !== false) {
       this.updateCameraPanel();
       this.updateStatus();
@@ -834,10 +836,7 @@ class LumaStageController {
     this.state = this.captureActiveWorkplaneRuntimeState(this.state);
     this.updateCameraPanel();
     this.syncLabelInputPanel({forceValue: true});
-
-    if (syncQuery) {
-      this.syncCurrentCameraQueryParams();
-    }
+    void syncQuery;
   }
 
   private setActiveDemoLabelKey(
@@ -887,26 +886,8 @@ class LumaStageController {
     return this.config.labelSetKind === 'demo' && this.labelFocusedCamera !== null;
   }
 
-  private syncCurrentCameraQueryParams(): void {
-    if (this.isDemoLabelCameraEnabled() && this.labelFocusedCamera) {
-      syncStageDemoCameraQueryParams(
-        this.labelFocusedCamera.activeLabelKey,
-        this.labelFocusedCamera.navigationIndex.defaultKey,
-      );
-      return;
-    }
-
-    syncStageNumericCameraQueryParams(this.camera.getTargetSnapshot());
-  }
-
   private syncCurrentRouteQueryParams(): void {
     syncStageSessionQueryParam(this.sessionToken);
-    syncStageModeQueryParam(this.state.session.stageMode);
-    syncStageWorkplaneQueryParam(this.state.session.activeWorkplaneId);
-    syncStageLayoutStrategyQueryParam(this.layoutStrategy);
-    syncStageLineStrategyQueryParam(this.lineStrategy);
-    syncStageTextStrategyQueryParam(this.textStrategy);
-    this.syncCurrentCameraQueryParams();
     syncStageHistoryQueryParam(this.getRouteHistoryStep());
   }
 
@@ -922,7 +903,38 @@ class LumaStageController {
       : snapshot.cursorStep;
   }
 
-  private scheduleSessionSnapshotSave(): void {
+  private persistInitialStageSessionSnapshot(): void {
+    if (this.destroyed || !this.config.historyTrackingEnabled) {
+      return;
+    }
+
+    void this.queueStageSessionSave(
+      () =>
+        saveStageSessionSnapshot({
+          version: 3,
+          sessionToken: this.sessionToken,
+          savedAt: new Date().toISOString(),
+          config: this.getPersistedSessionConfig(),
+          history: this.initialHistory,
+          ui: this.getPersistedSessionUi(),
+        } satisfies PersistedIncrementalStageHistorySession),
+      'Failed to save the initial stage session snapshot.',
+    );
+  }
+
+  private scheduleSessionMetadataSave(): void {
+    if (this.destroyed || !this.config.historyTrackingEnabled) {
+      return;
+    }
+
+    this.pendingHistoryPersistenceSnapshot = {
+      cursorStep: this.historySnapshot.cursorStep,
+      headStep: this.historySnapshot.headStep,
+    };
+    this.scheduleHistoryPersistenceFlush();
+  }
+
+  private scheduleHistoryPersistenceFlush(): void {
     if (this.destroyed || !this.config.historyTrackingEnabled) {
       return;
     }
@@ -933,43 +945,78 @@ class LumaStageController {
 
     this.sessionSaveTimeoutId = window.setTimeout(() => {
       this.sessionSaveTimeoutId = null;
-      void this.persistStageSessionSnapshot();
+      void this.flushPendingHistoryPersistence();
     }, SESSION_SAVE_DEBOUNCE_MS);
   }
 
-  private async persistStageSessionSnapshot(): Promise<void> {
-    const snapshot = await this.createPersistedStageSessionSnapshot();
+  private async flushPendingHistoryPersistence(): Promise<void> {
+    const snapshot = this.pendingHistoryPersistenceSnapshot;
+    const appends = this.pendingHistoryPersistenceAppends;
 
+    if (!snapshot && appends.length === 0) {
+      return;
+    }
+
+    this.pendingHistoryPersistenceSnapshot = null;
+    this.pendingHistoryPersistenceAppends = [];
+
+    if (appends.length > 0 && snapshot) {
+      await this.queueStageSessionSave(
+        () =>
+          flushStageSessionIncrementalUpdates({
+            appends,
+            config: this.getPersistedSessionConfig(),
+            sessionToken: this.sessionToken,
+            snapshot,
+            ui: this.getPersistedSessionUi(),
+          }),
+        'Failed to flush incremental stage history persistence.',
+      );
+      return;
+    }
+
+    if (snapshot) {
+      await this.queueStageSessionSave(
+        () =>
+          saveStageSessionMetadata({
+            config: this.getPersistedSessionConfig(),
+            sessionToken: this.sessionToken,
+            snapshot,
+            ui: this.getPersistedSessionUi(),
+          }),
+        'Failed to save the stage session metadata.',
+      );
+    }
+  }
+
+  private queueStageSessionSave(
+    task: () => Promise<void>,
+    failureMessage: string,
+  ): Promise<void> {
     writeLastStageSessionToken(this.sessionToken);
     this.sessionSaveQueue = this.sessionSaveQueue.then(async () => {
       try {
-        await saveStageSessionSnapshot(snapshot);
+        await task();
       } catch (error) {
-        console.error('Failed to save the stage session snapshot.', error);
+        console.error(failureMessage, error);
       }
     });
-
-    await this.sessionSaveQueue;
+    return this.sessionSaveQueue;
   }
 
-  private async createPersistedStageSessionSnapshot(): Promise<PersistedStageSessionRecord> {
-    const history = await this.stageHistory.exportHistory();
-
+  private getPersistedSessionConfig(): PersistedStageSessionConfig {
     return {
-      version: 2,
-      sessionToken: this.sessionToken,
-      savedAt: new Date().toISOString(),
-      config: {
-        demoLayerCount: this.config.demoLayerCount,
-        labelSetKind: this.config.labelSetKind,
-      },
-      history,
-      ui: {
-        layoutStrategy: this.layoutStrategy,
-        lineStrategy: this.lineStrategy,
-        strategyPanelMode: this.strategyPanelMode,
-        textStrategy: this.textStrategy,
-      },
+      demoLayerCount: this.config.demoLayerCount,
+      labelSetKind: this.config.labelSetKind,
+    };
+  }
+
+  private getPersistedSessionUi(): PersistedStageSessionUi {
+    return {
+      layoutStrategy: this.layoutStrategy,
+      lineStrategy: this.lineStrategy,
+      strategyPanelMode: this.strategyPanelMode,
+      textStrategy: this.textStrategy,
     };
   }
 
@@ -1130,7 +1177,6 @@ class LumaStageController {
     this.chrome.canvas.releasePointerCapture?.(event.pointerId);
     this.updateCameraPanel();
     this.updateStatus();
-    this.scheduleSessionSnapshotSave();
     this.recordStageHistoryView('Orbit stack camera');
   };
 
@@ -1152,66 +1198,6 @@ class LumaStageController {
       this.scheduleStackCameraHistoryView('Zoom stack camera');
       event.preventDefault();
     }
-  };
-
-  private handleWindowPopState = (): void => {
-    if (
-      !this.config.historyTrackingEnabled ||
-      this.destroyed ||
-      this.workplaneSyncPending ||
-      this.labelInputPending
-    ) {
-      return;
-    }
-
-    const routeConfig = readStageConfig(window.location.search);
-
-    if (
-      routeConfig.requestedSessionToken !== null &&
-      routeConfig.requestedSessionToken !== this.sessionToken
-    ) {
-      window.location.reload();
-      return;
-    }
-
-    const targetHistoryStep =
-      routeConfig.requestedHistoryStep ??
-      readStageHistoryRouteState() ??
-      this.historySnapshot.headStep;
-
-    if (targetHistoryStep === this.historySnapshot.cursorStep) {
-      return;
-    }
-
-    this.clearPendingStackCameraHistoryView();
-    this.historyReplayPending = true;
-    this.historyRouteSyncSuspended = true;
-
-    void this.stageHistory
-      .moveCursor(targetHistoryStep - this.historySnapshot.cursorStep)
-      .then((replayState) => {
-        if (!replayState) {
-          return;
-        }
-
-        this.suppressHistoryRecording = true;
-
-        try {
-          this.applyStageSystemState(replayState, {
-            forceLabelInput: true,
-            syncQuery: false,
-          });
-        } finally {
-          this.suppressHistoryRecording = false;
-        }
-      })
-      .catch((error) => {
-        console.error('Failed to replay stage history from popstate.', error);
-      })
-      .finally(() => {
-        this.historyRouteSyncSuspended = false;
-        this.historyReplayPending = false;
-      });
   };
 
   private handleWindowResize = (): void => {
@@ -1322,11 +1308,10 @@ class LumaStageController {
     this.benchmarkSummary = null;
     document.body.dataset.benchmarkError = '';
     document.body.dataset.benchmarkState = this.config.benchmarkEnabled ? 'pending' : 'disabled';
-    syncStageTextStrategyQueryParam(mode);
     this.updateStrategyPanels();
     this.syncLabelInputPanel();
     this.updateStatus();
-    this.scheduleSessionSnapshotSave();
+    this.scheduleSessionMetadataSave();
     this.requestRender();
   }
 
@@ -1346,11 +1331,10 @@ class LumaStageController {
     this.benchmarkSummary = null;
     document.body.dataset.benchmarkError = '';
     document.body.dataset.benchmarkState = this.config.benchmarkEnabled ? 'pending' : 'disabled';
-    syncStageLineStrategyQueryParam(mode);
     this.updateStrategyPanels();
     this.syncLabelInputPanel();
     this.updateStatus();
-    this.scheduleSessionSnapshotSave();
+    this.scheduleSessionMetadataSave();
     this.requestRender();
   }
 
@@ -1376,11 +1360,9 @@ class LumaStageController {
     this.benchmarkSummary = null;
     document.body.dataset.benchmarkError = '';
     document.body.dataset.benchmarkState = this.config.benchmarkEnabled ? 'pending' : 'disabled';
-    syncStageLayoutStrategyQueryParam(mode);
     this.updateStrategyPanels();
     this.syncLabelInputPanel({forceValue: true});
     this.updateStatus();
-    this.scheduleSessionSnapshotSave();
     this.recordStageHistoryCheckpoint('Change layout strategy');
     this.requestRender();
   }
@@ -1398,7 +1380,7 @@ class LumaStageController {
     this.updateStrategyPanels();
     this.syncLabelInputPanel();
     this.updateStatus();
-    this.scheduleSessionSnapshotSave();
+    this.scheduleSessionMetadataSave();
     this.requestRender();
   }
 
@@ -1434,14 +1416,38 @@ class LumaStageController {
     }
 
     if (
-      this.historyRouteSyncSuspended ||
       (previousSnapshot.cursorStep === snapshot.cursorStep &&
         previousSnapshot.headStep === snapshot.headStep)
     ) {
       return;
     }
 
-    syncStageHistoryQueryParam(this.getRouteHistoryStep(snapshot), 'push');
+    syncStageHistoryQueryParam(this.getRouteHistoryStep(snapshot));
+  };
+
+  private handleHistoryPersistenceChange = (
+    change: StageHistoryPersistenceChange,
+  ): void => {
+    if (this.destroyed || !this.config.historyTrackingEnabled) {
+      return;
+    }
+
+    this.pendingHistoryPersistenceSnapshot = {
+      cursorStep: change.snapshot.cursorStep,
+      headStep: change.snapshot.headStep,
+    };
+
+    if (change.type === 'append-entry') {
+      this.pendingHistoryPersistenceAppends.push({
+        entry: change.entry,
+        previousHeadStep: change.previousHeadStep,
+        step: change.step,
+      });
+      this.scheduleHistoryPersistenceFlush();
+      return;
+    }
+
+    this.scheduleHistoryPersistenceFlush();
   };
 
   private installInteractionHandlers(): void {
@@ -1485,7 +1491,6 @@ class LumaStageController {
     this.chrome.canvas.addEventListener('pointerdown', this.handleCanvasPointerDown);
     this.chrome.canvas.addEventListener('wheel', this.handleCanvasWheel, {passive: false});
     window.addEventListener('keydown', this.handleWindowKeyDown);
-    window.addEventListener('popstate', this.handleWindowPopState);
     window.addEventListener('pointermove', this.handleWindowPointerMove);
     window.addEventListener('pointerup', this.handleWindowPointerUp);
     window.addEventListener('pointercancel', this.handleWindowPointerUp);
@@ -1517,7 +1522,6 @@ class LumaStageController {
     this.chrome.canvas.removeEventListener('pointerdown', this.handleCanvasPointerDown);
     this.chrome.canvas.removeEventListener('wheel', this.handleCanvasWheel);
     window.removeEventListener('keydown', this.handleWindowKeyDown);
-    window.removeEventListener('popstate', this.handleWindowPopState);
     window.removeEventListener('pointermove', this.handleWindowPointerMove);
     window.removeEventListener('pointerup', this.handleWindowPointerUp);
     window.removeEventListener('pointercancel', this.handleWindowPointerUp);
@@ -1726,7 +1730,6 @@ class LumaStageController {
       document.body.dataset.benchmarkState = this.config.benchmarkEnabled ? 'pending' : 'disabled';
       this.syncLabelInputPanel({forceValue: true});
       this.updateStatus();
-      this.scheduleSessionSnapshotSave();
       this.recordStageHistoryCheckpoint('Edit label text');
       this.requestRender();
     } catch (error) {
@@ -1868,7 +1871,6 @@ class LumaStageController {
 
     if (options?.syncQuery) {
       this.syncCurrentRouteQueryParams();
-      this.scheduleSessionSnapshotSave();
     }
 
     this.updateCameraPanel();
@@ -1921,7 +1923,6 @@ class LumaStageController {
 
       if (options?.syncQuery) {
         this.syncCurrentRouteQueryParams();
-        this.scheduleSessionSnapshotSave();
       }
 
       this.updateCameraPanel();

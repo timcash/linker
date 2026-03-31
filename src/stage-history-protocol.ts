@@ -23,10 +23,6 @@ export type StageHistoryWorkerRequest =
       requestId: number;
       stepDelta: number;
       type: 'move-cursor';
-    }
-  | {
-      requestId: number;
-      type: 'export';
     };
 
 export type StageHistoryWorkerResponse =
@@ -47,8 +43,7 @@ export type StageHistoryWorkerResponse =
       type: 'replay';
     }
   | {
-      history: StageHistoryState;
       requestId: number;
       snapshot: StageHistorySnapshot;
-      type: 'exported';
+      type: 'initialized';
     };

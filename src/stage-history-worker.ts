@@ -1,11 +1,11 @@
 /// <reference lib="webworker" />
 
 import {
-  appendStageHistoryCheckpoint,
-  appendStageHistoryViewState,
+  areStageHistoryViewsEqual,
   getStageHistorySnapshot,
   moveStageHistoryCursor,
   replayStageHistoryToStep,
+  type StageHistoryEntry,
   type StageHistoryState,
 } from './stage-history';
 import type {
@@ -27,15 +27,15 @@ self.addEventListener('message', (event: MessageEvent<StageHistoryWorkerRequest>
         postResponse({
           requestId: message.requestId,
           snapshot: getStageHistorySnapshot(history),
-          type: 'ack',
+          type: 'initialized',
         });
         return;
       case 'record-checkpoint':
-        history = appendStageHistoryCheckpoint(
-          requireHistory(message.type),
-          message.state,
-          message.summary,
-        );
+        history = appendHistoryEntry(requireHistory(message.type), {
+          kind: 'checkpoint',
+          state: message.state,
+          summary: message.summary,
+        });
         postResponse({
           requestId: message.requestId,
           snapshot: getStageHistorySnapshot(history),
@@ -43,11 +43,7 @@ self.addEventListener('message', (event: MessageEvent<StageHistoryWorkerRequest>
         });
         return;
       case 'record-view':
-        history = appendStageHistoryViewState(
-          requireHistory(message.type),
-          message.view,
-          message.summary,
-        );
+        history = appendHistoryView(requireHistory(message.type), message.view, message.summary);
         postResponse({
           requestId: message.requestId,
           snapshot: getStageHistorySnapshot(history),
@@ -56,11 +52,13 @@ self.addEventListener('message', (event: MessageEvent<StageHistoryWorkerRequest>
         return;
       case 'move-cursor': {
         const currentHistory = requireHistory(message.type);
+        const currentCursorStep = currentHistory.cursorStep;
         const nextHistory = moveStageHistoryCursor(
           currentHistory,
-          currentHistory.cursorStep + message.stepDelta,
+          currentCursorStep + message.stepDelta,
         );
-        const didMove = nextHistory.cursorStep !== currentHistory.cursorStep;
+        const didMove = nextHistory.cursorStep !== currentCursorStep;
+
         history = nextHistory;
         postResponse({
           requestId: message.requestId,
@@ -70,14 +68,6 @@ self.addEventListener('message', (event: MessageEvent<StageHistoryWorkerRequest>
         });
         return;
       }
-      case 'export':
-        postResponse({
-          history: requireHistory(message.type),
-          requestId: message.requestId,
-          snapshot: getStageHistorySnapshot(requireHistory(message.type)),
-          type: 'exported',
-        });
-        return;
       default:
         return;
     }
@@ -100,4 +90,36 @@ function requireHistory(source: StageHistoryWorkerRequest['type']): StageHistory
 
 function postResponse(response: StageHistoryWorkerResponse): void {
   self.postMessage(response);
+}
+
+function appendHistoryView(
+  currentHistory: StageHistoryState,
+  view: Extract<StageHistoryWorkerRequest, {type: 'record-view'}>['view'],
+  summary: string,
+): StageHistoryState {
+  const lastEntry = currentHistory.entries[currentHistory.cursorStep];
+
+  if (lastEntry?.kind === 'view' && areStageHistoryViewsEqual(lastEntry.view, view)) {
+    return currentHistory;
+  }
+
+  return appendHistoryEntry(currentHistory, {
+    kind: 'view',
+    summary,
+    view,
+  });
+}
+
+function appendHistoryEntry(
+  currentHistory: StageHistoryState,
+  entry: StageHistoryEntry,
+): StageHistoryState {
+  if (currentHistory.cursorStep < currentHistory.headStep) {
+    currentHistory.entries.length = currentHistory.cursorStep + 1;
+  }
+
+  currentHistory.entries.push(entry);
+  currentHistory.cursorStep = currentHistory.entries.length - 1;
+  currentHistory.headStep = currentHistory.cursorStep;
+  return currentHistory;
 }

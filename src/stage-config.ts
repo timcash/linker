@@ -45,6 +45,17 @@ export type StageConfig = {
 };
 
 const DEFAULT_BENCHMARK_TRACE_STEP_COUNT = 8;
+const MANAGED_STAGE_ROUTE_PARAM_KEYS = [
+  'cameraCenterX',
+  'cameraCenterY',
+  'cameraLabel',
+  'cameraZoom',
+  'layoutStrategy',
+  'lineStrategy',
+  'stageMode',
+  'textStrategy',
+  'workplane',
+] as const;
 
 export function readStageConfig(search: string): StageConfig {
   const params = new URLSearchParams(search);
@@ -176,7 +187,6 @@ export function syncStageDemoCameraQueryParams(labelKey: string, defaultLabelKey
 
 export function syncStageHistoryQueryParam(
   historyStep: number | null,
-  mode: RouteUpdateMode = 'replace',
 ): void {
   updateRouteSearchParams((searchParams) => {
     if (historyStep === null) {
@@ -184,19 +194,11 @@ export function syncStageHistoryQueryParam(
     } else {
       searchParams.set('history', String(Math.max(0, Math.trunc(historyStep))));
     }
-  }, mode, historyStep);
+  });
 }
 
 export function readStageHistoryRouteState(): number | null {
-  const historyState = readCurrentRouteState();
-  const stageHistoryStep =
-    historyState && typeof historyState === 'object'
-      ? (historyState as {stageHistoryStep?: unknown}).stageHistoryStep
-      : null;
-
-  return Number.isInteger(stageHistoryStep) && stageHistoryStep >= 0
-    ? stageHistoryStep
-    : null;
+  return parseNonNegativeInteger(new URL(window.location.href).searchParams.get('history'));
 }
 
 function parseTextStrategy(value: string | null): TextStrategy {
@@ -264,37 +266,23 @@ function isLayoutStrategy(value: string | null | undefined): value is LayoutStra
 
 function updateRouteSearchParams(
   mutate: (searchParams: URLSearchParams) => void,
-  mode: RouteUpdateMode = 'replace',
-  historyStep: number | null = readStageHistoryRouteState(),
 ): void {
   const url = new URL(window.location.href);
   const previousSearch = url.search;
-  const previousHistoryStep = readStageHistoryRouteState();
+  stripManagedStageRouteParams(url.searchParams);
   mutate(url.searchParams);
 
-  if (url.search === previousSearch && historyStep === previousHistoryStep) {
+  if (url.search === previousSearch) {
     return;
   }
 
-  const routeState = {
-    ...readCurrentRouteState(),
-    stageHistoryStep: historyStep,
-  };
-
-  if (mode === 'push') {
-    window.history.pushState(routeState, '', url.toString());
-    return;
-  }
-
-  window.history.replaceState(routeState, '', url.toString());
+  window.history.replaceState(null, '', url.toString());
 }
 
-function readCurrentRouteState(): Record<string, unknown> {
-  const currentState: unknown = window.history.state;
-
-  return currentState && typeof currentState === 'object'
-    ? (currentState as Record<string, unknown>)
-    : {};
+function stripManagedStageRouteParams(searchParams: URLSearchParams): void {
+  for (const key of MANAGED_STAGE_ROUTE_PARAM_KEYS) {
+    searchParams.delete(key);
+  }
 }
 
 function syncCameraNumberQueryParam(

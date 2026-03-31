@@ -25,6 +25,7 @@ import {cloneStageScene, createStageScene} from './scene-model';
 import {type StrategyPanelMode} from './stage-panels';
 import {type StageConfig} from './stage-config';
 import {
+  type PersistedIncrementalStageHistorySession,
   type PersistedStageHistorySession,
   type PersistedStageSessionRecord,
   type PersistedStageSessionSnapshot,
@@ -200,7 +201,7 @@ function restoreStageHistoryState(
 }
 
 function restorePersistedHistorySession(
-  snapshot: PersistedStageHistorySession,
+  snapshot: PersistedStageHistorySession | PersistedIncrementalStageHistorySession,
 ): StageHistoryState | null {
   const rawEntries = Array.isArray(snapshot.history?.entries)
     ? snapshot.history.entries

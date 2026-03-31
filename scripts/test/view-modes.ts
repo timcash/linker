@@ -2,14 +2,17 @@ import assert from 'node:assert/strict';
 
 import {
   getCameraState,
+  getHistoryState,
   getStageRouteState,
   getStageState,
   getTextState,
+  openRoute,
   openPersistedSessionRoute,
   pressHistoryKey,
   pressPlaneStackKey,
   pressStageModeKey,
   submitFocusedLabelInput,
+  waitForPersistedStageHistoryHead,
   waitForStageWorkplane,
   type BrowserTestContext,
 } from './shared';
@@ -28,10 +31,11 @@ type SelectionBoxState = {
 export async function runViewModesFlow(
   context: BrowserTestContext,
 ): Promise<void> {
-  const seededSession = createPreparedTwoWorkplaneSessionRecord('stk-view-modes');
+  const seededSession = createPreparedTwoWorkplaneSessionRecord('stk-view-modes', {
+    activeWorkplaneId: 'wp-1',
+  });
   await openPersistedSessionRoute(context.page, context.url, seededSession, {
     historyTrackingEnabled: true,
-    workplaneId: 'wp-1',
   });
 
   const planeFocusStage = await getStageState(context.page);
@@ -61,8 +65,8 @@ export async function runViewModesFlow(
 
   assert.equal(stackStage.stageMode, '3d-mode', 'Slash should enter stack view.');
   assert.equal(stackStage.activeWorkplaneId, 'wp-1', 'Entering stack view should keep the active workplane stable.');
-  assert.equal(stackRoute.stageMode, '3d-mode', 'Stack view should mirror its mode into the route.');
-  assert.equal(stackRoute.workplaneId, null, 'Stack view should omit the default workplane from the route.');
+  assert.equal(stackRoute.stageMode, null, 'Stack view should not mirror stage mode into the route.');
+  assert.equal(stackRoute.workplaneId, null, 'Stack view should not mirror workplane selection into the route.');
   assert.equal(
     stackText.labelCount,
     planeFocusText.labelCount * 2,
@@ -142,8 +146,8 @@ export async function runViewModesFlow(
 
   assert.equal(returnedPlaneFocusStage.stageMode, '2d-mode', 'Slash should return from stack view to plane-focus view.');
   assert.equal(returnedPlaneFocusStage.activeWorkplaneId, 'wp-1', 'Returning to plane-focus view should keep the selected workplane active.');
-  assert.equal(returnedPlaneFocusRoute.stageMode, null, 'Returning to the default plane-focus route should clear the stageMode query param.');
-  assert.equal(returnedPlaneFocusRoute.workplaneId, null, 'Returning to wp-1 should clear the default workplane query param.');
+  assert.equal(returnedPlaneFocusRoute.stageMode, null, 'Plane-focus view should keep stage mode out of the route.');
+  assert.equal(returnedPlaneFocusRoute.workplaneId, null, 'Plane-focus view should keep workplane selection out of the route.');
   assert.equal(
     (await getCameraState(context.page)).label,
     '2:2:1',
@@ -181,6 +185,37 @@ export async function runViewModesFlow(
     await readLabelEditInputValue(context),
     'Alpha replay',
     'History forward should restore the edited label text.',
+  );
+
+  await pressHistoryKey(context.page, 'history-back');
+  await waitForLabelEditInputValue(context, 'Alpha');
+  await submitFocusedLabelInput(context.page, 'Alpha branch');
+  await waitForLabelEditInputValue(context, 'Alpha branch');
+  await waitForHistoryCanGoForward(context, false);
+  assert.equal(
+    (await getHistoryState(context.page)).canGoForward,
+    false,
+    'Editing after stepping back should truncate forward history.',
+  );
+
+  await waitForPersistedStageHistoryHead(
+    context.page,
+    seededSession.sessionToken,
+    (await getHistoryState(context.page)).headStep,
+  );
+  const branchedRoute = await context.page.evaluate(() => window.location.href);
+  await openRoute(context.page, branchedRoute);
+  await waitForLabelEditInputValue(context, 'Alpha branch');
+  await waitForHistoryCanGoForward(context, false);
+  assert.equal(
+    await readLabelEditInputValue(context),
+    'Alpha branch',
+    'Reloading a branched session should restore the truncated history head.',
+  );
+  assert.equal(
+    (await getHistoryState(context.page)).canGoForward,
+    false,
+    'Reloading a branched session should not resurrect discarded future history.',
   );
 }
 
@@ -224,6 +259,17 @@ async function waitForLabelEditInputValue(
       const input = document.querySelector<HTMLInputElement>('[data-testid="label-input-field"]');
       return input instanceof HTMLInputElement && input.value === value;
     },
+    {},
+    expectedValue,
+  );
+}
+
+async function waitForHistoryCanGoForward(
+  context: BrowserTestContext,
+  expectedValue: boolean,
+): Promise<void> {
+  await context.page.waitForFunction(
+    (expected) => (document.body.dataset.historyCanGoForward ?? 'false') === String(expected),
     {},
     expectedValue,
   );

@@ -2,6 +2,7 @@ import {type StageSystemState} from './plane-stack';
 import {
   createStageHistoryViewState,
   getStageHistorySnapshot,
+  type StageHistoryEntry,
   type StageHistoryState,
   type StageHistorySnapshot,
 } from './stage-history';
@@ -15,9 +16,24 @@ type PendingResponse = {
   resolve: (response: StageHistoryWorkerResponse) => void;
 };
 
+export type StageHistoryPersistenceChange =
+  | {
+      entry: StageHistoryEntry;
+      previousHeadStep: number;
+      snapshot: StageHistorySnapshot;
+      step: number;
+      type: 'append-entry';
+    }
+  | {
+      snapshot: StageHistorySnapshot;
+      type: 'move-cursor';
+    };
+
 export class StageHistoryController {
   private flushHandle: number | null = null;
+  private lastSnapshot: StageHistorySnapshot;
   private nextRequestId = 1;
+  private readonly inFlightRequests = new Map<number, StageHistoryWorkerRequest>();
   private readonly pendingResponses = new Map<number, PendingResponse>();
   private readonly queuedRequests: StageHistoryWorkerRequest[] = [];
   private readonly worker: Worker;
@@ -25,12 +41,14 @@ export class StageHistoryController {
   constructor(
     initialHistory: StageHistoryState,
     private readonly onSnapshot: (snapshot: StageHistorySnapshot) => void,
+    private readonly onPersistenceChange?: (change: StageHistoryPersistenceChange) => void,
   ) {
     this.worker = new Worker(new URL('./stage-history-worker.ts', import.meta.url), {
       type: 'module',
     });
     this.worker.addEventListener('message', this.handleWorkerMessage);
-    this.onSnapshot(getStageHistorySnapshot(initialHistory));
+    this.lastSnapshot = getStageHistorySnapshot(initialHistory);
+    this.onSnapshot(this.lastSnapshot);
     this.postNow({
       history: initialHistory,
       requestId: this.allocateRequestId(),
@@ -47,6 +65,7 @@ export class StageHistoryController {
       pending.reject(new Error('Stage history controller was destroyed.'));
     }
 
+    this.inFlightRequests.clear();
     this.pendingResponses.clear();
     this.queuedRequests.length = 0;
   }
@@ -54,7 +73,7 @@ export class StageHistoryController {
   recordCheckpoint(summary: string, state: StageSystemState): void {
     this.enqueue({
       requestId: this.allocateRequestId(),
-      state,
+      state: structuredClone(state),
       summary,
       type: 'record-checkpoint',
     });
@@ -82,20 +101,6 @@ export class StageHistoryController {
     }
 
     return response.state;
-  }
-
-  async exportHistory(): Promise<StageHistoryState> {
-    this.flushQueuedRequests();
-    const response = await this.request({
-      requestId: this.allocateRequestId(),
-      type: 'export',
-    });
-
-    if (response.type !== 'exported') {
-      throw new Error(`Expected an exported response, received ${response.type}.`);
-    }
-
-    return response.history;
   }
 
   private allocateRequestId(): number {
@@ -159,6 +164,7 @@ export class StageHistoryController {
   }
 
   private postNow(request: StageHistoryWorkerRequest): void {
+    this.inFlightRequests.set(request.requestId, request);
     this.worker.postMessage(request);
   }
 
@@ -166,9 +172,15 @@ export class StageHistoryController {
     event: MessageEvent<StageHistoryWorkerResponse>,
   ): void => {
     const response = event.data;
+    const request = this.inFlightRequests.get(response.requestId);
+    const previousSnapshot = this.lastSnapshot;
 
-    if (response.type === 'ack' || response.type === 'replay') {
+    this.inFlightRequests.delete(response.requestId);
+
+    if (response.type === 'ack' || response.type === 'initialized' || response.type === 'replay') {
+      this.lastSnapshot = response.snapshot;
       this.onSnapshot(response.snapshot);
+      this.handlePersistenceChange(request, response, previousSnapshot);
     }
 
     const pending = this.pendingResponses.get(response.requestId);
@@ -186,4 +198,68 @@ export class StageHistoryController {
 
     pending.resolve(response);
   };
+
+  private handlePersistenceChange(
+    request: StageHistoryWorkerRequest | undefined,
+    response: StageHistoryWorkerResponse,
+    previousSnapshot: StageHistorySnapshot,
+  ): void {
+    if (!request || !this.onPersistenceChange || response.type === 'error') {
+      return;
+    }
+
+    switch (request.type) {
+      case 'record-checkpoint': {
+        if (
+          response.snapshot.cursorStep !== previousSnapshot.cursorStep ||
+          response.snapshot.headStep !== previousSnapshot.headStep
+        ) {
+          this.onPersistenceChange({
+            entry: {
+              kind: 'checkpoint',
+              state: request.state,
+              summary: request.summary,
+            },
+            previousHeadStep: previousSnapshot.headStep,
+            snapshot: response.snapshot,
+            step: response.snapshot.cursorStep,
+            type: 'append-entry',
+          });
+        }
+        return;
+      }
+      case 'record-view': {
+        const view = request.view;
+        const summary = request.summary;
+
+        if (
+          response.snapshot.cursorStep !== previousSnapshot.cursorStep ||
+          response.snapshot.headStep !== previousSnapshot.headStep
+        ) {
+          this.onPersistenceChange({
+            entry: {
+              kind: 'view',
+              summary,
+              view,
+            },
+            previousHeadStep: previousSnapshot.headStep,
+            snapshot: response.snapshot,
+            step: response.snapshot.cursorStep,
+            type: 'append-entry',
+          });
+        }
+        return;
+      }
+      case 'move-cursor':
+        if (response.snapshot.cursorStep !== previousSnapshot.cursorStep) {
+          this.onPersistenceChange({
+            snapshot: response.snapshot,
+            type: 'move-cursor',
+          });
+        }
+        return;
+      default:
+        return;
+    }
+  }
 }

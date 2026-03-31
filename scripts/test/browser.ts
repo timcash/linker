@@ -181,11 +181,6 @@ export async function getStageState(page: Page): Promise<StageState> {
 export async function getStageRouteState(page: Page): Promise<StageRouteState> {
   return page.evaluate(() => {
     const url = new URL(window.location.href);
-    const routeState: unknown = window.history.state;
-    const stateHistoryStep =
-      routeState && typeof routeState === 'object'
-        ? (routeState as {stageHistoryStep?: unknown}).stageHistoryStep
-        : null;
     const queryHistoryValue = url.searchParams.get('history');
     const queryHistoryStep = queryHistoryValue === null ? null : Number(queryHistoryValue);
 
@@ -193,8 +188,6 @@ export async function getStageRouteState(page: Page): Promise<StageRouteState> {
       historyStep:
         Number.isInteger(queryHistoryStep) && queryHistoryStep !== null
           ? queryHistoryStep
-          : Number.isInteger(stateHistoryStep) && (stateHistoryStep as number) >= 0
-          ? (stateHistoryStep as number)
           : null,
       sessionToken: url.searchParams.get('session'),
       stageMode: url.searchParams.get('stageMode'),
@@ -407,13 +400,27 @@ export async function seedPersistedStageSessionRecord(
 ): Promise<void> {
   await page.evaluate(async (snapshot) => {
     const database = await new Promise<IDBDatabase>((resolve, reject) => {
-      const request = indexedDB.open('linker-stage', 2);
+      const request = indexedDB.open('linker-stage', 3);
 
       request.addEventListener('upgradeneeded', () => {
         const nextDatabase = request.result;
 
         if (!nextDatabase.objectStoreNames.contains('stage-sessions')) {
           nextDatabase.createObjectStore('stage-sessions', {keyPath: 'sessionToken'});
+        }
+
+        let historyStore: IDBObjectStore;
+
+        if (!nextDatabase.objectStoreNames.contains('stage-history-entries')) {
+          historyStore = nextDatabase.createObjectStore('stage-history-entries', {
+            keyPath: ['sessionToken', 'step'],
+          });
+        } else {
+          historyStore = request.transaction!.objectStore('stage-history-entries');
+        }
+
+        if (!historyStore.indexNames.contains('by-session-token')) {
+          historyStore.createIndex('by-session-token', 'sessionToken', {unique: false});
         }
       });
       request.addEventListener('success', () => resolve(request.result));
@@ -424,10 +431,42 @@ export async function seedPersistedStageSessionRecord(
 
     try {
       await new Promise<void>((resolve, reject) => {
-        const transaction = database.transaction('stage-sessions', 'readwrite');
-        const store = transaction.objectStore('stage-sessions');
+        const transaction = database.transaction(
+          ['stage-sessions', 'stage-history-entries'],
+          'readwrite',
+        );
+        const sessionStore = transaction.objectStore('stage-sessions');
+        const historyStore = transaction.objectStore('stage-history-entries');
 
-        store.put(snapshot);
+        historyStore.delete(
+          IDBKeyRange.bound(
+            [snapshot.sessionToken, 0],
+            [snapshot.sessionToken, Number.MAX_SAFE_INTEGER],
+          ),
+        );
+
+        if (snapshot.version === 1) {
+          sessionStore.put(snapshot);
+        } else {
+          sessionStore.put({
+            version: 3,
+            sessionToken: snapshot.sessionToken,
+            savedAt: snapshot.savedAt,
+            config: snapshot.config,
+            historyCursorStep: snapshot.history.cursorStep,
+            historyHeadStep: snapshot.history.headStep,
+            ui: snapshot.ui,
+          });
+
+          snapshot.history.entries.forEach((entry, step) => {
+            historyStore.put({
+              entry,
+              sessionToken: snapshot.sessionToken,
+              step,
+            });
+          });
+        }
+
         transaction.addEventListener('complete', () => resolve());
         transaction.addEventListener('error', () => {
           reject(transaction.error ?? new Error('Failed to seed the stage session snapshot.'));
@@ -619,6 +658,68 @@ export async function waitForPersistedStageSession(
     },
     {timeout: 10_000},
     sessionToken,
+  );
+  await waitForBrowserUpdate(page);
+}
+
+export async function waitForPersistedStageHistoryHead(
+  page: Page,
+  sessionToken: string,
+  expectedHeadStep: number,
+): Promise<void> {
+  await page.waitForFunction(
+    async ({expectedHead, expectedSessionToken}) => {
+      if (typeof indexedDB === 'undefined') {
+        return true;
+      }
+
+      const database = await new Promise<IDBDatabase>((resolve, reject) => {
+        const request = indexedDB.open('linker-stage');
+
+        request.addEventListener('success', () => resolve(request.result));
+        request.addEventListener('error', () => {
+          reject(request.error ?? new Error('Failed to open stage-session database.'));
+        });
+      });
+
+      try {
+        if (!database.objectStoreNames.contains('stage-sessions')) {
+          return false;
+        }
+
+        const metadata = await new Promise<unknown>((resolve, reject) => {
+          const transaction = database.transaction('stage-sessions', 'readonly');
+          const store = transaction.objectStore('stage-sessions');
+          const request = store.get(expectedSessionToken);
+
+          request.addEventListener('success', () => resolve(request.result ?? null));
+          request.addEventListener('error', () => {
+            reject(request.error ?? new Error('Failed to read stage-session metadata.'));
+          });
+        });
+
+        if (
+          !metadata ||
+          typeof metadata !== 'object' ||
+          !('historyHeadStep' in metadata) ||
+          !('historyCursorStep' in metadata)
+        ) {
+          return false;
+        }
+
+        return (
+          (metadata as {historyCursorStep?: unknown}).historyCursorStep === expectedHead &&
+          (metadata as {historyHeadStep?: unknown}).historyHeadStep === expectedHead
+        );
+      } finally {
+        database.close();
+      }
+    },
+    {timeout: 10_000},
+    {
+      expectedHead: expectedHeadStep,
+      expectedSessionToken: sessionToken,
+    },
   );
   await waitForBrowserUpdate(page);
 }

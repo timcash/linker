@@ -7,6 +7,7 @@ import {
   createStageSystemState,
   replaceWorkplaneLabelTextOverride,
   replaceWorkplaneView,
+  selectPreviousWorkplane,
   spawnWorkplaneAfterActive,
   type StageSystemState,
   type WorkplaneId,
@@ -55,6 +56,7 @@ export function createPreparedSingleWorkplaneSessionRecord(
 
 export function createPreparedTwoWorkplaneSessionRecord(
   sessionToken: string,
+  options?: {activeWorkplaneId?: WorkplaneId},
 ): PersistedStageHistorySession {
   const initialState = createStageSystemState(createDemoScene(), {
     initialCameraLabel: '1:1:1',
@@ -72,6 +74,10 @@ export function createPreparedTwoWorkplaneSessionRecord(
     selectedLabelKey: '3:3:1',
     camera: {centerX: 44, centerY: 39, zoom: 4},
   });
+
+  if (options?.activeWorkplaneId === INITIAL_WORKPLANE_ID) {
+    state = selectPreviousWorkplane(state);
+  }
 
   let history = createStageHistoryState(initialState);
   history = appendStageHistoryCheckpoint(history, state, 'Prepared two-workplane state');

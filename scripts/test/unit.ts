@@ -49,7 +49,7 @@ import {createStageScene} from '../../src/scene-model';
 import {readStageConfig} from '../../src/stage-config';
 import {hydrateStageBootState} from '../../src/stage-session';
 import {
-  type PersistedStageHistorySession,
+  type PersistedIncrementalStageHistorySession,
   type PersistedStageSessionSnapshot,
 } from '../../src/stage-session-store';
 import {
@@ -926,7 +926,7 @@ function createPersistedStageSessionSnapshot(): PersistedStageSessionSnapshot {
   };
 }
 
-function createPersistedStageHistorySessionRecord(): PersistedStageHistorySession {
+function createPersistedStageHistorySessionRecord(): PersistedIncrementalStageHistorySession {
   const scene = createStageScene({
     demoLayerCount: 12,
     labelSetKind: 'demo',
@@ -952,7 +952,7 @@ function createPersistedStageHistorySessionRecord(): PersistedStageHistorySessio
   history = appendStageHistoryView(history, orbitedState, 'Orbit stack camera');
 
   return {
-    version: 2,
+    version: 3,
     sessionToken: 'stk-history',
     savedAt: '2026-03-31T00:00:00.000Z',
     config: {
