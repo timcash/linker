@@ -50,15 +50,9 @@ import {
   type WorkplaneCameraView,
 } from './plane-stack';
 import {
-  appendStageHistoryCheckpoint,
-  appendStageHistoryView,
-  canStageHistoryGoBack,
-  canStageHistoryGoForward,
-  createStageHistoryState,
-  moveStageHistoryCursor,
-  replayStageHistoryToStep,
-  type StageHistoryState,
+  type StageHistorySnapshot,
 } from './stage-history';
+import {StageHistoryController} from './stage-history-controller';
 import {
   createDemoStageScene,
   type StageScene,
@@ -231,7 +225,13 @@ class LumaStageController {
   private benchmarkSummary: StageBenchmarkSummary | null = null;
   private frameTelemetry: FrameTelemetry | null = null;
   private gridLayer: GridLayer | null = null;
-  private history: StageHistoryState;
+  private historyReplayPending = false;
+  private historySnapshot: StageHistorySnapshot = {
+    canGoBack: false,
+    canGoForward: false,
+    cursorStep: 0,
+    headStep: 0,
+  };
   private labelFocusedCamera: LabelFocusedCameraState | null = null;
   private lineLayer: LineLayer | null = null;
   private state: StageSystemState;
@@ -258,6 +258,7 @@ class LumaStageController {
   private lineStrategy: LineStrategy;
   private strategyPanelMode: StrategyPanelMode;
   private readonly sessionToken: SessionToken;
+  private readonly stageHistory: StageHistoryController;
   private sessionSaveTimeoutId: number | null = null;
   private sessionSaveQueue = Promise.resolve();
   private stackCameraHistoryTimeoutId: number | null = null;
@@ -274,7 +275,10 @@ class LumaStageController {
     strategyPanelMode: StrategyPanelMode,
   ) {
     this.state = initialState;
-    this.history = createStageHistoryState(initialState);
+    this.stageHistory = new StageHistoryController(initialState, (snapshot) => {
+      this.historySnapshot = snapshot;
+      this.syncHistorySnapshot();
+    });
     this.scene = getActiveWorkplaneDocument(initialState).scene;
     const stackViewState = createStackViewState(initialState);
     this.renderScene =
@@ -301,7 +305,6 @@ class LumaStageController {
       initialView.camera.centerY,
       initialView.camera.zoom,
     );
-    this.syncHistorySnapshot();
   }
 
   async start(): Promise<void> {
@@ -401,6 +404,7 @@ class LumaStageController {
     }
     cancelAnimationFrame(this.frameId);
     this.removeInteractionHandlers();
+    this.stageHistory.destroy();
     this.backgroundModel?.destroy();
     this.gridLayer?.destroy();
     this.lineLayer?.destroy();
@@ -1636,34 +1640,35 @@ class LumaStageController {
   }
 
   private applyHistoryAction(action: HistoryAction): void {
-    if (this.workplaneSyncPending || this.labelInputPending) {
+    if (this.workplaneSyncPending || this.labelInputPending || this.historyReplayPending) {
       return;
     }
-
-    const nextStep =
-      action === 'history-back' ? this.history.cursorStep - 1 : this.history.cursorStep + 1;
-    const nextHistory = moveStageHistoryCursor(this.history, nextStep);
-
-    if (nextHistory.cursorStep === this.history.cursorStep) {
-      return;
-    }
-
     this.clearPendingStackCameraHistoryView();
-    this.history = nextHistory;
-    this.syncHistorySnapshot();
+    this.historyReplayPending = true;
+    void this.stageHistory
+      .moveCursor(action === 'history-back' ? -1 : 1)
+      .then((replayState) => {
+        if (!replayState) {
+          return;
+        }
 
-    const replayState = replayStageHistoryToStep(this.history, this.history.cursorStep);
+        this.suppressHistoryRecording = true;
 
-    this.suppressHistoryRecording = true;
-
-    try {
-      this.applyStageSystemState(replayState, {
-        forceLabelInput: true,
-        syncQuery: true,
+        try {
+          this.applyStageSystemState(replayState, {
+            forceLabelInput: true,
+            syncQuery: true,
+          });
+        } finally {
+          this.suppressHistoryRecording = false;
+        }
+      })
+      .catch((error) => {
+        console.error('Failed to replay stage history.', error);
+      })
+      .finally(() => {
+        this.historyReplayPending = false;
       });
-    } finally {
-      this.suppressHistoryRecording = false;
-    }
   }
 
   private applyStageSystemState(
@@ -1905,12 +1910,7 @@ class LumaStageController {
     }
 
     this.clearPendingStackCameraHistoryView();
-    this.history = appendStageHistoryCheckpoint(
-      this.history,
-      state ?? this.captureHistoryState(),
-      summary,
-    );
-    this.syncHistorySnapshot();
+    this.stageHistory.recordCheckpoint(summary, state ?? this.captureHistoryState());
   }
 
   private recordStageHistoryView(summary: string, state?: StageSystemState): void {
@@ -1918,12 +1918,7 @@ class LumaStageController {
       return;
     }
 
-    this.history = appendStageHistoryView(
-      this.history,
-      state ?? this.captureHistoryState(),
-      summary,
-    );
-    this.syncHistorySnapshot();
+    this.stageHistory.recordView(summary, state ?? this.captureHistoryState());
   }
 
   private captureHistoryState(): StageSystemState {
@@ -1941,10 +1936,10 @@ class LumaStageController {
   }
 
   private syncHistorySnapshot(): void {
-    document.body.dataset.historyCanGoBack = String(canStageHistoryGoBack(this.history));
-    document.body.dataset.historyCanGoForward = String(canStageHistoryGoForward(this.history));
-    document.body.dataset.historyCursorStep = String(this.history.cursorStep);
-    document.body.dataset.historyHeadStep = String(this.history.headStep);
+    document.body.dataset.historyCanGoBack = String(this.historySnapshot.canGoBack);
+    document.body.dataset.historyCanGoForward = String(this.historySnapshot.canGoForward);
+    document.body.dataset.historyCursorStep = String(this.historySnapshot.cursorStep);
+    document.body.dataset.historyHeadStep = String(this.historySnapshot.headStep);
   }
 
   private getEffectiveCameraAvailability() {

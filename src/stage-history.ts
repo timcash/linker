@@ -34,6 +34,13 @@ export type StageHistoryState = {
   headStep: number;
 };
 
+export type StageHistorySnapshot = {
+  canGoBack: boolean;
+  canGoForward: boolean;
+  cursorStep: number;
+  headStep: number;
+};
+
 export function createStageHistoryState(
   initialState: StageSystemState,
   summary = 'Open stage session',
@@ -58,10 +65,18 @@ export function appendStageHistoryView(
   state: StageSystemState,
   summary: string,
 ): StageHistoryState {
+  return appendStageHistoryViewState(history, createStageHistoryViewState(state), summary);
+}
+
+export function appendStageHistoryViewState(
+  history: StageHistoryState,
+  view: StageHistoryViewState,
+  summary: string,
+): StageHistoryState {
   const nextEntry: StageHistoryEntry = {
     kind: 'view',
     summary,
-    view: createHistoryViewState(state),
+    view,
   };
   const lastEntry = history.entries[history.cursorStep];
 
@@ -78,6 +93,17 @@ export function canStageHistoryGoBack(history: StageHistoryState): boolean {
 
 export function canStageHistoryGoForward(history: StageHistoryState): boolean {
   return history.cursorStep < history.headStep;
+}
+
+export function getStageHistorySnapshot(
+  history: StageHistoryState,
+): StageHistorySnapshot {
+  return {
+    canGoBack: canStageHistoryGoBack(history),
+    canGoForward: canStageHistoryGoForward(history),
+    cursorStep: history.cursorStep,
+    headStep: history.headStep,
+  };
 }
 
 export function moveStageHistoryCursor(
@@ -154,7 +180,9 @@ function createCheckpointEntry(
   };
 }
 
-function createHistoryViewState(state: StageSystemState): StageHistoryViewState {
+export function createStageHistoryViewState(
+  state: StageSystemState,
+): StageHistoryViewState {
   const workplaneView = state.session.workplaneViewsById[state.session.activeWorkplaneId];
 
   return {
