@@ -539,21 +539,42 @@ function runCameraAndProjectionTests(): void {
     Math.PI / 9,
     -Math.PI / 18,
   );
+  const defaultStackZoom = stackProjector.zoom;
   stackProjector.setStackCamera(orbitedStackCamera);
   const orbitedCenterPoint = stackProjector.projectWorldPoint(orbitSamplePoint, viewport);
+  const orbitedStackZoom = stackProjector.zoom;
 
   assert.ok(
     Math.abs(orbitedCenterPoint.x - defaultStackProjection.x) > 0.0001 ||
       Math.abs(orbitedCenterPoint.y - defaultStackProjection.y) > 0.0001,
     'Changing the stack-camera orbit should change the projected stack geometry.',
   );
+  assert.ok(
+    Math.abs(orbitedStackZoom - defaultStackZoom) < 0.05,
+    'Changing the stack-camera orbit should not materially change stack-view zoom visibility.',
+  );
+  assert.equal(
+    countVisibleItemsForZoom(stackViewState.scene.labels, defaultStackZoom),
+    countVisibleItemsForZoom(stackViewState.scene.labels, orbitedStackZoom),
+    'Changing the stack-camera orbit should not change stack-view label visibility.',
+  );
+  assert.equal(
+    countVisibleItemsForZoom(stackViewState.scene.links, defaultStackZoom),
+    countVisibleItemsForZoom(stackViewState.scene.links, orbitedStackZoom),
+    'Changing the stack-camera orbit should not change stack-view link visibility.',
+  );
 
   const zoomedStackCamera = scaleStackCameraDistance(orbitedStackCamera, 0.8);
   stackProjector.setStackCamera(zoomedStackCamera);
+  const zoomedStackZoom = stackProjector.zoom;
 
   assert.ok(
     stackProjector.getStackCamera().distanceScale < orbitedStackCamera.distanceScale,
     'Stack-camera zoom should move the camera closer by reducing its distance scale.',
+  );
+  assert.ok(
+    zoomedStackZoom > orbitedStackZoom,
+    'Reducing stack-camera distance should increase stack-view zoom visibility.',
   );
 
   const activePlaneLabel = findVisibleLabelForZoom(
@@ -1020,6 +1041,15 @@ function findVisibleLabelForZoom(
   zoom: number,
 ): LabelDefinition | null {
   return labels.find((label) => isZoomVisible(zoom, label.zoomLevel, label.zoomRange)) ?? null;
+}
+
+function countVisibleItemsForZoom(
+  items: Array<{zoomLevel: number; zoomRange: number}>,
+  zoom: number,
+): number {
+  return items.reduce((count, item) => {
+    return count + (isZoomVisible(zoom, item.zoomLevel, item.zoomRange) ? 1 : 0);
+  }, 0);
 }
 
 function createProjectedGlyphSample(label: LabelDefinition): GlyphPlacement {

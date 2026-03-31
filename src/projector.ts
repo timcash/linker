@@ -181,20 +181,17 @@ export class StackCameraProjector implements StageProjector {
   }
 
   get pixelsPerWorldUnit(): number {
-    const camera = this.getCameraState(this.viewport);
-    const center = getSceneBoundsCenter(this.sceneBounds);
-    const start = projectPerspectiveWorldPointToScreen(camera, center, this.viewport);
-    const end = projectPerspectiveWorldPointToScreen(
-      camera,
-      {x: center.x + 1, y: center.y, z: center.z},
+    return measurePerspectivePixelsPerWorldUnit(
+      this.getCameraState(this.viewport),
+      this.sceneBounds,
       this.viewport,
     );
-
-    return Math.max(0.0001, Math.hypot(end.x - start.x, end.y - start.y));
   }
 
   get zoom(): number {
-    return Math.log2(this.pixelsPerWorldUnit / PROJECTOR_BASE_PIXELS_PER_WORLD_UNIT);
+    return Math.log2(
+      this.getReferenceZoomPixelsPerWorldUnit(this.viewport) / PROJECTOR_BASE_PIXELS_PER_WORLD_UNIT,
+    );
   }
 
   setSceneBounds(sceneBounds: SceneBounds3D): void {
@@ -270,10 +267,28 @@ export class StackCameraProjector implements StageProjector {
   }
 
   private getCameraState(viewport: ViewportSize): PerspectiveCameraState {
+    return this.getCameraStateForStackCamera(viewport, this.stackCamera);
+  }
+
+  private getReferenceZoomPixelsPerWorldUnit(viewport: ViewportSize): number {
+    return measurePerspectivePixelsPerWorldUnit(
+      this.getCameraStateForStackCamera(viewport, {
+        ...DEFAULT_STACK_CAMERA_STATE,
+        distanceScale: this.stackCamera.distanceScale,
+      }),
+      this.sceneBounds,
+      viewport,
+    );
+  }
+
+  private getCameraStateForStackCamera(
+    viewport: ViewportSize,
+    stackCamera: StackCameraState,
+  ): PerspectiveCameraState {
     const aspect = getSafeAspectRatio(viewport);
     const center = getSceneBoundsCenter(this.sceneBounds);
     const cameraBasis = getPerspectiveCameraBasis(
-      getStackCameraForward(this.stackCamera),
+      getStackCameraForward(stackCamera),
       STACK_CAMERA_UP,
     );
     let horizontalExtent = 0;
@@ -295,7 +310,10 @@ export class StackCameraProjector implements StageProjector {
     const requiredHorizontalDepth = horizontalExtent * widthScale / (tanHalfFovY * aspect);
     const requiredVerticalDepth = verticalExtent * heightScale / tanHalfFovY;
     const depthFromCenter =
-      Math.max(requiredHorizontalDepth, requiredVerticalDepth, 1) * STACK_CAMERA_PADDING + forwardExtent;
+      Math.max(requiredHorizontalDepth, requiredVerticalDepth, 1) *
+        STACK_CAMERA_PADDING *
+        stackCamera.distanceScale +
+      forwardExtent;
     const eye = addSceneVectors(
       center,
       scaleSceneVector(cameraBasis.forward, -depthFromCenter),
@@ -313,6 +331,22 @@ export class StackCameraProjector implements StageProjector {
 }
 
 export {StackCameraProjector as IsometricStackProjector};
+
+function measurePerspectivePixelsPerWorldUnit(
+  camera: PerspectiveCameraState,
+  sceneBounds: SceneBounds3D,
+  viewport: ViewportSize,
+): number {
+  const center = getSceneBoundsCenter(sceneBounds);
+  const start = projectPerspectiveWorldPointToScreen(camera, center, viewport);
+  const end = projectPerspectiveWorldPointToScreen(
+    camera,
+    {x: center.x + 1, y: center.y, z: center.z},
+    viewport,
+  );
+
+  return Math.max(0.0001, Math.hypot(end.x - start.x, end.y - start.y));
+}
 
 export function projectPlaneFocusWorldPoint(
   state: PlaneFocusProjectorState,
