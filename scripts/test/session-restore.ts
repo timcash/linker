@@ -44,6 +44,7 @@ export async function runSessionRestoreFlow(
 
   const routeState = await getStageRouteState(context.page);
   assert.ok(routeState.sessionToken, 'Session restore should expose a persisted session token in the route.');
+  assert.ok(routeState.historyStep !== null, 'Session restore should expose a persisted history step in the route.');
   assert.equal(routeState.workplaneId, 'wp-2', 'The route should mirror the active workplane before reload.');
 
   await waitForPersistedStageSession(context.page, routeState.sessionToken);
@@ -90,7 +91,18 @@ export async function runSessionRestoreFlow(
     'Switching after reload should restore wp-1 edits.',
   );
 
+  const historyOverrideUrl = new URL(persistedUrl);
+  historyOverrideUrl.searchParams.set('history', '0');
+  await openRoute(context.page, historyOverrideUrl.toString());
+  await waitForStageWorkplane(context.page, {activeWorkplaneId: 'wp-1', planeCount: 1});
+  assert.equal(
+    (await getCameraState(context.page)).label,
+    '1:1:1',
+    'A persisted history route should restore the requested opening history step.',
+  );
+
   const workplaneOverrideUrl = new URL(persistedUrl);
+  workplaneOverrideUrl.searchParams.delete('history');
   workplaneOverrideUrl.searchParams.set('workplane', 'wp-1');
   await openRoute(context.page, workplaneOverrideUrl.toString());
   await waitForStageWorkplane(context.page, {activeWorkplaneId: 'wp-1', planeCount: 2});

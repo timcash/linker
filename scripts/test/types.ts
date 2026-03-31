@@ -82,6 +82,7 @@ export type StageState = {
 };
 
 export type StageRouteState = {
+  historyStep: number | null;
   sessionToken: string | null;
   stageMode: string | null;
   workplaneId: string | null;

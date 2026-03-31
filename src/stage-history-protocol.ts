@@ -1,14 +1,10 @@
+import type {StageHistoryState, StageHistoryViewState, StageHistorySnapshot} from './stage-history';
 import type {StageSystemState} from './plane-stack';
-import type {
-  StageHistorySnapshot,
-  StageHistoryViewState,
-} from './stage-history';
 
 export type StageHistoryWorkerRequest =
   | {
+      history: StageHistoryState;
       requestId: number;
-      state: StageSystemState;
-      summary: string;
       type: 'initialize';
     }
   | {
@@ -27,6 +23,10 @@ export type StageHistoryWorkerRequest =
       requestId: number;
       stepDelta: number;
       type: 'move-cursor';
+    }
+  | {
+      requestId: number;
+      type: 'export';
     };
 
 export type StageHistoryWorkerResponse =
@@ -45,4 +45,10 @@ export type StageHistoryWorkerResponse =
       snapshot: StageHistorySnapshot;
       state: StageSystemState | null;
       type: 'replay';
+    }
+  | {
+      history: StageHistoryState;
+      requestId: number;
+      snapshot: StageHistorySnapshot;
+      type: 'exported';
     };

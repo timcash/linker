@@ -1,8 +1,8 @@
 import {type StageSystemState} from './plane-stack';
 import {
-  createStageHistoryState,
   createStageHistoryViewState,
   getStageHistorySnapshot,
+  type StageHistoryState,
   type StageHistorySnapshot,
 } from './stage-history';
 import type {
@@ -23,18 +23,17 @@ export class StageHistoryController {
   private readonly worker: Worker;
 
   constructor(
-    initialState: StageSystemState,
+    initialHistory: StageHistoryState,
     private readonly onSnapshot: (snapshot: StageHistorySnapshot) => void,
   ) {
     this.worker = new Worker(new URL('./stage-history-worker.ts', import.meta.url), {
       type: 'module',
     });
     this.worker.addEventListener('message', this.handleWorkerMessage);
-    this.onSnapshot(getStageHistorySnapshot(createStageHistoryState(initialState)));
+    this.onSnapshot(getStageHistorySnapshot(initialHistory));
     this.postNow({
+      history: initialHistory,
       requestId: this.allocateRequestId(),
-      state: initialState,
-      summary: 'Open stage session',
       type: 'initialize',
     });
   }
@@ -53,7 +52,7 @@ export class StageHistoryController {
   }
 
   recordCheckpoint(summary: string, state: StageSystemState): void {
-    this.postNow({
+    this.enqueue({
       requestId: this.allocateRequestId(),
       state,
       summary,
@@ -83,6 +82,20 @@ export class StageHistoryController {
     }
 
     return response.state;
+  }
+
+  async exportHistory(): Promise<StageHistoryState> {
+    this.flushQueuedRequests();
+    const response = await this.request({
+      requestId: this.allocateRequestId(),
+      type: 'export',
+    });
+
+    if (response.type !== 'exported') {
+      throw new Error(`Expected an exported response, received ${response.type}.`);
+    }
+
+    return response.history;
   }
 
   private allocateRequestId(): number {

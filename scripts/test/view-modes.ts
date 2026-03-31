@@ -7,12 +7,14 @@ import {
   getStageRouteState,
   getStageState,
   getTextState,
+  navigateBrowserHistory,
   openRoute,
   pressHistoryKey,
   pressNavigationKey,
   pressPlaneStackKey,
   pressStageModeKey,
   showStrategyPanelMode,
+  submitFocusedLabelInput,
   waitForCameraLabel,
   waitForStageWorkplane,
   type BrowserTestContext,
@@ -36,6 +38,10 @@ export async function runViewModesFlow(
   await clickControl(context.page, 'pan-right');
   await waitForCameraLabel(context.page, '2:1:1');
   await clickControl(context.page, 'pan-down');
+  await waitForCameraLabel(context.page, '2:2:1');
+  await pressHistoryKey(context.page, 'history-back');
+  await waitForCameraLabel(context.page, '2:1:1');
+  await pressHistoryKey(context.page, 'history-forward');
   await waitForCameraLabel(context.page, '2:2:1');
 
   await showStrategyPanelMode(context.page, 'label-edit');
@@ -166,6 +172,34 @@ export async function runViewModesFlow(
     'History forward should restore the dragged stack-camera elevation.',
   );
 
+  await navigateBrowserHistory(context.page, 'back');
+  const browserRewoundCamera = await getCameraState(context.page);
+
+  assert.equal(
+    browserRewoundCamera.stackCameraAzimuth,
+    stackCamera.stackCameraAzimuth,
+    'Browser back should replay the previous stage history step.',
+  );
+  assert.equal(
+    browserRewoundCamera.stackCameraElevation,
+    stackCamera.stackCameraElevation,
+    'Browser back should restore the previous stack-camera elevation.',
+  );
+
+  await navigateBrowserHistory(context.page, 'forward');
+  const browserReplayedCamera = await getCameraState(context.page);
+
+  assert.equal(
+    browserReplayedCamera.stackCameraAzimuth,
+    draggedStackCamera.stackCameraAzimuth,
+    'Browser forward should replay the next stage history step.',
+  );
+  assert.equal(
+    browserReplayedCamera.stackCameraElevation,
+    draggedStackCamera.stackCameraElevation,
+    'Browser forward should restore the next stack-camera elevation.',
+  );
+
   await pressNavigationKey(context.page, 'ArrowRight');
   const keyboardOrbitedCamera = await getCameraState(context.page);
 
@@ -226,6 +260,27 @@ export async function runViewModesFlow(
     false,
     'Returning to plane-focus view should re-enable label editing.',
   );
+
+  await submitFocusedLabelInput(context.page, 'Alpha replay');
+  assert.equal(
+    await readLabelEditInputValue(context),
+    'Alpha replay',
+    'Editing the focused label should update the label-edit input.',
+  );
+
+  await pressHistoryKey(context.page, 'history-back');
+  assert.equal(
+    await readLabelEditInputValue(context),
+    '2:2:1',
+    'History back should restore the previous label text.',
+  );
+
+  await pressHistoryKey(context.page, 'history-forward');
+  assert.equal(
+    await readLabelEditInputValue(context),
+    'Alpha replay',
+    'History forward should restore the edited label text.',
+  );
 }
 
 async function readLabelEditPanelState(
@@ -247,6 +302,15 @@ async function readLabelEditPanelState(
         !panel.hidden &&
         window.getComputedStyle(panel).display !== 'none',
     };
+  });
+}
+
+async function readLabelEditInputValue(
+  context: BrowserTestContext,
+): Promise<string> {
+  return context.page.evaluate(() => {
+    const input = document.querySelector<HTMLInputElement>('[data-testid="label-input-field"]');
+    return input?.value ?? '';
   });
 }
 

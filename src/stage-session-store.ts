@@ -1,4 +1,5 @@
 import type {LayoutStrategy} from './data/labels';
+import type {StageHistoryState} from './stage-history';
 import type {LineStrategy} from './line/types';
 import type {StageSystemState} from './plane-stack';
 import type {StrategyPanelMode} from './stage-panels';
@@ -6,7 +7,7 @@ import type {LabelSetKind} from './stage-config';
 import type {TextStrategy} from './text/types';
 
 const STAGE_SESSION_DATABASE_NAME = 'linker-stage';
-const STAGE_SESSION_DATABASE_VERSION = 1;
+const STAGE_SESSION_DATABASE_VERSION = 2;
 const STAGE_SESSION_STORE_NAME = 'stage-sessions';
 const LAST_STAGE_SESSION_TOKEN_KEY = 'linker:last-session-token';
 const MAX_PERSISTED_STAGE_SESSIONS = 8;
@@ -31,6 +32,27 @@ export type PersistedStageSessionSnapshot = {
   };
 };
 
+export type PersistedStageHistorySession = {
+  version: 2;
+  sessionToken: SessionToken;
+  savedAt: string;
+  config: {
+    demoLayerCount: number;
+    labelSetKind: LabelSetKind;
+  };
+  history: StageHistoryState;
+  ui: {
+    layoutStrategy: LayoutStrategy;
+    lineStrategy: LineStrategy;
+    strategyPanelMode: StrategyPanelMode;
+    textStrategy: TextStrategy;
+  };
+};
+
+export type PersistedStageSessionRecord =
+  | PersistedStageSessionSnapshot
+  | PersistedStageHistorySession;
+
 export function createSessionToken(): SessionToken {
   if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
     return `stk-${crypto.randomUUID()}`;
@@ -41,7 +63,7 @@ export function createSessionToken(): SessionToken {
 
 export async function loadStageSessionSnapshot(
   sessionToken: SessionToken,
-): Promise<PersistedStageSessionSnapshot | null> {
+): Promise<PersistedStageSessionRecord | null> {
   if (!hasIndexedDb()) {
     return null;
   }
@@ -50,14 +72,14 @@ export async function loadStageSessionSnapshot(
 
   try {
     const snapshot = await readStageSessionSnapshot(database, sessionToken);
-    return isPersistedStageSessionSnapshot(snapshot) ? snapshot : null;
+    return isPersistedStageSessionRecord(snapshot) ? snapshot : null;
   } finally {
     database.close();
   }
 }
 
 export async function saveStageSessionSnapshot(
-  snapshot: PersistedStageSessionSnapshot,
+  snapshot: PersistedStageSessionRecord,
 ): Promise<void> {
   if (!hasIndexedDb()) {
     return;
@@ -98,12 +120,31 @@ function hasIndexedDb(): boolean {
   return typeof indexedDB !== 'undefined';
 }
 
-function openStageSessionDatabase(): Promise<IDBDatabase> {
+async function openStageSessionDatabase(): Promise<IDBDatabase> {
+  const database = await openStageSessionDatabaseWithVersion(
+    STAGE_SESSION_DATABASE_VERSION,
+    'Failed to open the stage session database.',
+  );
+
+  if (database.objectStoreNames.contains(STAGE_SESSION_STORE_NAME)) {
+    return database;
+  }
+
+  database.close();
+  await deleteStageSessionDatabase();
+
+  return openStageSessionDatabaseWithVersion(
+    STAGE_SESSION_DATABASE_VERSION,
+    'Failed to recreate the stage session database.',
+  );
+}
+
+function openStageSessionDatabaseWithVersion(
+  version: number,
+  errorMessage: string,
+): Promise<IDBDatabase> {
   return new Promise((resolve, reject) => {
-    const request = indexedDB.open(
-      STAGE_SESSION_DATABASE_NAME,
-      STAGE_SESSION_DATABASE_VERSION,
-    );
+    const request = indexedDB.open(STAGE_SESSION_DATABASE_NAME, version);
 
     request.addEventListener('upgradeneeded', () => {
       const database = request.result;
@@ -114,7 +155,21 @@ function openStageSessionDatabase(): Promise<IDBDatabase> {
     });
     request.addEventListener('success', () => resolve(request.result));
     request.addEventListener('error', () => {
-      reject(request.error ?? new Error('Failed to open the stage session database.'));
+      reject(request.error ?? new Error(errorMessage));
+    });
+  });
+}
+
+function deleteStageSessionDatabase(): Promise<void> {
+  return new Promise((resolve, reject) => {
+    const request = indexedDB.deleteDatabase(STAGE_SESSION_DATABASE_NAME);
+
+    request.addEventListener('success', () => resolve());
+    request.addEventListener('blocked', () => {
+      reject(new Error('Failed to recreate the stage session database because deletion was blocked.'));
+    });
+    request.addEventListener('error', () => {
+      reject(request.error ?? new Error('Failed to delete the stage session database.'));
     });
   });
 }
@@ -137,7 +192,7 @@ function readStageSessionSnapshot(
 
 function writeStageSessionSnapshot(
   database: IDBDatabase,
-  snapshot: PersistedStageSessionSnapshot,
+  snapshot: PersistedStageSessionRecord,
 ): Promise<void> {
   return new Promise((resolve, reject) => {
     const transaction = database.transaction(STAGE_SESSION_STORE_NAME, 'readwrite');
@@ -171,7 +226,7 @@ async function pruneStageSessionSnapshots(database: IDBDatabase): Promise<void> 
 
 function readAllStageSessionSnapshots(
   database: IDBDatabase,
-): Promise<PersistedStageSessionSnapshot[]> {
+): Promise<PersistedStageSessionRecord[]> {
   return new Promise((resolve, reject) => {
     const transaction = database.transaction(STAGE_SESSION_STORE_NAME, 'readonly');
     const store = transaction.objectStore(STAGE_SESSION_STORE_NAME);
@@ -179,7 +234,7 @@ function readAllStageSessionSnapshots(
 
     request.addEventListener('success', () => {
       const snapshots = Array.isArray(request.result)
-        ? request.result.filter(isPersistedStageSessionSnapshot)
+        ? request.result.filter(isPersistedStageSessionRecord)
         : [];
       resolve(snapshots);
     });
@@ -211,21 +266,30 @@ function deleteStageSessionSnapshots(
   });
 }
 
-function isPersistedStageSessionSnapshot(
+function isPersistedStageSessionRecord(
   value: unknown,
-): value is PersistedStageSessionSnapshot {
+): value is PersistedStageSessionRecord {
   if (!value || typeof value !== 'object') {
     return false;
   }
 
-  const snapshot = value as Partial<PersistedStageSessionSnapshot>;
+  const snapshot = value as Partial<PersistedStageSessionRecord>;
+
+  if (
+    typeof snapshot.sessionToken !== 'string' ||
+    typeof snapshot.savedAt !== 'string' ||
+    snapshot.ui === undefined ||
+    snapshot.config === undefined
+  ) {
+    return false;
+  }
+
+  if (snapshot.version === 1) {
+    return snapshot.document !== undefined && snapshot.session !== undefined;
+  }
+
   return (
-    snapshot.version === 1 &&
-    typeof snapshot.sessionToken === 'string' &&
-    typeof snapshot.savedAt === 'string' &&
-    snapshot.document !== undefined &&
-    snapshot.session !== undefined &&
-    snapshot.ui !== undefined &&
-    snapshot.config !== undefined
+    snapshot.version === 2 &&
+    snapshot.history !== undefined
   );
 }

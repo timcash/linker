@@ -177,8 +177,21 @@ export async function getStageState(page: Page): Promise<StageState> {
 export async function getStageRouteState(page: Page): Promise<StageRouteState> {
   return page.evaluate(() => {
     const url = new URL(window.location.href);
+    const routeState: unknown = window.history.state;
+    const stateHistoryStep =
+      routeState && typeof routeState === 'object'
+        ? (routeState as {stageHistoryStep?: unknown}).stageHistoryStep
+        : null;
+    const queryHistoryValue = url.searchParams.get('history');
+    const queryHistoryStep = queryHistoryValue === null ? null : Number(queryHistoryValue);
 
     return {
+      historyStep:
+        Number.isInteger(queryHistoryStep) && queryHistoryStep !== null
+          ? queryHistoryStep
+          : Number.isInteger(stateHistoryStep) && (stateHistoryStep as number) >= 0
+          ? (stateHistoryStep as number)
+          : null,
       sessionToken: url.searchParams.get('session'),
       stageMode: url.searchParams.get('stageMode'),
       workplaneId: url.searchParams.get('workplane'),
@@ -396,7 +409,7 @@ export async function waitForPersistedStageSession(
       }
 
       const database = await new Promise<IDBDatabase>((resolve, reject) => {
-        const request = indexedDB.open('linker-stage', 1);
+        const request = indexedDB.open('linker-stage');
 
         request.addEventListener('success', () => resolve(request.result));
         request.addEventListener('error', () => {
@@ -405,6 +418,10 @@ export async function waitForPersistedStageSession(
       });
 
       try {
+        if (!database.objectStoreNames.contains('stage-sessions')) {
+          return false;
+        }
+
         const snapshot = await new Promise<unknown>((resolve, reject) => {
           const transaction = database.transaction('stage-sessions', 'readonly');
           const store = transaction.objectStore('stage-sessions');
@@ -657,6 +674,21 @@ export async function pressStageModeKey(page: Page): Promise<void> {
     }
   });
   await page.keyboard.press('Slash');
+  await waitForBrowserUpdate(page);
+}
+
+export async function navigateBrowserHistory(
+  page: Page,
+  direction: 'back' | 'forward',
+): Promise<void> {
+  await page.evaluate((nextDirection) => {
+    if (nextDirection === 'back') {
+      window.history.back();
+      return;
+    }
+
+    window.history.forward();
+  }, direction);
   await waitForBrowserUpdate(page);
 }
 

@@ -20,6 +20,7 @@ import {DEFAULT_LINE_STRATEGY, LINE_STRATEGIES, type LineStrategy} from './line/
 import {DEFAULT_TEXT_STRATEGY, type TextStrategy} from './text/types';
 
 export type LabelSetKind = 'demo' | 'benchmark';
+export type RouteUpdateMode = 'push' | 'replace';
 
 export type CameraView = Pick<CameraSnapshot, 'centerX' | 'centerY' | 'zoom'>;
 
@@ -34,6 +35,7 @@ export type StageConfig = {
   layoutStrategy: LayoutStrategy;
   labelTargetCount: number;
   lineStrategy: LineStrategy;
+  requestedHistoryStep: number | null;
   requestedSessionToken: string | null;
   requestedStageMode: StageMode | null;
   requestedWorkplaneId: WorkplaneId | null;
@@ -80,6 +82,7 @@ export function readStageConfig(search: string): StageConfig {
     layoutStrategy,
     labelTargetCount,
     lineStrategy,
+    requestedHistoryStep: parseNonNegativeInteger(params.get('history')),
     requestedSessionToken: parseSessionToken(params.get('session')),
     requestedStageMode,
     requestedWorkplaneId: parseWorkplaneId(params.get('workplane')),
@@ -92,7 +95,7 @@ export function syncStageTextStrategyQueryParam(textStrategy: TextStrategy): voi
   void textStrategy;
   updateRouteSearchParams((searchParams) => {
     searchParams.delete('textStrategy');
-  });
+  }, 'replace');
 }
 
 export function syncStageLineStrategyQueryParam(lineStrategy: LineStrategy): void {
@@ -102,7 +105,7 @@ export function syncStageLineStrategyQueryParam(lineStrategy: LineStrategy): voi
     } else {
       searchParams.set('lineStrategy', lineStrategy);
     }
-  });
+  }, 'replace');
 }
 
 export function syncStageLayoutStrategyQueryParam(layoutStrategy: LayoutStrategy): void {
@@ -112,7 +115,7 @@ export function syncStageLayoutStrategyQueryParam(layoutStrategy: LayoutStrategy
     } else {
       searchParams.set('layoutStrategy', layoutStrategy);
     }
-  });
+  }, 'replace');
 }
 
 export function syncStageModeQueryParam(stageMode: StageMode): void {
@@ -122,7 +125,7 @@ export function syncStageModeQueryParam(stageMode: StageMode): void {
     } else {
       searchParams.set('stageMode', stageMode);
     }
-  });
+  }, 'replace');
 }
 
 export function syncStageSessionQueryParam(sessionToken: string | null): void {
@@ -133,7 +136,7 @@ export function syncStageSessionQueryParam(sessionToken: string | null): void {
     }
 
     searchParams.set('session', sessionToken);
-  });
+  }, 'replace');
 }
 
 export function syncStageWorkplaneQueryParam(activeWorkplaneId: WorkplaneId): void {
@@ -143,7 +146,7 @@ export function syncStageWorkplaneQueryParam(activeWorkplaneId: WorkplaneId): vo
     } else {
       searchParams.set('workplane', activeWorkplaneId);
     }
-  });
+  }, 'replace');
 }
 
 export function syncStageNumericCameraQueryParams(camera: CameraView): void {
@@ -152,7 +155,7 @@ export function syncStageNumericCameraQueryParams(camera: CameraView): void {
     syncCameraNumberQueryParam(searchParams, 'cameraCenterX', camera.centerX);
     syncCameraNumberQueryParam(searchParams, 'cameraCenterY', camera.centerY);
     syncCameraNumberQueryParam(searchParams, 'cameraZoom', camera.zoom);
-  });
+  }, 'replace');
 }
 
 export function syncStageDemoCameraQueryParams(labelKey: string, defaultLabelKey: string): void {
@@ -166,7 +169,32 @@ export function syncStageDemoCameraQueryParams(labelKey: string, defaultLabelKey
     } else {
       searchParams.set('cameraLabel', labelKey);
     }
-  });
+  }, 'replace');
+}
+
+export function syncStageHistoryQueryParam(
+  historyStep: number | null,
+  mode: RouteUpdateMode = 'replace',
+): void {
+  updateRouteSearchParams((searchParams) => {
+    if (historyStep === null) {
+      searchParams.delete('history');
+    } else {
+      searchParams.set('history', String(Math.max(0, Math.trunc(historyStep))));
+    }
+  }, mode, historyStep);
+}
+
+export function readStageHistoryRouteState(): number | null {
+  const historyState = readCurrentRouteState();
+  const stageHistoryStep =
+    historyState && typeof historyState === 'object'
+      ? (historyState as {stageHistoryStep?: unknown}).stageHistoryStep
+      : null;
+
+  return Number.isInteger(stageHistoryStep) && stageHistoryStep >= 0
+    ? stageHistoryStep
+    : null;
 }
 
 function parseTextStrategy(value: string | null): TextStrategy {
@@ -199,6 +227,16 @@ function parseSessionToken(value: string | null): string | null {
   return sessionToken.length > 0 ? sessionToken : null;
 }
 
+function parseNonNegativeInteger(input: string | null): number | null {
+  const parsed = input ? Number.parseInt(input, 10) : Number.NaN;
+
+  if (!Number.isFinite(parsed) || parsed < 0) {
+    return null;
+  }
+
+  return parsed;
+}
+
 function parseBoundedInteger(
   input: string | null,
   fallback: number,
@@ -222,16 +260,39 @@ function isLayoutStrategy(value: string | null | undefined): value is LayoutStra
   return LAYOUT_STRATEGIES.includes(value as LayoutStrategy);
 }
 
-function updateRouteSearchParams(mutate: (searchParams: URLSearchParams) => void): void {
+function updateRouteSearchParams(
+  mutate: (searchParams: URLSearchParams) => void,
+  mode: RouteUpdateMode = 'replace',
+  historyStep: number | null = readStageHistoryRouteState(),
+): void {
   const url = new URL(window.location.href);
   const previousSearch = url.search;
+  const previousHistoryStep = readStageHistoryRouteState();
   mutate(url.searchParams);
 
-  if (url.search === previousSearch) {
+  if (url.search === previousSearch && historyStep === previousHistoryStep) {
     return;
   }
 
-  window.history.replaceState({}, '', url.toString());
+  const routeState = {
+    ...readCurrentRouteState(),
+    stageHistoryStep: historyStep,
+  };
+
+  if (mode === 'push') {
+    window.history.pushState(routeState, '', url.toString());
+    return;
+  }
+
+  window.history.replaceState(routeState, '', url.toString());
+}
+
+function readCurrentRouteState(): Record<string, unknown> {
+  const currentState: unknown = window.history.state;
+
+  return currentState && typeof currentState === 'object'
+    ? (currentState as Record<string, unknown>)
+    : {};
 }
 
 function syncCameraNumberQueryParam(

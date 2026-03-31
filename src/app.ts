@@ -33,7 +33,6 @@ import {
 import {FrameTelemetry} from './perf';
 import {
   canDeleteActiveWorkplane,
-  cloneStageSystemState,
   deleteActiveWorkplane,
   getActiveWorkplaneDocument,
   getActiveWorkplaneView,
@@ -50,6 +49,9 @@ import {
   type WorkplaneCameraView,
 } from './plane-stack';
 import {
+  areStageHistoryViewsEqual,
+  createStageHistoryViewState,
+  type StageHistoryState,
   type StageHistorySnapshot,
 } from './stage-history';
 import {StageHistoryController} from './stage-history-controller';
@@ -64,9 +66,11 @@ import {
 } from './projector';
 import {StackBackplateLayer} from './stack-backplate';
 import {
+  readStageHistoryRouteState,
   readStageConfig,
   syncStageModeQueryParam,
   syncStageDemoCameraQueryParams,
+  syncStageHistoryQueryParam,
   syncStageLayoutStrategyQueryParam,
   syncStageLineStrategyQueryParam,
   syncStageNumericCameraQueryParams,
@@ -92,7 +96,7 @@ import {
   loadStageSessionSnapshot,
   saveStageSessionSnapshot,
   writeLastStageSessionToken,
-  type PersistedStageSessionSnapshot,
+  type PersistedStageSessionRecord,
   type SessionToken,
 } from './stage-session-store';
 import {
@@ -161,7 +165,7 @@ const QUAD_UVS = new Float32Array([
 ]);
 
 const DEMO_DEEP_ZOOM_STEP = 1;
-const SESSION_SAVE_DEBOUNCE_MS = 0;
+const SESSION_SAVE_DEBOUNCE_MS = 750;
 const STACK_CAMERA_HISTORY_SETTLE_MS = 250;
 const STACK_CAMERA_CONTROL_AZIMUTH_STEP_RADIANS = Math.PI / 18;
 const STACK_CAMERA_CONTROL_ELEVATION_STEP_RADIANS = Math.PI / 24;
@@ -184,6 +188,7 @@ type WorkplaneAction =
 
 type StageBootPayload = {
   config: StageConfig;
+  history: StageHistoryState;
   initialState: StageSystemState;
   sessionToken: SessionToken;
   strategyPanelMode: StrategyPanelMode;
@@ -205,6 +210,7 @@ export async function startApp(root: HTMLElement): Promise<AppHandle> {
   const stageController = new LumaStageController(
     stageChrome,
     bootPayload.config,
+    bootPayload.history,
     bootPayload.initialState,
     bootPayload.sessionToken,
     bootPayload.strategyPanelMode,
@@ -226,6 +232,7 @@ class LumaStageController {
   private frameTelemetry: FrameTelemetry | null = null;
   private gridLayer: GridLayer | null = null;
   private historyReplayPending = false;
+  private historyRouteSyncSuspended = false;
   private historySnapshot: StageHistorySnapshot = {
     canGoBack: false,
     canGoForward: false,
@@ -270,15 +277,13 @@ class LumaStageController {
   constructor(
     private readonly chrome: StageChromeElements,
     private readonly config: StageConfig,
+    initialHistory: StageHistoryState,
     initialState: StageSystemState,
     sessionToken: SessionToken,
     strategyPanelMode: StrategyPanelMode,
   ) {
     this.state = initialState;
-    this.stageHistory = new StageHistoryController(initialState, (snapshot) => {
-      this.historySnapshot = snapshot;
-      this.syncHistorySnapshot();
-    });
+    this.stageHistory = new StageHistoryController(initialHistory, this.handleHistorySnapshot);
     this.scene = getActiveWorkplaneDocument(initialState).scene;
     const stackViewState = createStackViewState(initialState);
     this.renderScene =
@@ -552,15 +557,23 @@ class LumaStageController {
       return;
     }
 
-    const cameraChanged = this.isDemoLabelCameraEnabled()
-      ? this.applyDemoControlAction(action)
-      : this.applyNumericControlAction(action);
+    const previousState = this.captureActiveWorkplaneRuntimeState(this.state);
+    const previousView = createStageHistoryViewState(previousState);
 
-    if (cameraChanged) {
-      this.state = this.captureActiveWorkplaneRuntimeState(this.state);
+    this.state = previousState;
+    if (this.isDemoLabelCameraEnabled()) {
+      this.applyDemoControlAction(action);
+    } else {
+      this.applyNumericControlAction(action);
+    }
+    const nextState = this.captureActiveWorkplaneRuntimeState(this.state);
+    const nextView = createStageHistoryViewState(nextState);
+
+    if (!areStageHistoryViewsEqual(previousView, nextView)) {
+      this.state = nextState;
       this.syncCurrentCameraQueryParams();
       this.scheduleSessionSnapshotSave();
-      this.recordStageHistoryView('Move plane-focus camera');
+      this.recordStageHistoryView('Adjust plane-focus view', nextState);
       this.requestRender();
     }
 
@@ -871,6 +884,15 @@ class LumaStageController {
     syncStageLineStrategyQueryParam(this.lineStrategy);
     syncStageTextStrategyQueryParam(this.textStrategy);
     this.syncCurrentCameraQueryParams();
+    syncStageHistoryQueryParam(this.getRouteHistoryStep());
+  }
+
+  private getRouteHistoryStep(
+    snapshot: StageHistorySnapshot = this.historySnapshot,
+  ): number | null {
+    return snapshot.cursorStep === 0 && snapshot.headStep === 0
+      ? null
+      : snapshot.cursorStep;
   }
 
   private scheduleSessionSnapshotSave(): void {
@@ -889,7 +911,7 @@ class LumaStageController {
   }
 
   private async persistStageSessionSnapshot(): Promise<void> {
-    const snapshot = this.createPersistedStageSessionSnapshot();
+    const snapshot = await this.createPersistedStageSessionSnapshot();
 
     writeLastStageSessionToken(this.sessionToken);
     this.sessionSaveQueue = this.sessionSaveQueue.then(async () => {
@@ -903,20 +925,18 @@ class LumaStageController {
     await this.sessionSaveQueue;
   }
 
-  private createPersistedStageSessionSnapshot(): PersistedStageSessionSnapshot {
-    this.state = this.captureActiveWorkplaneRuntimeState(this.state);
-    const snapshotState = cloneStageSystemState(this.state);
+  private async createPersistedStageSessionSnapshot(): Promise<PersistedStageSessionRecord> {
+    const history = await this.stageHistory.exportHistory();
 
     return {
-      version: 1,
+      version: 2,
       sessionToken: this.sessionToken,
       savedAt: new Date().toISOString(),
       config: {
         demoLayerCount: this.config.demoLayerCount,
         labelSetKind: this.config.labelSetKind,
       },
-      document: snapshotState.document,
-      session: snapshotState.session,
+      history,
       ui: {
         layoutStrategy: this.layoutStrategy,
         lineStrategy: this.lineStrategy,
@@ -1105,6 +1125,61 @@ class LumaStageController {
       this.scheduleStackCameraHistoryView('Zoom stack camera');
       event.preventDefault();
     }
+  };
+
+  private handleWindowPopState = (): void => {
+    if (this.destroyed || this.workplaneSyncPending || this.labelInputPending) {
+      return;
+    }
+
+    const routeConfig = readStageConfig(window.location.search);
+
+    if (
+      routeConfig.requestedSessionToken !== null &&
+      routeConfig.requestedSessionToken !== this.sessionToken
+    ) {
+      window.location.reload();
+      return;
+    }
+
+    const targetHistoryStep =
+      routeConfig.requestedHistoryStep ??
+      readStageHistoryRouteState() ??
+      this.historySnapshot.headStep;
+
+    if (targetHistoryStep === this.historySnapshot.cursorStep) {
+      return;
+    }
+
+    this.clearPendingStackCameraHistoryView();
+    this.historyReplayPending = true;
+    this.historyRouteSyncSuspended = true;
+
+    void this.stageHistory
+      .moveCursor(targetHistoryStep - this.historySnapshot.cursorStep)
+      .then((replayState) => {
+        if (!replayState) {
+          return;
+        }
+
+        this.suppressHistoryRecording = true;
+
+        try {
+          this.applyStageSystemState(replayState, {
+            forceLabelInput: true,
+            syncQuery: false,
+          });
+        } finally {
+          this.suppressHistoryRecording = false;
+        }
+      })
+      .catch((error) => {
+        console.error('Failed to replay stage history from popstate.', error);
+      })
+      .finally(() => {
+        this.historyRouteSyncSuspended = false;
+        this.historyReplayPending = false;
+      });
   };
 
   private handleWindowResize = (): void => {
@@ -1316,6 +1391,23 @@ class LumaStageController {
     });
   }
 
+  private handleHistorySnapshot = (snapshot: StageHistorySnapshot): void => {
+    const previousSnapshot = this.historySnapshot;
+
+    this.historySnapshot = snapshot;
+    this.syncHistorySnapshot();
+
+    if (
+      this.historyRouteSyncSuspended ||
+      (previousSnapshot.cursorStep === snapshot.cursorStep &&
+        previousSnapshot.headStep === snapshot.headStep)
+    ) {
+      return;
+    }
+
+    syncStageHistoryQueryParam(this.getRouteHistoryStep(snapshot), 'push');
+  };
+
   private installInteractionHandlers(): void {
     this.actionButtons.push(
       ...this.chrome.cameraPanel.querySelectorAll<HTMLButtonElement>('[data-control]'),
@@ -1357,6 +1449,7 @@ class LumaStageController {
     this.chrome.canvas.addEventListener('pointerdown', this.handleCanvasPointerDown);
     this.chrome.canvas.addEventListener('wheel', this.handleCanvasWheel, {passive: false});
     window.addEventListener('keydown', this.handleWindowKeyDown);
+    window.addEventListener('popstate', this.handleWindowPopState);
     window.addEventListener('pointermove', this.handleWindowPointerMove);
     window.addEventListener('pointerup', this.handleWindowPointerUp);
     window.addEventListener('pointercancel', this.handleWindowPointerUp);
@@ -1388,6 +1481,7 @@ class LumaStageController {
     this.chrome.canvas.removeEventListener('pointerdown', this.handleCanvasPointerDown);
     this.chrome.canvas.removeEventListener('wheel', this.handleCanvasWheel);
     window.removeEventListener('keydown', this.handleWindowKeyDown);
+    window.removeEventListener('popstate', this.handleWindowPopState);
     window.removeEventListener('pointermove', this.handleWindowPointerMove);
     window.removeEventListener('pointerup', this.handleWindowPointerUp);
     window.removeEventListener('pointercancel', this.handleWindowPointerUp);
@@ -2194,7 +2288,7 @@ function toWorkplaneCameraView(
 
 async function createStageBootPayload(config: StageConfig): Promise<StageBootPayload> {
   const sessionToken = config.requestedSessionToken ?? createSessionToken();
-  let persistedSnapshot: PersistedStageSessionSnapshot | null = null;
+  let persistedSnapshot: PersistedStageSessionRecord | null = null;
 
   if (config.requestedSessionToken) {
     try {
@@ -2208,6 +2302,7 @@ async function createStageBootPayload(config: StageConfig): Promise<StageBootPay
 
   return {
     config: hydratedBootState.config,
+    history: hydratedBootState.history,
     initialState: hydratedBootState.initialState,
     sessionToken,
     strategyPanelMode: hydratedBootState.strategyPanelMode ?? DEFAULT_STRATEGY_PANEL_MODE,

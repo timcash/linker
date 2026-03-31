@@ -80,7 +80,7 @@ export function appendStageHistoryViewState(
   };
   const lastEntry = history.entries[history.cursorStep];
 
-  if (lastEntry?.kind === 'view' && areHistoryViewsEqual(lastEntry.view, nextEntry.view)) {
+  if (lastEntry?.kind === 'view' && areStageHistoryViewsEqual(lastEntry.view, nextEntry.view)) {
     return history;
   }
 
@@ -154,6 +154,12 @@ export function replayStageHistoryToStep(
   return state;
 }
 
+export function getStageHistoryCurrentState(
+  history: StageHistoryState,
+): StageSystemState {
+  return replayStageHistoryToStep(history, history.cursorStep);
+}
+
 function appendEntry(
   history: StageHistoryState,
   entry: StageHistoryEntry,
@@ -223,7 +229,7 @@ function cloneWorkplaneView(view: WorkplaneViewState): WorkplaneViewState {
   };
 }
 
-function areHistoryViewsEqual(
+export function areStageHistoryViewsEqual(
   left: StageHistoryViewState,
   right: StageHistoryViewState,
 ): boolean {

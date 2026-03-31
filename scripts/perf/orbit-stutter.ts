@@ -10,9 +10,9 @@ type OrbitStutterOptions = {
   headless: boolean;
   labelCount: number;
   labelSet: 'benchmark' | 'demo';
-  maxFrameMs: number;
+  maxFrameJitterMs: number;
   maxLongTaskMs: number;
-  maxP95FrameMs: number;
+  maxP95FrameJitterMs: number;
   maxStutterFrameCount: number;
   postReleaseMs: number;
   radiusXRatio: number;
@@ -25,6 +25,7 @@ type OrbitStutterOptions = {
   segmentGapMs: number;
   stageMode: '3d-mode';
   stepIntervalMs: number;
+  stutterCadenceMultiplier: number;
   stutterThresholdMs: number;
   topFunctionCount: number;
   traceEnabled: boolean;
@@ -135,9 +136,9 @@ const DEFAULT_OPTIONS: OrbitStutterOptions = {
   headless: true,
   labelCount: 4096,
   labelSet: 'benchmark',
-  maxFrameMs: 35,
+  maxFrameJitterMs: 12,
   maxLongTaskMs: 40,
-  maxP95FrameMs: 20,
+  maxP95FrameJitterMs: 4,
   maxStutterFrameCount: 3,
   postReleaseMs: 900,
   radiusXRatio: 0.46,
@@ -150,6 +151,7 @@ const DEFAULT_OPTIONS: OrbitStutterOptions = {
   segmentGapMs: 200,
   stageMode: '3d-mode',
   stepIntervalMs: 10,
+  stutterCadenceMultiplier: 1.5,
   stutterThresholdMs: 25,
   topFunctionCount: 15,
   traceEnabled: false,
@@ -256,12 +258,13 @@ try {
   const phaseSummaries = summarizePhases(monitor, options);
   const dragSummary = summarizeDragPhase(phaseSummaries);
   const thresholds = {
-    maxFrameMs: options.maxFrameMs,
+    maxFrameJitterMs: options.maxFrameJitterMs,
     maxLongTaskMs: options.maxLongTaskMs,
-    maxP95FrameMs: options.maxP95FrameMs,
+    maxP95FrameJitterMs: options.maxP95FrameJitterMs,
     maxStutterFrameCount: options.maxStutterFrameCount,
     minDragDurationMs: MIN_ORBIT_SEGMENT_DURATION_MS,
     minOrbitDeltaRadians: scenarioPlan.plannedTotalAzimuthDeltaRadians * 0.85,
+    stutterCadenceMultiplier: options.stutterCadenceMultiplier,
     stutterThresholdMs: options.stutterThresholdMs,
   };
   const failures = collectFailures(dragSummary, thresholds);
@@ -521,6 +524,7 @@ function summarizePhases(
       activeDragFrames,
       activeDragLongTasks,
       getRangesDuration(segmentRanges),
+      options.stutterCadenceMultiplier,
       options.stutterThresholdMs,
     ),
   );
@@ -535,6 +539,7 @@ function summarizePhases(
         frames,
         longTasks,
         range.endMs - range.startMs,
+        options.stutterCadenceMultiplier,
         options.stutterThresholdMs,
       ),
     );
@@ -552,6 +557,7 @@ function summarizePhases(
         collectFramesForRange(monitor.frames, settleStartMs, settleEndMs),
         collectLongTasksForRange(monitor.longTasks, settleStartMs, settleEndMs),
         Math.max(0, settleEndMs - settleStartMs),
+        options.stutterCadenceMultiplier,
         options.stutterThresholdMs,
       ),
     );
@@ -563,6 +569,7 @@ function summarizePhases(
       monitor.frames.filter((frame) => frame.deltaMs > 0),
       monitor.longTasks,
       monitor.durationMs,
+      options.stutterCadenceMultiplier,
       options.stutterThresholdMs,
     ),
   );
@@ -655,53 +662,62 @@ function summarizePhase(
   frames: OrbitMonitorFrame[],
   longTasks: OrbitMonitorLongTask[],
   durationMs: number,
+  stutterCadenceMultiplier: number,
   stutterThresholdMs: number,
 ): PhaseSummary {
   const frameDeltas = frames.map((frame) => frame.deltaMs);
+  const frameDeltaSummary = summarizeMetric(frameDeltas);
   const longTaskDurations = longTasks.map((task) => task.durationMs);
+  const effectiveStutterThresholdMs = Math.max(
+    stutterThresholdMs,
+    frameDeltaSummary.median * stutterCadenceMultiplier,
+  );
 
   return {
     azimuthDeltaRadians: getAzimuthDeltaRadians(frames),
     durationMs,
     frameCount: frameDeltas.length,
-    frameDeltaMs: summarizeMetric(frameDeltas),
+    frameDeltaMs: frameDeltaSummary,
     longTaskCount: longTaskDurations.length,
     longTaskDurationMs: summarizeMetric(longTaskDurations),
     name,
-    stutterFrameCount: frameDeltas.filter((deltaMs) => deltaMs >= stutterThresholdMs).length,
-    stutterFrameThresholdMs: stutterThresholdMs,
+    stutterFrameCount: frameDeltas.filter((deltaMs) => deltaMs >= effectiveStutterThresholdMs).length,
+    stutterFrameThresholdMs: effectiveStutterThresholdMs,
   };
 }
 
 function collectFailures(
   dragSummary: PhaseSummary,
   thresholds: {
-    maxFrameMs: number;
+    maxFrameJitterMs: number;
     maxLongTaskMs: number;
-    maxP95FrameMs: number;
+    maxP95FrameJitterMs: number;
     maxStutterFrameCount: number;
     minDragDurationMs: number;
     minOrbitDeltaRadians: number;
+    stutterCadenceMultiplier: number;
     stutterThresholdMs: number;
   },
 ): string[] {
   const failures: string[] = [];
+  const p95FrameJitterMs = dragSummary.frameDeltaMs.p95 - dragSummary.frameDeltaMs.median;
+  const maxFrameJitterMs = dragSummary.frameDeltaMs.max - dragSummary.frameDeltaMs.median;
 
-  if (dragSummary.frameDeltaMs.p95 > thresholds.maxP95FrameMs) {
+  if (p95FrameJitterMs > thresholds.maxP95FrameJitterMs) {
     failures.push(
-      `drag p95 frame gap ${dragSummary.frameDeltaMs.p95.toFixed(2)}ms > ${thresholds.maxP95FrameMs.toFixed(2)}ms`,
+      `drag p95 frame jitter ${p95FrameJitterMs.toFixed(2)}ms > ${thresholds.maxP95FrameJitterMs.toFixed(2)}ms above ${dragSummary.frameDeltaMs.median.toFixed(2)}ms cadence`,
     );
   }
 
-  if (dragSummary.frameDeltaMs.max > thresholds.maxFrameMs) {
+  if (maxFrameJitterMs > thresholds.maxFrameJitterMs) {
     failures.push(
-      `drag max frame gap ${dragSummary.frameDeltaMs.max.toFixed(2)}ms > ${thresholds.maxFrameMs.toFixed(2)}ms`,
+      `drag max frame jitter ${maxFrameJitterMs.toFixed(2)}ms > ${thresholds.maxFrameJitterMs.toFixed(2)}ms above ${dragSummary.frameDeltaMs.median.toFixed(2)}ms cadence`,
     );
   }
 
   if (dragSummary.stutterFrameCount > thresholds.maxStutterFrameCount) {
     failures.push(
-      `drag stutter frames ${dragSummary.stutterFrameCount} > ${thresholds.maxStutterFrameCount} at ${thresholds.stutterThresholdMs.toFixed(2)}ms`,
+      `drag stutter frames ${dragSummary.stutterFrameCount} > ${thresholds.maxStutterFrameCount} at ${dragSummary.stutterFrameThresholdMs.toFixed(2)}ms dynamic threshold`,
     );
   }
 
@@ -932,16 +948,21 @@ function parseArgs(args: string[]): OrbitStutterOptions {
         options.labelSet = value === 'demo' ? 'demo' : 'benchmark';
         index += 1;
         break;
+      case '--max-frame-jitter-ms':
       case '--max-frame-ms':
-        options.maxFrameMs = parsePositiveFloat(value, options.maxFrameMs);
+        options.maxFrameJitterMs = parsePositiveFloat(value, options.maxFrameJitterMs);
         index += 1;
         break;
       case '--max-long-task-ms':
         options.maxLongTaskMs = parsePositiveFloat(value, options.maxLongTaskMs);
         index += 1;
         break;
+      case '--max-p95-frame-jitter-ms':
       case '--max-p95-frame-ms':
-        options.maxP95FrameMs = parsePositiveFloat(value, options.maxP95FrameMs);
+        options.maxP95FrameJitterMs = parsePositiveFloat(
+          value,
+          options.maxP95FrameJitterMs,
+        );
         index += 1;
         break;
       case '--max-stutter-frames':
@@ -989,6 +1010,13 @@ function parseArgs(args: string[]): OrbitStutterOptions {
         break;
       case '--step-interval-ms':
         options.stepIntervalMs = parsePositiveInteger(value, options.stepIntervalMs);
+        index += 1;
+        break;
+      case '--stutter-cadence-multiplier':
+        options.stutterCadenceMultiplier = parsePositiveFloat(
+          value,
+          options.stutterCadenceMultiplier,
+        );
         index += 1;
         break;
       case '--stutter-threshold-ms':

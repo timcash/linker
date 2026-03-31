@@ -3,7 +3,6 @@
 import {
   appendStageHistoryCheckpoint,
   appendStageHistoryViewState,
-  createStageHistoryState,
   getStageHistorySnapshot,
   moveStageHistoryCursor,
   replayStageHistoryToStep,
@@ -24,7 +23,7 @@ self.addEventListener('message', (event: MessageEvent<StageHistoryWorkerRequest>
   try {
     switch (message.type) {
       case 'initialize':
-        history = createStageHistoryState(message.state, message.summary);
+        history = message.history;
         postResponse({
           requestId: message.requestId,
           snapshot: getStageHistorySnapshot(history),
@@ -71,6 +70,14 @@ self.addEventListener('message', (event: MessageEvent<StageHistoryWorkerRequest>
         });
         return;
       }
+      case 'export':
+        postResponse({
+          history: requireHistory(message.type),
+          requestId: message.requestId,
+          snapshot: getStageHistorySnapshot(requireHistory(message.type)),
+          type: 'exported',
+        });
+        return;
       default:
         return;
     }
