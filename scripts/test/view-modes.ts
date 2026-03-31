@@ -16,6 +16,7 @@ import {
   showStrategyPanelMode,
   submitFocusedLabelInput,
   waitForCameraLabel,
+  waitForRouteHistoryStep,
   waitForStageWorkplane,
   type BrowserTestContext,
 } from './shared';
@@ -136,6 +137,7 @@ export async function runViewModesFlow(
   await pressHistoryKey(context.page, 'history-back');
   const rewoundStackStage = await getStageState(context.page);
   const rewoundStackCamera = await getCameraState(context.page);
+  const rewoundStackRoute = await getStageRouteState(context.page);
 
   assert.equal(
     rewoundStackStage.stageMode,
@@ -160,6 +162,7 @@ export async function runViewModesFlow(
 
   await pressHistoryKey(context.page, 'history-forward');
   const replayedStackCamera = await getCameraState(context.page);
+  const replayedStackRoute = await getStageRouteState(context.page);
 
   assert.equal(
     replayedStackCamera.stackCameraAzimuth,
@@ -172,7 +175,9 @@ export async function runViewModesFlow(
     'History forward should restore the dragged stack-camera elevation.',
   );
 
-  await navigateBrowserHistory(context.page, 'back');
+  await navigateBrowserHistory(context.page, 'back', {
+    expectedHistoryStep: rewoundStackRoute.historyStep,
+  });
   const browserRewoundCamera = await getCameraState(context.page);
 
   assert.equal(
@@ -186,7 +191,10 @@ export async function runViewModesFlow(
     'Browser back should restore the previous stack-camera elevation.',
   );
 
-  await navigateBrowserHistory(context.page, 'forward');
+  await navigateBrowserHistory(context.page, 'forward', {
+    expectedHistoryStep: replayedStackRoute.historyStep,
+  });
+  await waitForRouteHistoryStep(context.page, replayedStackRoute.historyStep);
   const browserReplayedCamera = await getCameraState(context.page);
 
   assert.equal(

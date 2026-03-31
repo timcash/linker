@@ -468,17 +468,20 @@ function runCameraAndProjectionTests(): void {
     'PlaneFocusProjector visible bounds should match the current camera visible bounds.',
   );
 
-  const stageState = spawnWorkplaneAfterActive(
-    createStageSystemState(
-      createStageScene({
-        demoLayerCount: 12,
-        labelSetKind: 'demo',
-        labelTargetCount: DEMO_LABEL_COUNT,
-        layoutStrategy: 'flow-columns',
-      }),
-      {stageMode: '3d-mode'},
-    ),
+  let stageState = createStageSystemState(
+    createStageScene({
+      demoLayerCount: 12,
+      labelSetKind: 'demo',
+      labelTargetCount: DEMO_LABEL_COUNT,
+      layoutStrategy: 'flow-columns',
+    }),
+    {stageMode: '3d-mode'},
   );
+
+  for (let planeCount = 1; planeCount < 5; planeCount += 1) {
+    stageState = spawnWorkplaneAfterActive(stageState);
+  }
+
   const stackViewState = createStackViewState(stageState);
   const stackProjector = new StackCameraProjector();
 
@@ -504,7 +507,7 @@ function runCameraAndProjectionTests(): void {
 
   assert.equal(
     stackViewState.backplates.length,
-    2,
+    5,
     'Stack view state should create one backplate per workplane.',
   );
   assert.equal(

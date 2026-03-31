@@ -8,6 +8,7 @@ import {
 } from './test/setup';
 import {runBootFlow} from './test/boot';
 import {runSessionRestoreFlow} from './test/session-restore';
+import {runStackOrbitCoverageFlow} from './test/stack-orbit-coverage';
 import {runViewModesFlow} from './test/view-modes';
 import {runWorkplaneLifecycleFlow} from './test/workplane-lifecycle';
 import {
@@ -38,6 +39,7 @@ try {
     await runWorkplaneLifecycleFlow(context);
     await runSessionRestoreFlow(context);
     await runViewModesFlow(context);
+    await runStackOrbitCoverageFlow(context);
   }
 
   if (context) {

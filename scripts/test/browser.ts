@@ -680,6 +680,7 @@ export async function pressStageModeKey(page: Page): Promise<void> {
 export async function navigateBrowserHistory(
   page: Page,
   direction: 'back' | 'forward',
+  options?: {expectedHistoryStep?: number | null},
 ): Promise<void> {
   await page.evaluate((nextDirection) => {
     if (nextDirection === 'back') {
@@ -689,7 +690,38 @@ export async function navigateBrowserHistory(
 
     window.history.forward();
   }, direction);
+  if (options && 'expectedHistoryStep' in options) {
+    await waitForRouteHistoryStep(page, options.expectedHistoryStep ?? null);
+  }
   await waitForBrowserUpdate(page);
+}
+
+export async function waitForRouteHistoryStep(
+  page: Page,
+  expectedHistoryStep: number | null,
+): Promise<void> {
+  await page.waitForFunction(
+    (expectedStep) => {
+      const url = new URL(window.location.href);
+      const routeState: unknown = window.history.state;
+      const stateHistoryStep =
+        routeState && typeof routeState === 'object'
+          ? (routeState as {stageHistoryStep?: unknown}).stageHistoryStep
+          : null;
+      const queryHistoryValue = url.searchParams.get('history');
+      const queryHistoryStep = queryHistoryValue === null ? null : Number(queryHistoryValue);
+      const currentHistoryStep =
+        Number.isInteger(queryHistoryStep) && queryHistoryStep !== null
+          ? queryHistoryStep
+          : Number.isInteger(stateHistoryStep) && (stateHistoryStep as number) >= 0
+          ? (stateHistoryStep as number)
+          : null;
+
+      return currentHistoryStep === expectedStep;
+    },
+    {timeout: 10_000},
+    expectedHistoryStep,
+  );
 }
 
 export async function dragStackCameraOrbit(
@@ -714,6 +746,56 @@ export async function dragStackCameraOrbit(
   await page.mouse.move(startX, startY);
   await page.mouse.down();
   await page.mouse.move(startX + delta.x, startY + delta.y, {steps: 10});
+  await page.mouse.up();
+  await waitForBrowserUpdate(page);
+}
+
+export async function dragStackCameraFullOrbit(
+  page: Page,
+  options?: {durationMs?: number; revolutions?: number},
+): Promise<void> {
+  const canvas = await page.$('[data-testid="gpu-canvas"]');
+
+  if (!canvas) {
+    throw new Error('Missing GPU canvas for stack-camera orbit coverage test.');
+  }
+
+  const box = await canvas.boundingBox();
+
+  if (!box) {
+    throw new Error('Expected the GPU canvas to have a visible bounding box.');
+  }
+
+  const durationMs = Math.max(1200, Math.trunc(options?.durationMs ?? 2200));
+  const revolutions = Math.max(1, options?.revolutions ?? 1);
+  const radiansPerPixel = 0.0055;
+  const requestedSweepWidth =
+    ((Math.PI * 2) * revolutions) / radiansPerPixel;
+  const maxSweepWidth = box.width * 0.46 * 2;
+  const sweepWidth = Math.min(maxSweepWidth, requestedSweepWidth);
+  const stepCount = Math.max(60, Math.ceil(durationMs / 20));
+  const centerX = box.x + box.width * 0.5;
+  const centerY = box.y + box.height * 0.5;
+  const startX = centerX + sweepWidth * 0.5;
+  const startY = centerY;
+  const startedAt = Date.now();
+
+  await page.mouse.move(startX, startY);
+  await page.mouse.down();
+
+  for (let stepIndex = 1; stepIndex <= stepCount; stepIndex += 1) {
+    const progress = stepIndex / stepCount;
+    const x = startX - sweepWidth * progress;
+    await page.mouse.move(x, startY);
+
+    const targetElapsedMs = progress * durationMs;
+    const remainingMs = startedAt + targetElapsedMs - Date.now();
+
+    if (remainingMs > 0) {
+      await sleep(remainingMs);
+    }
+  }
+
   await page.mouse.up();
   await waitForBrowserUpdate(page);
 }
@@ -780,6 +862,12 @@ export async function waitForBrowserUpdate(page: Page): Promise<void> {
       });
     }
   }, BROWSER_UPDATE_FRAME_COUNT);
+}
+
+async function sleep(durationMs: number): Promise<void> {
+  await new Promise<void>((resolve) => {
+    setTimeout(resolve, durationMs);
+  });
 }
 
 export async function waitForCameraSettled(page: Page): Promise<void> {
