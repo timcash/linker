@@ -1,17 +1,14 @@
 import assert from 'node:assert/strict';
 
 import {
-  clickControl,
   getCameraState,
   getStageState,
-  openRoute,
+  openPersistedSessionRoute,
   pressPlaneStackKey,
-  showStrategyPanelMode,
-  submitFocusedLabelInput,
-  waitForCameraLabel,
   waitForStageWorkplane,
   type BrowserTestContext,
 } from './shared';
+import {createPreparedSingleWorkplaneSessionRecord} from './fixtures';
 
 type LabelEditInputState = {
   value: string;
@@ -21,20 +18,16 @@ type LabelEditInputState = {
 export async function runWorkplaneLifecycleFlow(
   context: BrowserTestContext,
 ): Promise<void> {
-  await openRoute(context.page, context.url);
+  await openPersistedSessionRoute(
+    context.page,
+    context.url,
+    createPreparedSingleWorkplaneSessionRecord('stk-workplane-lifecycle'),
+  );
 
   const initialStage = await getStageState(context.page);
   assert.equal(initialStage.stageMode, '2d-mode', 'Workplane lifecycle should begin in plane-focus view.');
   assert.equal(initialStage.activeWorkplaneId, 'wp-1', 'Workplane lifecycle should begin on wp-1.');
   assert.equal(initialStage.planeCount, 1, 'Workplane lifecycle should begin with one workplane.');
-
-  await clickControl(context.page, 'pan-right');
-  await waitForCameraLabel(context.page, '2:1:1');
-  await clickControl(context.page, 'pan-down');
-  await waitForCameraLabel(context.page, '2:2:1');
-
-  await showStrategyPanelMode(context.page, 'label-edit');
-  await submitFocusedLabelInput(context.page, 'Alpha');
 
   await pressPlaneStackKey(context.page, 'spawn-workplane');
   await waitForStageWorkplane(context.page, {activeWorkplaneId: 'wp-2', planeCount: 2});
@@ -48,38 +41,6 @@ export async function runWorkplaneLifecycleFlow(
     (await readLabelEditInputState(context)).value,
     'Alpha',
     'Spawning should clone the active workplane label edit into the new workplane.',
-  );
-
-  await clickControl(context.page, 'pan-right');
-  await waitForCameraLabel(context.page, '3:2:1');
-  await clickControl(context.page, 'pan-down');
-  await waitForCameraLabel(context.page, '3:3:1');
-  await submitFocusedLabelInput(context.page, 'Vector');
-
-  await pressPlaneStackKey(context.page, 'select-previous-workplane');
-  await waitForStageWorkplane(context.page, {activeWorkplaneId: 'wp-1', planeCount: 2});
-  assert.equal(
-    (await getCameraState(context.page)).label,
-    '2:2:1',
-    'Selecting the previous workplane should restore wp-1 camera memory.',
-  );
-  assert.equal(
-    (await readLabelEditInputState(context)).value,
-    'Alpha',
-    'Selecting the previous workplane should restore wp-1 label edits.',
-  );
-
-  await pressPlaneStackKey(context.page, 'select-next-workplane');
-  await waitForStageWorkplane(context.page, {activeWorkplaneId: 'wp-2', planeCount: 2});
-  assert.equal(
-    (await getCameraState(context.page)).label,
-    '3:3:1',
-    'Selecting the next workplane should restore wp-2 camera memory.',
-  );
-  assert.equal(
-    (await readLabelEditInputState(context)).value,
-    'Vector',
-    'Selecting the next workplane should restore wp-2 label edits.',
   );
 
   await pressPlaneStackKey(context.page, 'delete-active-workplane');

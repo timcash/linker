@@ -32,6 +32,7 @@ export type StackBackplate = {
 
 export type StackViewState = {
   backplates: StackBackplate[];
+  orbitTarget: ScenePoint3D;
   scene: StageScene;
   sceneBounds: SceneBounds3D;
 };
@@ -54,6 +55,7 @@ export function createStackViewState(state: StageSystemState): StackViewState {
   const backplates: StackBackplate[] = [];
   const labels: LabelDefinition[] = [];
   const links: LinkDefinition[] = [];
+  let orbitTarget: ScenePoint3D | null = null;
   let sceneBounds: SceneBounds3D | null = null;
 
   for (let stackIndex = state.document.workplaneOrder.length - 1; stackIndex >= 0; stackIndex -= 1) {
@@ -78,6 +80,14 @@ export function createStackViewState(state: StageSystemState): StackViewState {
       workplaneId,
     });
     sceneBounds = includeCornersInSceneBounds(sceneBounds, backplateCorners);
+
+    if (isActive) {
+      orbitTarget = {
+        x: (planeBounds.minX + planeBounds.maxX) * 0.5,
+        y: (planeBounds.minY + planeBounds.maxY) * 0.5,
+        z: planeZ,
+      };
+    }
 
     for (const label of workplane.scene.labels) {
       const stackLocation = projectWorkplanePointToScene(label.location, planeZ);
@@ -112,6 +122,7 @@ export function createStackViewState(state: StageSystemState): StackViewState {
 
   return {
     backplates,
+    orbitTarget: orbitTarget ?? {x: 0, y: 0, z: 0},
     scene: {
       labelSetPreset: activeWorkplane.scene.labelSetPreset,
       labels,

@@ -35,6 +35,7 @@ export function createStageSnapshot(input: {
   cameraSnapshot: CameraSnapshot;
   gpuTimingEnabled: boolean;
   gridStats: GridStats | null | undefined;
+  historyTrackingEnabled: boolean;
   labelSetKind: LabelSetKind;
   labelTargetCount: number;
   layoutStrategy: LayoutStrategy;
@@ -59,6 +60,7 @@ export function createStageSnapshot(input: {
     cameraSnapshot,
     gpuTimingEnabled,
     gridStats,
+    historyTrackingEnabled,
     labelSetKind,
     labelTargetCount,
     layoutStrategy,
@@ -147,6 +149,10 @@ export function createStageSnapshot(input: {
       perfCpuFrameLastMs: perf ? perf.cpuFrameLastMs.toFixed(3) : '0.000',
       perfCpuFrameMaxMs: perf ? perf.cpuFrameMaxMs.toFixed(3) : '0.000',
       perfCpuFrameSamples: String(perf?.cpuFrameSamples ?? 0),
+      perfFrameGapAvgMs: perf ? perf.frameGapAvgMs.toFixed(3) : '0.000',
+      perfFrameGapLastMs: perf ? perf.frameGapLastMs.toFixed(3) : '0.000',
+      perfFrameGapMaxMs: perf ? perf.frameGapMaxMs.toFixed(3) : '0.000',
+      perfFrameGapSamples: String(perf?.frameGapSamples ?? 0),
       perfCpuGridAvgMs: perf ? perf.cpuGridAvgMs.toFixed(3) : '0.000',
       perfCpuGridLastMs: perf ? perf.cpuGridLastMs.toFixed(3) : '0.000',
       perfCpuLineAvgMs: perf ? perf.cpuLineAvgMs.toFixed(3) : '0.000',
@@ -187,6 +193,7 @@ export function createStageSnapshot(input: {
       perfResourcesActive: String(perf?.resourcesActive ?? 0),
       perfTexturesActive: String(perf?.texturesActive ?? 0),
       perfTextureMemoryBytes: String(perf?.textureMemoryBytes ?? 0),
+      historyTrackingEnabled: String(historyTrackingEnabled),
       stageMode,
       stackCameraAzimuth: stackCamera.azimuthRadians.toFixed(4),
       stackCameraDistanceScale: stackCamera.distanceScale.toFixed(4),

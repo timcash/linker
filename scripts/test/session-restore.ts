@@ -1,19 +1,14 @@
 import assert from 'node:assert/strict';
 
 import {
-  clickControl,
   getCameraState,
   getStageRouteState,
   getStageState,
-  openRoute,
-  pressPlaneStackKey,
-  showStrategyPanelMode,
-  submitFocusedLabelInput,
-  waitForCameraLabel,
+  openPersistedSessionRoute,
   waitForPersistedStageSession,
-  waitForStageWorkplane,
   type BrowserTestContext,
 } from './shared';
+import {createPreparedTwoWorkplaneSessionRecord} from './fixtures';
 
 type LabelEditInputState = {
   value: string;
@@ -23,34 +18,22 @@ type LabelEditInputState = {
 export async function runSessionRestoreFlow(
   context: BrowserTestContext,
 ): Promise<void> {
-  await openRoute(context.page, context.url);
-
-  await clickControl(context.page, 'pan-right');
-  await waitForCameraLabel(context.page, '2:1:1');
-  await clickControl(context.page, 'pan-down');
-  await waitForCameraLabel(context.page, '2:2:1');
-
-  await showStrategyPanelMode(context.page, 'label-edit');
-  await submitFocusedLabelInput(context.page, 'Alpha');
-
-  await pressPlaneStackKey(context.page, 'spawn-workplane');
-  await waitForStageWorkplane(context.page, {activeWorkplaneId: 'wp-2', planeCount: 2});
-
-  await clickControl(context.page, 'pan-right');
-  await waitForCameraLabel(context.page, '3:2:1');
-  await clickControl(context.page, 'pan-down');
-  await waitForCameraLabel(context.page, '3:3:1');
-  await submitFocusedLabelInput(context.page, 'Vector');
+  const seededSession = createPreparedTwoWorkplaneSessionRecord('stk-session-restore');
+  await openPersistedSessionRoute(context.page, context.url, seededSession);
 
   const routeState = await getStageRouteState(context.page);
-  assert.ok(routeState.sessionToken, 'Session restore should expose a persisted session token in the route.');
+  assert.equal(
+    routeState.sessionToken,
+    seededSession.sessionToken,
+    'Session restore should expose the seeded session token in the route.',
+  );
   assert.ok(routeState.historyStep !== null, 'Session restore should expose a persisted history step in the route.');
   assert.equal(routeState.workplaneId, 'wp-2', 'The route should mirror the active workplane before reload.');
 
-  await waitForPersistedStageSession(context.page, routeState.sessionToken);
+  await waitForPersistedStageSession(context.page, seededSession.sessionToken);
 
   const persistedUrl = await context.page.evaluate(() => window.location.href);
-  await openRoute(context.page, persistedUrl);
+  await openPersistedSessionRoute(context.page, persistedUrl, seededSession);
 
   assert.equal(
     (await getStageState(context.page)).planeCount,
@@ -78,23 +61,11 @@ export async function runSessionRestoreFlow(
     'Reloading the persisted route should restore active workplane label edits.',
   );
 
-  await pressPlaneStackKey(context.page, 'select-previous-workplane');
-  await waitForStageWorkplane(context.page, {activeWorkplaneId: 'wp-1', planeCount: 2});
-  assert.equal(
-    (await getCameraState(context.page)).label,
-    '2:2:1',
-    'Switching after reload should restore wp-1 camera memory.',
-  );
-  assert.equal(
-    (await readLabelEditInputState(context)).value,
-    'Alpha',
-    'Switching after reload should restore wp-1 edits.',
-  );
-
   const historyOverrideUrl = new URL(persistedUrl);
   historyOverrideUrl.searchParams.set('history', '0');
-  await openRoute(context.page, historyOverrideUrl.toString());
-  await waitForStageWorkplane(context.page, {activeWorkplaneId: 'wp-1', planeCount: 1});
+  await openPersistedSessionRoute(context.page, historyOverrideUrl.toString(), seededSession, {
+    historyStep: 0,
+  });
   assert.equal(
     (await getCameraState(context.page)).label,
     '1:1:1',
@@ -104,12 +75,19 @@ export async function runSessionRestoreFlow(
   const workplaneOverrideUrl = new URL(persistedUrl);
   workplaneOverrideUrl.searchParams.delete('history');
   workplaneOverrideUrl.searchParams.set('workplane', 'wp-1');
-  await openRoute(context.page, workplaneOverrideUrl.toString());
-  await waitForStageWorkplane(context.page, {activeWorkplaneId: 'wp-1', planeCount: 2});
+  await openPersistedSessionRoute(context.page, workplaneOverrideUrl.toString(), seededSession, {
+    historyStep: null,
+    workplaneId: 'wp-1',
+  });
   assert.equal(
     (await getCameraState(context.page)).label,
     '2:2:1',
     'A persisted session route should still honor an explicit workplane override.',
+  );
+  assert.equal(
+    (await readLabelEditInputState(context)).value,
+    'Alpha',
+    'A persisted session route should restore the overridden workplane label edits.',
   );
 }
 

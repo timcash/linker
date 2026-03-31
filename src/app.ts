@@ -123,6 +123,15 @@ import {
   type TextStrategy,
 } from './text/types';
 
+declare global {
+  interface Window {
+    __LINKER_TEST_HOOKS__?: {
+      flushPerformanceTelemetry: () => Promise<void>;
+      resetPerformanceTelemetry: () => Promise<void>;
+    };
+  }
+}
+
 const STAGE_SHADER = /* wgsl */ `
 struct VertexInputs {
   @location(0) position: vec2<f32>,
@@ -217,9 +226,16 @@ export async function startApp(root: HTMLElement): Promise<AppHandle> {
   );
 
   await stageController.start();
+  window.__LINKER_TEST_HOOKS__ = {
+    flushPerformanceTelemetry: () => stageController.flushPerformanceTelemetryForTest(),
+    resetPerformanceTelemetry: () => stageController.resetPerformanceTelemetryForTest(),
+  };
 
   return {
-    destroy: () => stageController.destroy(),
+    destroy: () => {
+      delete window.__LINKER_TEST_HOOKS__;
+      stageController.destroy();
+    },
   };
 }
 
@@ -285,11 +301,15 @@ class LumaStageController {
     this.state = initialState;
     this.stageHistory = new StageHistoryController(initialHistory, this.handleHistorySnapshot);
     this.scene = getActiveWorkplaneDocument(initialState).scene;
-    const stackViewState = createStackViewState(initialState);
+    const stackViewState =
+      initialState.session.stageMode === '3d-mode' ? createStackViewState(initialState) : null;
     this.renderScene =
-      initialState.session.stageMode === '3d-mode' ? stackViewState.scene : this.scene;
-    this.stackBackplates = stackViewState.backplates;
-    this.stackProjector.setSceneBounds(stackViewState.sceneBounds);
+      initialState.session.stageMode === '3d-mode' && stackViewState ? stackViewState.scene : this.scene;
+    this.stackBackplates = stackViewState?.backplates ?? [];
+    if (stackViewState) {
+      this.stackProjector.setSceneBounds(stackViewState.sceneBounds);
+      this.stackProjector.setOrbitTarget(stackViewState.orbitTarget);
+    }
     this.stackProjector.setStackCamera(initialState.session.stackCamera);
     this.layoutStrategy = config.layoutStrategy;
     this.lineStrategy = config.lineStrategy;
@@ -436,6 +456,9 @@ class LumaStageController {
       this.frameId = 0;
       const frameStartedAt = performance.now();
       this.frameTelemetry?.startCpuFrame();
+      if (this.lastFrameAt !== 0) {
+        this.frameTelemetry?.recordFrameGap(frameStartedAt - this.lastFrameAt);
+      }
       const deltaMs = this.lastFrameAt === 0
         ? 16.67
         : Math.min(frameStartedAt - this.lastFrameAt, MAX_RENDER_FRAME_DELTA_MS);
@@ -890,13 +913,17 @@ class LumaStageController {
   private getRouteHistoryStep(
     snapshot: StageHistorySnapshot = this.historySnapshot,
   ): number | null {
+    if (!this.config.historyTrackingEnabled) {
+      return null;
+    }
+
     return snapshot.cursorStep === 0 && snapshot.headStep === 0
       ? null
       : snapshot.cursorStep;
   }
 
   private scheduleSessionSnapshotSave(): void {
-    if (this.destroyed) {
+    if (this.destroyed || !this.config.historyTrackingEnabled) {
       return;
     }
 
@@ -1128,7 +1155,12 @@ class LumaStageController {
   };
 
   private handleWindowPopState = (): void => {
-    if (this.destroyed || this.workplaneSyncPending || this.labelInputPending) {
+    if (
+      !this.config.historyTrackingEnabled ||
+      this.destroyed ||
+      this.workplaneSyncPending ||
+      this.labelInputPending
+    ) {
       return;
     }
 
@@ -1396,6 +1428,10 @@ class LumaStageController {
 
     this.historySnapshot = snapshot;
     this.syncHistorySnapshot();
+
+    if (!this.config.historyTrackingEnabled) {
+      return;
+    }
 
     if (
       this.historyRouteSyncSuspended ||
@@ -1734,7 +1770,12 @@ class LumaStageController {
   }
 
   private applyHistoryAction(action: HistoryAction): void {
-    if (this.workplaneSyncPending || this.labelInputPending || this.historyReplayPending) {
+    if (
+      !this.config.historyTrackingEnabled ||
+      this.workplaneSyncPending ||
+      this.labelInputPending ||
+      this.historyReplayPending
+    ) {
       return;
     }
     this.clearPendingStackCameraHistoryView();
@@ -1769,7 +1810,8 @@ class LumaStageController {
     nextState: StageSystemState,
     options?: {forceLabelInput?: boolean; syncQuery?: boolean},
   ): void {
-    const nextStackViewState = createStackViewState(nextState);
+    const nextStackViewState =
+      nextState.session.stageMode === '3d-mode' ? createStackViewState(nextState) : undefined;
     const nextRenderScene = this.getRenderSceneForState(nextState, nextStackViewState);
 
     if (this.requiresTextLayerRebuildForScene(nextRenderScene)) {
@@ -1794,13 +1836,19 @@ class LumaStageController {
 
   private syncRenderSceneFromState(stackViewState?: StackViewState): void {
     this.scene = getActiveWorkplaneDocument(this.state).scene;
-    const nextStackViewState = stackViewState ?? createStackViewState(this.state);
+    const nextStackViewState =
+      this.state.session.stageMode === '3d-mode'
+        ? (stackViewState ?? createStackViewState(this.state))
+        : null;
 
-    this.stackBackplates = nextStackViewState.backplates;
-    this.stackProjector.setSceneBounds(nextStackViewState.sceneBounds);
+    this.stackBackplates = nextStackViewState?.backplates ?? [];
+    if (nextStackViewState) {
+      this.stackProjector.setSceneBounds(nextStackViewState.sceneBounds);
+      this.stackProjector.setOrbitTarget(nextStackViewState.orbitTarget);
+    }
     this.stackProjector.setStackCamera(this.state.session.stackCamera);
     this.renderScene =
-      this.state.session.stageMode === '3d-mode' ? nextStackViewState.scene : this.scene;
+      this.state.session.stageMode === '3d-mode' && nextStackViewState ? nextStackViewState.scene : this.scene;
   }
 
   private applyActiveWorkplaneRuntime(options?: {
@@ -1831,7 +1879,7 @@ class LumaStageController {
 
   private async applyStageSystemStateWithTextLayerRebuild(
     nextState: StageSystemState,
-    nextStackViewState: StackViewState,
+    nextStackViewState: StackViewState | undefined,
     options?: {forceLabelInput?: boolean; syncQuery?: boolean},
   ): Promise<void> {
     if (!this.device || !this.textLayer) {
@@ -1942,6 +1990,7 @@ class LumaStageController {
       cameraSnapshot: this.camera.getSnapshot(),
       gpuTimingEnabled: this.config.gpuTimingEnabled,
       gridStats: isStackView ? null : this.gridLayer?.getStats(),
+      historyTrackingEnabled: this.config.historyTrackingEnabled,
       labelSetKind: this.config.labelSetKind,
       labelTargetCount: this.config.labelTargetCount,
       layoutStrategy: this.layoutStrategy,
@@ -2022,6 +2071,7 @@ class LumaStageController {
 
   private isHistoryRecordingEnabled(): boolean {
     return (
+      this.config.historyTrackingEnabled &&
       !this.destroyed &&
       !this.suppressHistoryRecording &&
       !this.benchmarkStarted &&
@@ -2030,10 +2080,35 @@ class LumaStageController {
   }
 
   private syncHistorySnapshot(): void {
-    document.body.dataset.historyCanGoBack = String(this.historySnapshot.canGoBack);
-    document.body.dataset.historyCanGoForward = String(this.historySnapshot.canGoForward);
-    document.body.dataset.historyCursorStep = String(this.historySnapshot.cursorStep);
-    document.body.dataset.historyHeadStep = String(this.historySnapshot.headStep);
+    const snapshot = this.config.historyTrackingEnabled
+      ? this.historySnapshot
+      : {
+          canGoBack: false,
+          canGoForward: false,
+          cursorStep: 0,
+          headStep: 0,
+        };
+
+    document.body.dataset.historyCanGoBack = String(snapshot.canGoBack);
+    document.body.dataset.historyCanGoForward = String(snapshot.canGoForward);
+    document.body.dataset.historyCursorStep = String(snapshot.cursorStep);
+    document.body.dataset.historyHeadStep = String(snapshot.headStep);
+  }
+
+  async flushPerformanceTelemetryForTest(): Promise<void> {
+    await this.frameTelemetry?.flushGpuSamples();
+    this.updateStatus();
+  }
+
+  async resetPerformanceTelemetryForTest(): Promise<void> {
+    if (!this.frameTelemetry) {
+      return;
+    }
+
+    await this.frameTelemetry.flushGpuSamples();
+    this.frameTelemetry.reset();
+    this.lastFrameAt = 0;
+    this.updateStatus();
   }
 
   private getEffectiveCameraAvailability() {

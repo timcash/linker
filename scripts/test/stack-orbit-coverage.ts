@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 
 import {
+  getPerformanceSnapshot,
   dragStackCameraFullOrbit,
   getLineState,
   getStageState,
@@ -11,9 +12,15 @@ import {
   waitForStageWorkplane,
   type BrowserTestContext,
 } from './shared';
+import {
+  createOrbitPerformanceSample,
+  formatOrbitPerformanceSummary,
+  type TestPerformanceCollector,
+} from './performance';
 
 export async function runStackOrbitCoverageFlow(
   context: BrowserTestContext,
+  collector: TestPerformanceCollector,
 ): Promise<void> {
   await openRoute(context.page, context.url);
 
@@ -53,11 +60,14 @@ export async function runStackOrbitCoverageFlow(
     'Five-workplane stack view should keep links visible before orbit.',
   );
 
+  const beforePerf = await getPerformanceSnapshot(context.page);
+
   await dragStackCameraFullOrbit(context.page, {
     durationMs: 2400,
     revolutions: 1,
   });
 
+  const afterPerf = await getPerformanceSnapshot(context.page);
   const orbitedText = await getTextState(context.page);
   const orbitedLines = await getLineState(context.page);
 
@@ -69,4 +79,52 @@ export async function runStackOrbitCoverageFlow(
     orbitedLines.lineVisibleLinkCount > 0,
     'Five-workplane stack view should keep links visible through a full orbit.',
   );
+
+  const orbitPerformance = createOrbitPerformanceSample({
+    after: afterPerf,
+    before: beforePerf,
+    durationMs: 2400,
+    name: 'stack-orbit-coverage',
+  });
+
+  assert.ok(
+    orbitPerformance.cpuFrameSamples > 0,
+    'Stack orbit coverage should collect at least one CPU frame sample during the orbit.',
+  );
+  assert.ok(
+    orbitPerformance.cpuFrameAvgMs > 0,
+    'Stack orbit coverage should report a positive CPU frame average during the orbit.',
+  );
+  assert.ok(
+    orbitPerformance.cpuTextAvgMs > 0,
+    'Stack orbit coverage should report a positive CPU text average during the orbit.',
+  );
+  assert.ok(
+    orbitPerformance.cpuDrawAvgMs > 0,
+    'Stack orbit coverage should report a positive CPU draw average during the orbit.',
+  );
+  assert.equal(
+    orbitPerformance.stageMode,
+    '3d-mode',
+    'Stack orbit coverage should record performance in stack view.',
+  );
+  assert.equal(
+    orbitPerformance.planeCount,
+    5,
+    'Stack orbit coverage should record performance for the five-workplane stack.',
+  );
+
+  if (orbitPerformance.gpuTimingEnabled && orbitPerformance.gpuSupported) {
+    assert.ok(
+      orbitPerformance.gpuFrameSamples > 0,
+      'Stack orbit coverage should collect GPU frame samples when GPU timing is supported.',
+    );
+    assert.ok(
+      orbitPerformance.gpuFrameAvgMs !== null,
+      'Stack orbit coverage should report a GPU frame average when GPU timing is supported.',
+    );
+  }
+
+  collector.recordOrbit(orbitPerformance);
+  context.addBrowserLog('perf.sample', formatOrbitPerformanceSummary(orbitPerformance));
 }

@@ -1,6 +1,8 @@
 import assert from 'node:assert/strict';
 
 import type {Page} from 'puppeteer';
+import type {StageMode, WorkplaneId} from '../../src/plane-stack';
+import type {PersistedStageSessionRecord} from '../../src/stage-session-store';
 
 import {
   BROWSER_UPDATE_FRAME_COUNT,
@@ -13,9 +15,11 @@ import {
   type CameraQueryState,
   type CameraState,
   type CanvasPixelSignature,
+  type HistoryState,
   type LineState,
   type LineStrategy,
   type NonReadyResult,
+  type PerfSnapshot,
   type ReadyResult,
   type StageState,
   type StageRouteState,
@@ -213,6 +217,16 @@ export async function getLineState(page: Page): Promise<LineState> {
   }));
 }
 
+export async function getHistoryState(page: Page): Promise<HistoryState> {
+  return page.evaluate(() => ({
+    canGoBack: document.body.dataset.historyCanGoBack === 'true',
+    canGoForward: document.body.dataset.historyCanGoForward === 'true',
+    cursorStep: Number(document.body.dataset.historyCursorStep ?? '0'),
+    headStep: Number(document.body.dataset.historyHeadStep ?? '0'),
+    trackingEnabled: document.body.dataset.historyTrackingEnabled !== 'false',
+  }));
+}
+
 export async function getCanvasPixelSignature(page: Page): Promise<CanvasPixelSignature> {
   return page.evaluate(() => {
     const canvas = document.querySelector('[data-testid="gpu-canvas"]');
@@ -314,6 +328,64 @@ export async function getBenchmarkState(page: Page): Promise<BenchmarkState> {
   }));
 }
 
+export async function getPerformanceSnapshot(page: Page): Promise<PerfSnapshot> {
+  return page.evaluate(() => ({
+    bytesUploadedPerFrame: Number(document.body.dataset.textBytesUploadedPerFrame ?? '0'),
+    cpuDrawAvgMs: Number(document.body.dataset.perfCpuDrawAvgMs ?? '0'),
+    cpuFrameAvgMs: Number(document.body.dataset.perfCpuFrameAvgMs ?? '0'),
+    cpuFrameMaxMs: Number(document.body.dataset.perfCpuFrameMaxMs ?? '0'),
+    cpuFrameSamples: Number(document.body.dataset.perfCpuFrameSamples ?? '0'),
+    cpuTextAvgMs: Number(document.body.dataset.perfCpuTextAvgMs ?? '0'),
+    frameGapAvgMs: Number(document.body.dataset.perfFrameGapAvgMs ?? '0'),
+    frameGapMaxMs: Number(document.body.dataset.perfFrameGapMaxMs ?? '0'),
+    frameGapSamples: Number(document.body.dataset.perfFrameGapSamples ?? '0'),
+    gpuFrameAvgMs:
+      document.body.dataset.perfGpuFrameAvgMs === 'unsupported' ||
+      document.body.dataset.perfGpuFrameAvgMs === 'disabled'
+        ? null
+        : Number(document.body.dataset.perfGpuFrameAvgMs ?? '0'),
+    gpuFrameSamples: Number(document.body.dataset.perfGpuFrameSamples ?? '0'),
+    gpuSupported: document.body.dataset.perfGpuSupported === 'true',
+    gpuTextAvgMs:
+      document.body.dataset.perfGpuTextAvgMs === 'unsupported' ||
+      document.body.dataset.perfGpuTextAvgMs === 'disabled'
+        ? null
+        : Number(document.body.dataset.perfGpuTextAvgMs ?? '0'),
+    gpuTimingEnabled: document.body.dataset.perfGpuFrameAvgMs !== 'disabled',
+    lineVisibleLinkCount: Number(document.body.dataset.lineVisibleLinkCount ?? '0'),
+    planeCount: Number(document.body.dataset.planeCount ?? '0'),
+    stageMode: document.body.dataset.stageMode ?? '',
+    submittedGlyphCount: Number(document.body.dataset.textSubmittedGlyphCount ?? '0'),
+    submittedVertexCount: Number(document.body.dataset.textSubmittedVertexCount ?? '0'),
+    textStrategy: (document.body.dataset.textStrategy ?? DEFAULT_TEXT_STRATEGY) as TextStrategy,
+    visibleGlyphCount: Number(document.body.dataset.textVisibleGlyphCount ?? '0'),
+    visibleLabelCount: Number(document.body.dataset.textVisibleLabelCount ?? '0'),
+  }));
+}
+
+export async function resetPerformanceTelemetry(page: Page): Promise<void> {
+  await page.evaluate(async () => {
+    const hooks = (window as Window & {
+      __LINKER_TEST_HOOKS__?: {
+        resetPerformanceTelemetry?: () => Promise<void>;
+      };
+    }).__LINKER_TEST_HOOKS__;
+    await hooks?.resetPerformanceTelemetry?.();
+  });
+  await waitForBrowserUpdate(page);
+}
+
+export async function flushPerformanceTelemetry(page: Page): Promise<void> {
+  await page.evaluate(async () => {
+    const hooks = (window as Window & {
+      __LINKER_TEST_HOOKS__?: {
+        flushPerformanceTelemetry?: () => Promise<void>;
+      };
+    }).__LINKER_TEST_HOOKS__;
+    await hooks?.flushPerformanceTelemetry?.();
+  });
+}
+
 export async function waitForBenchmarkResult(
   page: Page,
   options?: {timeoutMs?: number},
@@ -327,6 +399,91 @@ export async function waitForBenchmarkResult(
   );
   await waitForBrowserUpdate(page);
   return getBenchmarkState(page);
+}
+
+export async function seedPersistedStageSessionRecord(
+  page: Page,
+  record: PersistedStageSessionRecord,
+): Promise<void> {
+  await page.evaluate(async (snapshot) => {
+    const database = await new Promise<IDBDatabase>((resolve, reject) => {
+      const request = indexedDB.open('linker-stage', 2);
+
+      request.addEventListener('upgradeneeded', () => {
+        const nextDatabase = request.result;
+
+        if (!nextDatabase.objectStoreNames.contains('stage-sessions')) {
+          nextDatabase.createObjectStore('stage-sessions', {keyPath: 'sessionToken'});
+        }
+      });
+      request.addEventListener('success', () => resolve(request.result));
+      request.addEventListener('error', () => {
+        reject(request.error ?? new Error('Failed to open the stage session database.'));
+      });
+    });
+
+    try {
+      await new Promise<void>((resolve, reject) => {
+        const transaction = database.transaction('stage-sessions', 'readwrite');
+        const store = transaction.objectStore('stage-sessions');
+
+        store.put(snapshot);
+        transaction.addEventListener('complete', () => resolve());
+        transaction.addEventListener('error', () => {
+          reject(transaction.error ?? new Error('Failed to seed the stage session snapshot.'));
+        });
+        transaction.addEventListener('abort', () => {
+          reject(transaction.error ?? new Error('Stage session seeding was aborted.'));
+        });
+      });
+
+      window.localStorage.setItem('linker:last-session-token', snapshot.sessionToken);
+    } finally {
+      database.close();
+    }
+  }, record);
+}
+
+export async function openPersistedSessionRoute(
+  page: Page,
+  baseUrl: string,
+  record: PersistedStageSessionRecord,
+  options?: {
+    historyStep?: number | null;
+    stageMode?: StageMode | null;
+    workplaneId?: WorkplaneId | null;
+  },
+): Promise<void> {
+  await seedPersistedStageSessionRecord(page, record);
+
+  const url = new URL(baseUrl);
+  url.searchParams.set('session', record.sessionToken);
+
+  if (options && 'historyStep' in options) {
+    if (options.historyStep === null) {
+      url.searchParams.delete('history');
+    } else {
+      url.searchParams.set('history', String(options.historyStep));
+    }
+  }
+
+  if (options && 'stageMode' in options) {
+    if (options.stageMode === null) {
+      url.searchParams.delete('stageMode');
+    } else {
+      url.searchParams.set('stageMode', options.stageMode);
+    }
+  }
+
+  if (options && 'workplaneId' in options) {
+    if (options.workplaneId === null) {
+      url.searchParams.delete('workplane');
+    } else {
+      url.searchParams.set('workplane', options.workplaneId);
+    }
+  }
+
+  await openRoute(page, url.toString());
 }
 
 export async function openRoute(page: Page, url: string): Promise<void> {

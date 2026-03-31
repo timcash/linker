@@ -9,8 +9,8 @@ import {
   addSceneVectors,
   crossSceneVector,
   dotSceneVector,
-  getSceneBoundsCenter,
   getSceneBoundsCorners,
+  getSceneBoundsCenter,
   normalizeSceneBounds,
   normalizeSceneVector,
   scaleSceneVector,
@@ -158,6 +158,7 @@ export class PlaneFocusProjector implements StageProjector {
 
 export class StackCameraProjector implements StageProjector {
   readonly kind = 'stack-camera' as const;
+  private orbitTarget: ScenePoint3D = {x: 0, y: 0, z: 0};
   private sceneBounds: SceneBounds3D = {
     minX: -1,
     maxX: 1,
@@ -173,11 +174,11 @@ export class StackCameraProjector implements StageProjector {
   private stackCamera: StackCameraState = cloneStackCameraState(DEFAULT_STACK_CAMERA_STATE);
 
   get centerX(): number {
-    return getSceneBoundsCenter(this.sceneBounds).x;
+    return this.orbitTarget.x;
   }
 
   get centerY(): number {
-    return getSceneBoundsCenter(this.sceneBounds).y;
+    return this.orbitTarget.y;
   }
 
   get pixelsPerWorldUnit(): number {
@@ -196,6 +197,11 @@ export class StackCameraProjector implements StageProjector {
 
   setSceneBounds(sceneBounds: SceneBounds3D): void {
     this.sceneBounds = normalizeSceneBounds(sceneBounds);
+    this.orbitTarget = clampOrbitTargetToSceneBounds(this.orbitTarget, this.sceneBounds);
+  }
+
+  setOrbitTarget(orbitTarget: ScenePoint3D): void {
+    this.orbitTarget = clampOrbitTargetToSceneBounds(orbitTarget, this.sceneBounds);
   }
 
   setViewport(viewport: ViewportSize): void {
@@ -272,10 +278,14 @@ export class StackCameraProjector implements StageProjector {
 
   private getReferenceZoomPixelsPerWorldUnit(viewport: ViewportSize): number {
     return measurePerspectivePixelsPerWorldUnit(
-      this.getCameraStateForStackCamera(viewport, {
-        ...DEFAULT_STACK_CAMERA_STATE,
-        distanceScale: this.stackCamera.distanceScale,
-      }),
+      this.getCameraStateForStackCamera(
+        viewport,
+        {
+          ...DEFAULT_STACK_CAMERA_STATE,
+          distanceScale: this.stackCamera.distanceScale,
+        },
+        getSceneBoundsCenter(this.sceneBounds),
+      ),
       this.sceneBounds,
       viewport,
     );
@@ -284,9 +294,13 @@ export class StackCameraProjector implements StageProjector {
   private getCameraStateForStackCamera(
     viewport: ViewportSize,
     stackCamera: StackCameraState,
+    targetOverride?: ScenePoint3D,
   ): PerspectiveCameraState {
     const aspect = getSafeAspectRatio(viewport);
-    const center = getSceneBoundsCenter(this.sceneBounds);
+    const target = clampOrbitTargetToSceneBounds(
+      targetOverride ?? this.orbitTarget,
+      this.sceneBounds,
+    );
     const cameraBasis = getPerspectiveCameraBasis(
       getStackCameraForward(stackCamera),
       STACK_CAMERA_UP,
@@ -296,7 +310,7 @@ export class StackCameraProjector implements StageProjector {
     let forwardExtent = 0;
 
     for (const corner of getSceneBoundsCorners(this.sceneBounds)) {
-      const offset = subtractScenePoints(corner, center);
+      const offset = subtractScenePoints(corner, target);
       horizontalExtent = Math.max(horizontalExtent, Math.abs(dotSceneVector(offset, cameraBasis.right)));
       verticalExtent = Math.max(verticalExtent, Math.abs(dotSceneVector(offset, cameraBasis.up)));
       forwardExtent = Math.max(forwardExtent, Math.abs(dotSceneVector(offset, cameraBasis.forward)));
@@ -315,7 +329,7 @@ export class StackCameraProjector implements StageProjector {
         stackCamera.distanceScale +
       forwardExtent;
     const eye = addSceneVectors(
-      center,
+      target,
       scaleSceneVector(cameraBasis.forward, -depthFromCenter),
     );
 
@@ -324,7 +338,7 @@ export class StackCameraProjector implements StageProjector {
       far: depthFromCenter + forwardExtent * 4 + 256,
       fovYRadians: STACK_CAMERA_FOV_Y_RADIANS,
       near: STACK_CAMERA_NEAR,
-      target: center,
+      target,
       up: STACK_CAMERA_UP,
     };
   }
@@ -337,11 +351,10 @@ function measurePerspectivePixelsPerWorldUnit(
   sceneBounds: SceneBounds3D,
   viewport: ViewportSize,
 ): number {
-  const center = getSceneBoundsCenter(sceneBounds);
-  const start = projectPerspectiveWorldPointToScreen(camera, center, viewport);
+  const start = projectPerspectiveWorldPointToScreen(camera, camera.target, viewport);
   const end = projectPerspectiveWorldPointToScreen(
     camera,
-    {x: center.x + 1, y: center.y, z: center.z},
+    {x: camera.target.x + 1, y: camera.target.y, z: camera.target.z},
     viewport,
   );
 
@@ -500,4 +513,17 @@ function getSafeAspectRatio(viewport: ViewportSize): number {
 
 function clamp(value: number, min: number, max: number): number {
   return Math.min(max, Math.max(min, value));
+}
+
+function clampOrbitTargetToSceneBounds(
+  orbitTarget: ScenePoint3D,
+  sceneBounds: SceneBounds3D,
+): ScenePoint3D {
+  const normalizedBounds = normalizeSceneBounds(sceneBounds);
+
+  return {
+    x: clamp(orbitTarget.x, normalizedBounds.minX, normalizedBounds.maxX),
+    y: clamp(orbitTarget.y, normalizedBounds.minY, normalizedBounds.maxY),
+    z: clamp(orbitTarget.z, normalizedBounds.minZ, normalizedBounds.maxZ),
+  };
 }

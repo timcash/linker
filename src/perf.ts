@@ -8,6 +8,7 @@ const LINKER_PERF_STATS_ID = 'Linker Performance';
 const LUMA_RESOURCE_STATS_ID = 'GPU Time and Memory';
 const CPU_DRAW_STAT_NAME = 'CPU Draw Time';
 const CPU_FRAME_STAT_NAME = 'CPU Frame Time';
+const FRAME_GAP_STAT_NAME = 'Frame Gap Time';
 const CPU_GRID_STAT_NAME = 'CPU Grid Time';
 const CPU_LINE_STAT_NAME = 'CPU Line Time';
 const CPU_TEXT_STAT_NAME = 'CPU Text Time';
@@ -33,6 +34,10 @@ export type FrameTelemetrySnapshot = {
   cpuFrameLastMs: number;
   cpuFrameMaxMs: number;
   cpuFrameSamples: number;
+  frameGapAvgMs: number;
+  frameGapLastMs: number;
+  frameGapMaxMs: number;
+  frameGapSamples: number;
   cpuGridAvgMs: number;
   cpuGridLastMs: number;
   cpuLineAvgMs: number;
@@ -76,6 +81,7 @@ type TimerMetrics = {
 export class FrameTelemetry {
   private readonly cpuDrawStat: TimerStat;
   private readonly cpuFrameStat: TimerStat;
+  private readonly frameGapStat: TimerStat;
   private readonly cpuGridStat: TimerStat;
   private readonly cpuLineStat: TimerStat;
   private readonly cpuTextStat: TimerStat;
@@ -87,6 +93,7 @@ export class FrameTelemetry {
   private activeGpuSlot: GpuTimerSlot | null = null;
   private cpuDrawMetrics = createTimerMetrics();
   private cpuFrameMetrics = createTimerMetrics();
+  private frameGapMetrics = createTimerMetrics();
   private cpuGridMetrics = createTimerMetrics();
   private cpuLineMetrics = createTimerMetrics();
   private cpuTextMetrics = createTimerMetrics();
@@ -100,6 +107,7 @@ export class FrameTelemetry {
   ) {
     this.cpuDrawStat = createTimerStat(this.perfStats, CPU_DRAW_STAT_NAME);
     this.cpuFrameStat = createTimerStat(this.perfStats, CPU_FRAME_STAT_NAME);
+    this.frameGapStat = createTimerStat(this.perfStats, FRAME_GAP_STAT_NAME);
     this.cpuGridStat = createTimerStat(this.perfStats, CPU_GRID_STAT_NAME);
     this.cpuLineStat = createTimerStat(this.perfStats, CPU_LINE_STAT_NAME);
     this.cpuTextStat = createTimerStat(this.perfStats, CPU_TEXT_STAT_NAME);
@@ -156,6 +164,15 @@ export class FrameTelemetry {
   endCpuFrame(): void {
     this.cpuFrameStat.timeEnd();
     recordTimerSample(this.cpuFrameMetrics, this.cpuFrameStat.lastTiming);
+  }
+
+  recordFrameGap(frameGapMs: number): void {
+    if (!Number.isFinite(frameGapMs) || frameGapMs < 0) {
+      return;
+    }
+
+    this.frameGapStat.addTime(frameGapMs);
+    recordTimerSample(this.frameGapMetrics, frameGapMs);
   }
 
   startCpuGrid(): void {
@@ -242,6 +259,10 @@ export class FrameTelemetry {
       cpuFrameLastMs: this.cpuFrameMetrics.lastMs,
       cpuFrameMaxMs: this.cpuFrameMetrics.maxMs,
       cpuFrameSamples: this.cpuFrameMetrics.sampleCount,
+      frameGapAvgMs: getTimerAverage(this.frameGapMetrics),
+      frameGapLastMs: this.frameGapMetrics.lastMs,
+      frameGapMaxMs: this.frameGapMetrics.maxMs,
+      frameGapSamples: this.frameGapMetrics.sampleCount,
       cpuGridAvgMs: getTimerAverage(this.cpuGridMetrics),
       cpuGridLastMs: this.cpuGridMetrics.lastMs,
       cpuLineAvgMs: getTimerAverage(this.cpuLineMetrics),
@@ -268,6 +289,7 @@ export class FrameTelemetry {
     this.perfStats.reset();
     resetTimerMetrics(this.cpuDrawMetrics);
     resetTimerMetrics(this.cpuFrameMetrics);
+    resetTimerMetrics(this.frameGapMetrics);
     resetTimerMetrics(this.cpuGridMetrics);
     resetTimerMetrics(this.cpuLineMetrics);
     resetTimerMetrics(this.cpuTextMetrics);

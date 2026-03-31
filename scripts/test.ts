@@ -6,9 +6,10 @@ import {
   destroyBrowserTestContext,
   runStaticUnitTests,
 } from './test/setup';
-import {runBenchmarkFlow} from './test/benchmark';
 import {createTestPerformanceCollector} from './test/performance';
 import {runBootFlow} from './test/boot';
+import {runPlaneFocusControlsFlow} from './test/plane-focus-controls';
+import {runPlaneFocusHighZoomPerformanceFlow} from './test/plane-focus-high-zoom-performance';
 import {runSessionRestoreFlow} from './test/session-restore';
 import {runStackOrbitCoverageFlow} from './test/stack-orbit-coverage';
 import {runViewModesFlow} from './test/view-modes';
@@ -40,11 +41,12 @@ try {
   const bootResult = await runBootFlow(context);
 
   if (bootResult !== null) {
+    await runPlaneFocusControlsFlow(context);
+    await runPlaneFocusHighZoomPerformanceFlow(context, performanceCollector);
     await runWorkplaneLifecycleFlow(context);
     await runSessionRestoreFlow(context);
     await runViewModesFlow(context);
-    await runStackOrbitCoverageFlow(context);
-    await runBenchmarkFlow(context, performanceCollector);
+    await runStackOrbitCoverageFlow(context, performanceCollector);
   }
 
   if (context) {
@@ -108,7 +110,7 @@ function reportPerformanceSummary(context: BrowserTestContext): void {
   performanceSummaryReported = true;
 
   if (performanceCollector.hasEntries()) {
-    context.addBrowserLog('perf.report', 'Collected benchmark performance summary.');
+    context.addBrowserLog('perf.report', 'Collected orbit performance summary.');
   }
 
   for (const line of performanceCollector.formatReportLines()) {

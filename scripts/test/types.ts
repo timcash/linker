@@ -88,6 +88,14 @@ export type StageRouteState = {
   workplaneId: string | null;
 };
 
+export type HistoryState = {
+  canGoBack: boolean;
+  canGoForward: boolean;
+  cursorStep: number;
+  headStep: number;
+  trackingEnabled: boolean;
+};
+
 export type StrategyPanelMode = 'text' | 'line' | 'layout' | 'label-edit';
 
 export type LineState = {
@@ -141,6 +149,31 @@ export type BenchmarkState = {
   submittedGlyphCount: number;
   submittedVertexCount: number;
   visibleChunkCount: number;
+  visibleGlyphCount: number;
+  visibleLabelCount: number;
+};
+
+export type PerfSnapshot = {
+  bytesUploadedPerFrame: number;
+  cpuDrawAvgMs: number;
+  cpuFrameAvgMs: number;
+  cpuFrameMaxMs: number;
+  cpuFrameSamples: number;
+  cpuTextAvgMs: number;
+  frameGapAvgMs: number;
+  frameGapMaxMs: number;
+  frameGapSamples: number;
+  gpuFrameAvgMs: number | null;
+  gpuFrameSamples: number;
+  gpuSupported: boolean;
+  gpuTextAvgMs: number | null;
+  gpuTimingEnabled: boolean;
+  lineVisibleLinkCount: number;
+  planeCount: number;
+  stageMode: string;
+  submittedGlyphCount: number;
+  submittedVertexCount: number;
+  textStrategy: TextStrategy;
   visibleGlyphCount: number;
   visibleLabelCount: number;
 };

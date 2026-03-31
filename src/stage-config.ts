@@ -29,6 +29,7 @@ export type StageConfig = {
   benchmarkEnabled: boolean;
   demoLayerCount: number;
   gpuTimingEnabled: boolean;
+  historyTrackingEnabled: boolean;
   initialCamera: CameraView;
   initialCameraLabel: string | null;
   labelSetKind: LabelSetKind;
@@ -72,6 +73,7 @@ export function readStageConfig(search: string): StageConfig {
     benchmarkEnabled: params.get('benchmark') === '1',
     demoLayerCount,
     gpuTimingEnabled: params.get('gpuTiming') !== '0',
+    historyTrackingEnabled: params.get('historyTracking') !== '0',
     initialCamera: {
       centerX: parseFiniteNumber(params.get('cameraCenterX'), 0),
       centerY: parseFiniteNumber(params.get('cameraCenterY'), 0),

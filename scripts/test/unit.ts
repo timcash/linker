@@ -486,14 +486,11 @@ function runCameraAndProjectionTests(): void {
   const stackProjector = new StackCameraProjector();
 
   stackProjector.setSceneBounds(stackViewState.sceneBounds);
+  stackProjector.setOrbitTarget(stackViewState.orbitTarget);
   stackProjector.setViewport(viewport);
 
   const visibleBounds = stackProjector.getVisibleWorldBounds(viewport);
-  const sceneCenter = {
-    x: (stackViewState.sceneBounds.minX + stackViewState.sceneBounds.maxX) * 0.5,
-    y: (stackViewState.sceneBounds.minY + stackViewState.sceneBounds.maxY) * 0.5,
-    z: (stackViewState.sceneBounds.minZ + stackViewState.sceneBounds.maxZ) * 0.5,
-  };
+  const sceneCenter = stackViewState.orbitTarget;
   const centerPoint = stackProjector.projectWorldPoint(
     sceneCenter,
     viewport,
@@ -522,7 +519,7 @@ function runCameraAndProjectionTests(): void {
   assert.ok(
     Math.abs(centerPoint.x - viewport.width / 2) < 0.0001 &&
       Math.abs(centerPoint.y - viewport.height / 2) < 0.0001,
-    'StackCameraProjector should center the stack-view bounds in the viewport.',
+    'StackCameraProjector should center the active workplane orbit target in the viewport.',
   );
   assert.ok(
     visibleBounds.minX <= stackViewState.sceneBounds.minX &&
