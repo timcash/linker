@@ -26,32 +26,20 @@ import {
   getActiveWorkplaneView,
   getPlaneCount,
   replaceWorkplaneLabelTextOverride,
+  replaceWorkplaneScene,
   replaceWorkplaneView,
   selectNextWorkplane,
   selectPreviousWorkplane,
   spawnWorkplaneAfterActive,
-  type StageSystemState,
-  type WorkplaneId,
 } from '../../src/plane-stack';
-import {
-  appendStageHistoryCheckpoint,
-  appendStageHistoryView,
-  createStageHistoryState,
-  moveStageHistoryCursor,
-  replayStageHistoryToStep,
-} from '../../src/stage-history';
 import {
   PlaneFocusProjector,
   StackCameraProjector,
   type StageProjector,
 } from '../../src/projector';
-import {createStageScene} from '../../src/scene-model';
+import {cloneStageScene, createStageScene} from '../../src/scene-model';
 import {readStageConfig} from '../../src/stage-config';
 import {hydrateStageBootState} from '../../src/stage-session';
-import {
-  type PersistedIncrementalStageHistorySession,
-  type PersistedStageSessionSnapshot,
-} from '../../src/stage-session-store';
 import {
   DEFAULT_STACK_CAMERA_STATE,
   getStackCameraForward,
@@ -83,7 +71,6 @@ import {
 
 export function runStaticUnitTests(): void {
   runRouteAndSessionTests();
-  runStageHistoryTests();
   runPlaneStackStateTests();
   runCameraAndProjectionTests();
   runLayoutAndLinkTests();
@@ -93,49 +80,76 @@ export function runStaticUnitTests(): void {
 function runRouteAndSessionTests(): void {
   const defaultConfig = readStageConfig('');
   assert.equal(defaultConfig.stageMode, '2d-mode', 'Default config should boot in 2d-mode.');
-  assert.equal(defaultConfig.requestedSessionToken, null, 'Default config should not request a persisted session.');
   assert.equal(defaultConfig.requestedStageMode, null, 'Default config should not request a stage-mode override.');
   assert.equal(defaultConfig.requestedWorkplaneId, null, 'Default config should not request a workplane override.');
+  assert.equal(defaultConfig.initialCameraLabel, null, 'Default config should not request a focused label override.');
 
-  const explicitConfig = readStageConfig('?session=stk-42&history=7&stageMode=3d-mode&workplane=wp-7');
-  assert.equal(explicitConfig.requestedSessionToken, 'stk-42', 'Valid session routes should preserve the requested session token.');
-  assert.equal(explicitConfig.requestedHistoryStep, 7, 'Valid history routes should preserve the requested history step.');
+  const explicitConfig = readStageConfig('?session=stk-42&history=7&stageMode=3d-mode&workplane=wp-1&labelSet=benchmark&labelCount=1024');
   assert.equal(explicitConfig.requestedStageMode, '3d-mode', 'Valid stage routes should preserve the requested stage mode.');
   assert.equal(explicitConfig.stageMode, '3d-mode', 'Valid stage routes should parse 3d-mode.');
-  assert.equal(explicitConfig.requestedWorkplaneId, 'wp-7', 'Valid routes should preserve the requested workplane.');
+  assert.equal(explicitConfig.requestedWorkplaneId, 'wp-1', 'Valid routes should preserve the requested workplane.');
+  assert.equal(explicitConfig.labelSetKind, 'benchmark', 'Valid routes should preserve the requested dataset.');
+  assert.equal(explicitConfig.labelTargetCount, 1024, 'Benchmark routes should preserve the requested label count.');
 
-  const invalidConfig = readStageConfig('?session=%20%20&history=-2&stageMode=sideways&workplane=plane-7');
-  assert.equal(invalidConfig.requestedSessionToken, null, 'Blank session routes should be ignored.');
-  assert.equal(invalidConfig.requestedHistoryStep, null, 'Invalid history routes should be ignored.');
+  const invalidConfig = readStageConfig('?session=%20%20&history=-2&stageMode=sideways&workplane=plane-7&cameraCenterX=99&cameraCenterY=42&cameraZoom=7');
   assert.equal(invalidConfig.requestedStageMode, null, 'Invalid stage routes should not preserve a requested override.');
   assert.equal(invalidConfig.stageMode, '2d-mode', 'Invalid stage routes should fall back to 2d-mode.');
   assert.equal(invalidConfig.requestedWorkplaneId, null, 'Invalid workplane routes should be ignored.');
+  assert.equal(invalidConfig.initialCameraLabel, null, 'Numeric camera params should be ignored after moving to label-only routing.');
 
   const missingSessionBootState = hydrateStageBootState(readStageConfig('?session=stk-missing'), null);
   assert.equal(
     getPlaneCount(missingSessionBootState.initialState),
     1,
-    'Missing persisted sessions should fall back to a fresh one-workplane stage.',
+    'Ignored persisted-session routes should still boot a fresh one-workplane stage.',
   );
   assert.equal(
     missingSessionBootState.initialState.session.activeWorkplaneId,
     INITIAL_WORKPLANE_ID,
-    'Missing persisted sessions should boot on the initial workplane.',
+    'Fresh route boot should start on the initial workplane.',
   );
   assert.equal(
     missingSessionBootState.initialState.session.stageMode,
     '2d-mode',
-    'Missing persisted sessions should keep the default stage mode.',
+    'Fresh route boot should keep the default stage mode.',
   );
   assert.equal(
     isStackCameraAtDefault(missingSessionBootState.initialState.session.stackCamera),
     true,
-    'Missing persisted sessions should boot with the default stack-camera orbit.',
+    'Fresh route boot should keep the default stack-camera orbit.',
   );
 
-  const snapshot = createPersistedStageSessionSnapshot();
+  const scene = createStageScene({
+    demoLayerCount: 12,
+    labelSetKind: 'demo',
+    labelTargetCount: DEMO_LABEL_COUNT,
+    layoutStrategy: 'flow-columns',
+  });
+  let snapshot = createStageSystemState(cloneStageScene(scene), {
+    initialCameraLabel: '2:2:1',
+    stageMode: '3d-mode',
+  });
+  snapshot = replaceWorkplaneView(snapshot, INITIAL_WORKPLANE_ID, {
+    selectedLabelKey: '2:2:1',
+    camera: {centerX: 22, centerY: 18, zoom: 2},
+  });
+  snapshot = spawnWorkplaneAfterActive(snapshot);
+  snapshot = replaceWorkplaneScene(snapshot, 'wp-2', cloneStageScene(scene));
+  snapshot = replaceWorkplaneView(snapshot, 'wp-2', {
+    selectedLabelKey: '3:3:1',
+    camera: {centerX: 44, centerY: 39, zoom: 4},
+  });
+  snapshot = {
+    ...snapshot,
+    session: {
+      ...snapshot.session,
+      activeWorkplaneId: INITIAL_WORKPLANE_ID,
+      stackCamera: orbitStackCamera(DEFAULT_STACK_CAMERA_STATE, Math.PI / 8, -Math.PI / 18),
+      stageMode: '3d-mode',
+    },
+  };
   const stageModeOverrideBootState = hydrateStageBootState(
-    readStageConfig('?session=stk-snapshot&stageMode=2d-mode'),
+    readStageConfig('?stageMode=2d-mode'),
     snapshot,
   );
   assert.equal(
@@ -146,11 +160,11 @@ function runRouteAndSessionTests(): void {
   assert.equal(
     isStackCameraAtDefault(stageModeOverrideBootState.initialState.session.stackCamera),
     false,
-    'Persisted sessions should restore their saved stack-camera orbit.',
+    'Route stageMode overrides should preserve the injected stack-camera orbit.',
   );
 
   const existingWorkplaneOverrideBootState = hydrateStageBootState(
-    readStageConfig('?session=stk-snapshot&workplane=wp-2'),
+    readStageConfig('?workplane=wp-2'),
     snapshot,
   );
   assert.equal(
@@ -160,47 +174,13 @@ function runRouteAndSessionTests(): void {
   );
 
   const missingWorkplaneOverrideBootState = hydrateStageBootState(
-    readStageConfig('?session=stk-snapshot&workplane=wp-7'),
+    readStageConfig('?workplane=wp-7'),
     snapshot,
   );
   assert.equal(
     missingWorkplaneOverrideBootState.initialState.session.activeWorkplaneId,
     INITIAL_WORKPLANE_ID,
     'Route workplane overrides should be ignored when the requested workplane is missing.',
-  );
-
-  const legacySnapshot = createPersistedStageSessionSnapshot();
-  delete (legacySnapshot.session as Partial<typeof legacySnapshot.session>).stackCamera;
-
-  const legacyBootState = hydrateStageBootState(
-    readStageConfig('?session=stk-snapshot'),
-    legacySnapshot,
-  );
-  assert.equal(
-    isStackCameraAtDefault(legacyBootState.initialState.session.stackCamera),
-    true,
-    'Legacy persisted sessions without stack-camera state should restore the default orbit safely.',
-  );
-
-  const historySnapshot = createPersistedStageHistorySessionRecord();
-  const historyBootState = hydrateStageBootState(
-    readStageConfig('?session=stk-history&history=0'),
-    historySnapshot,
-  );
-  assert.equal(
-    getPlaneCount(historyBootState.initialState),
-    1,
-    'History routes should replay the requested opening history step.',
-  );
-  assert.equal(
-    historyBootState.initialState.session.activeWorkplaneId,
-    INITIAL_WORKPLANE_ID,
-    'History routes should restore the active workplane stored at that step.',
-  );
-  assert.equal(
-    historyBootState.initialState.session.stageMode,
-    '2d-mode',
-    'History routes should replay the stored stage mode instead of the latest one.',
   );
 }
 
@@ -258,24 +238,23 @@ function runPlaneStackStateTests(): void {
   assert.equal(spawnedState.session.activeWorkplaneId, 'wp-2', 'Spawning should select the new workplane.');
   assert.equal(
     getActiveWorkplaneView(spawnedState).selectedLabelKey,
-    '3:3:1',
-    'Spawning should clone the active workplane camera target.',
+    null,
+    'Spawning should leave the new workplane without a selected label.',
   );
   assert.deepEqual(
     getActiveWorkplaneView(spawnedState).camera,
     {centerX: 12, centerY: 14, zoom: 5},
-    'Spawning should clone the active workplane numeric camera memory.',
+    'Spawning should preserve the active workplane numeric camera memory.',
   );
   assert.equal(
-    getActiveWorkplaneDocument(spawnedState).labelTextOverrides['1:1:1'],
-    'Signal',
-    'Spawning should clone per-workplane label text overrides.',
+    Object.keys(getActiveWorkplaneDocument(spawnedState).labelTextOverrides).length,
+    0,
+    'Spawning should start the new workplane without inherited label text overrides.',
   );
-  spawnedState.document.workplanesById['wp-2'].scene.labels[0].text = 'Plane Two';
-  assert.notEqual(
-    spawnedState.document.workplanesById[INITIAL_WORKPLANE_ID].scene.labels[0].text,
-    spawnedState.document.workplanesById['wp-2'].scene.labels[0].text,
-    'Spawning should deep-clone the scene so workplane edits stay isolated.',
+  assert.equal(
+    spawnedState.document.workplanesById['wp-2'].scene.labels.length,
+    0,
+    'Spawning should start the new workplane with an empty scene.',
   );
 
   const previousSelectedState = selectPreviousWorkplane(spawnedState);
@@ -306,113 +285,6 @@ function runPlaneStackStateTests(): void {
   assert.equal(getPlaneCount(cappedState), MAX_WORKPLANE_COUNT, 'The plane stack should stop at the hard cap.');
   assert.equal(canSpawnWorkplane(cappedState), false, 'The hard cap should block further spawns.');
   assert.equal(spawnWorkplaneAfterActive(cappedState), cappedState, 'Spawning at the cap should no-op.');
-}
-
-function runStageHistoryTests(): void {
-  const scene = createStageScene({
-    demoLayerCount: 12,
-    labelSetKind: 'demo',
-    labelTargetCount: DEMO_LABEL_COUNT,
-    layoutStrategy: 'flow-columns',
-  });
-  const initialState = createStageSystemState(scene, {
-    initialCameraLabel: '2:2:1',
-    stageMode: '2d-mode',
-  });
-  const movedPlaneFocusState = replaceWorkplaneView(initialState, INITIAL_WORKPLANE_ID, {
-    selectedLabelKey: '3:3:1',
-    camera: {centerX: 24, centerY: 18, zoom: 3},
-  });
-  const spawnedState = spawnWorkplaneAfterActive(movedPlaneFocusState);
-  const orbitedState = {
-    ...spawnedState,
-    session: {
-      ...spawnedState.session,
-      stackCamera: orbitStackCamera(DEFAULT_STACK_CAMERA_STATE, Math.PI / 5, -Math.PI / 16),
-      stageMode: '3d-mode' as const,
-    },
-  };
-
-  let history = createStageHistoryState(initialState);
-  history = appendStageHistoryView(history, movedPlaneFocusState, 'Move plane-focus camera');
-  history = appendStageHistoryCheckpoint(history, spawnedState, 'Spawn workplane');
-  history = appendStageHistoryView(history, orbitedState, 'Orbit stack camera');
-
-  const dedupedHistory = appendStageHistoryView(history, orbitedState, 'Orbit stack camera');
-  assert.equal(
-    dedupedHistory.headStep,
-    history.headStep,
-    'Identical history view samples should be deduplicated.',
-  );
-
-  const selectionOnlyState = replaceWorkplaneView(initialState, INITIAL_WORKPLANE_ID, {
-    selectedLabelKey: '2:2:1',
-    camera: initialState.session.workplaneViewsById[INITIAL_WORKPLANE_ID].camera,
-  });
-  const selectionHistory = appendStageHistoryView(
-    createStageHistoryState(initialState),
-    selectionOnlyState,
-    'Adjust plane-focus view',
-  );
-  const selectionReplayState = replayStageHistoryToStep(selectionHistory, selectionHistory.headStep);
-
-  assert.equal(
-    selectionHistory.headStep,
-    1,
-    'Selection-only view changes should create a history step.',
-  );
-  assert.equal(
-    selectionReplayState.session.workplaneViewsById[INITIAL_WORKPLANE_ID]?.selectedLabelKey,
-    '2:2:1',
-    'Selection-only history replay should restore the selected label.',
-  );
-
-  const spawnedReplayHistory = moveStageHistoryCursor(history, 2);
-  const spawnedReplayState = replayStageHistoryToStep(
-    spawnedReplayHistory,
-    spawnedReplayHistory.cursorStep,
-  );
-  assert.equal(
-    spawnedReplayState.session.activeWorkplaneId,
-    'wp-2',
-    'Checkpoint replay should restore the spawned active workplane.',
-  );
-  assert.equal(
-    spawnedReplayState.session.stageMode,
-    '2d-mode',
-    'Checkpoint replay should restore the stage mode stored in the checkpoint.',
-  );
-  assert.deepEqual(
-    spawnedReplayState.session.workplaneViewsById['wp-2']?.camera,
-    spawnedState.session.workplaneViewsById['wp-2']?.camera,
-    'Checkpoint replay should restore the active workplane camera memory.',
-  );
-
-  const orbitedReplayHistory = moveStageHistoryCursor(history, 3);
-  const orbitedReplayState = replayStageHistoryToStep(
-    orbitedReplayHistory,
-    orbitedReplayHistory.cursorStep,
-  );
-  assert.equal(
-    orbitedReplayState.session.stageMode,
-    '3d-mode',
-    'View replay should restore the stored stack-view mode.',
-  );
-  assert.equal(
-    orbitedReplayState.session.activeWorkplaneId,
-    'wp-2',
-    'View replay should restore the active workplane referenced by the view sample.',
-  );
-  assert.equal(
-    orbitedReplayState.session.stackCamera.azimuthRadians,
-    orbitedState.session.stackCamera.azimuthRadians,
-    'View replay should restore the stack-camera azimuth.',
-  );
-  assert.equal(
-    orbitedReplayState.session.stackCamera.elevationRadians,
-    orbitedState.session.stackCamera.elevationRadians,
-    'View replay should restore the stack-camera elevation.',
-  );
 }
 
 function runCameraAndProjectionTests(): void {
@@ -468,18 +340,21 @@ function runCameraAndProjectionTests(): void {
     'PlaneFocusProjector visible bounds should match the current camera visible bounds.',
   );
 
-  let stageState = createStageSystemState(
-    createStageScene({
-      demoLayerCount: 12,
-      labelSetKind: 'demo',
-      labelTargetCount: DEMO_LABEL_COUNT,
-      layoutStrategy: 'flow-columns',
-    }),
-    {stageMode: '3d-mode'},
-  );
+  const projectionScene = createStageScene({
+    demoLayerCount: 12,
+    labelSetKind: 'demo',
+    labelTargetCount: DEMO_LABEL_COUNT,
+    layoutStrategy: 'flow-columns',
+  });
+  let stageState = createStageSystemState(cloneStageScene(projectionScene), {stageMode: '3d-mode'});
 
   for (let planeCount = 1; planeCount < 5; planeCount += 1) {
     stageState = spawnWorkplaneAfterActive(stageState);
+    stageState = replaceWorkplaneScene(
+      stageState,
+      stageState.session.activeWorkplaneId,
+      cloneStageScene(projectionScene),
+    );
   }
 
   const stackViewState = createStackViewState(stageState);
@@ -868,121 +743,6 @@ function runNavigationAndZoomTests(): void {
       getZoomOpacity(3.75, detailBand.zoomLevel, detailBand.zoomRange) <= 1,
     'Zoom-band opacity should remain in a valid visible range while the label scales in.',
   );
-}
-
-function createPersistedStageSessionSnapshot(): PersistedStageSessionSnapshot {
-  const scene = createStageScene({
-    demoLayerCount: 12,
-    labelSetKind: 'demo',
-    labelTargetCount: DEMO_LABEL_COUNT,
-    layoutStrategy: 'flow-columns',
-  });
-  let state = createStageSystemState(scene, {
-    initialCameraLabel: '2:2:1',
-    stageMode: '2d-mode',
-  });
-
-  state = replaceWorkplaneLabelTextOverride(state, INITIAL_WORKPLANE_ID, '2:2:1', 'Alpha');
-  applyWorkplaneSceneLabelText(state, INITIAL_WORKPLANE_ID, '2:2:1', 'Alpha');
-  state = replaceWorkplaneView(state, INITIAL_WORKPLANE_ID, {
-    selectedLabelKey: '2:2:1',
-    camera: {centerX: 22, centerY: 18, zoom: 2},
-  });
-
-  state = spawnWorkplaneAfterActive(state);
-  state = replaceWorkplaneLabelTextOverride(state, 'wp-2', '3:3:1', 'Vector');
-  applyWorkplaneSceneLabelText(state, 'wp-2', '3:3:1', 'Vector');
-  state = replaceWorkplaneView(state, 'wp-2', {
-    selectedLabelKey: '3:3:1',
-    camera: {centerX: 44, centerY: 39, zoom: 4},
-  });
-
-  state = selectPreviousWorkplane(state);
-  state = {
-    ...state,
-    session: {
-      ...state.session,
-      stackCamera: orbitStackCamera(DEFAULT_STACK_CAMERA_STATE, Math.PI / 8, -Math.PI / 18),
-      stageMode: '3d-mode',
-    },
-  };
-
-  return {
-    version: 1,
-    sessionToken: 'stk-snapshot',
-    savedAt: '2026-03-30T00:00:00.000Z',
-    config: {
-      demoLayerCount: 12,
-      labelSetKind: 'demo',
-    },
-    document: state.document,
-    session: state.session,
-    ui: {
-      layoutStrategy: 'flow-columns',
-      lineStrategy: 'rounded-step-links',
-      strategyPanelMode: 'label-edit',
-      textStrategy: 'sdf-instanced',
-    },
-  };
-}
-
-function createPersistedStageHistorySessionRecord(): PersistedIncrementalStageHistorySession {
-  const scene = createStageScene({
-    demoLayerCount: 12,
-    labelSetKind: 'demo',
-    labelTargetCount: DEMO_LABEL_COUNT,
-    layoutStrategy: 'flow-columns',
-  });
-  const initialState = createStageSystemState(scene, {
-    initialCameraLabel: '1:1:1',
-    stageMode: '2d-mode',
-  });
-  const spawnedState = spawnWorkplaneAfterActive(initialState);
-  const orbitedState = {
-    ...spawnedState,
-    session: {
-      ...spawnedState.session,
-      stackCamera: orbitStackCamera(DEFAULT_STACK_CAMERA_STATE, Math.PI / 7, -Math.PI / 20),
-      stageMode: '3d-mode' as const,
-    },
-  };
-
-  let history = createStageHistoryState(initialState);
-  history = appendStageHistoryCheckpoint(history, spawnedState, 'Spawn workplane');
-  history = appendStageHistoryView(history, orbitedState, 'Orbit stack camera');
-
-  return {
-    version: 3,
-    sessionToken: 'stk-history',
-    savedAt: '2026-03-31T00:00:00.000Z',
-    config: {
-      demoLayerCount: 12,
-      labelSetKind: 'demo',
-    },
-    history,
-    ui: {
-      layoutStrategy: 'flow-columns',
-      lineStrategy: 'rounded-step-links',
-      strategyPanelMode: 'label-edit',
-      textStrategy: 'sdf-instanced',
-    },
-  };
-}
-
-function applyWorkplaneSceneLabelText(
-  state: StageSystemState,
-  workplaneId: WorkplaneId,
-  labelKey: string,
-  text: string,
-): void {
-  const workplane = state.document.workplanesById[workplaneId];
-  const label = workplane?.scene.labels.find(
-    (candidateLabel) => candidateLabel.navigation?.key === labelKey,
-  );
-
-  if (label) {
-    label.text = text;
-  }
 }
 
 function createCanonicalDemoLayoutEntries(): DemoLayoutEntry[] {

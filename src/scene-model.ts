@@ -41,6 +41,14 @@ export function cloneStageScene(scene: StageScene): StageScene {
   };
 }
 
+export function createEmptyStageScene(labelSetPreset: string): StageScene {
+  return {
+    labelSetPreset,
+    labels: [],
+    links: [],
+  };
+}
+
 export function createStageScene(options: {
   demoLayerCount: number;
   labelSetKind: LabelSetKind;

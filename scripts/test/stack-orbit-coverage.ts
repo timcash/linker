@@ -6,12 +6,11 @@ import {
   getLineState,
   getStageState,
   getTextState,
-  openRoute,
-  pressPlaneStackKey,
+  openRouteWithBootState,
   pressStageModeKey,
-  waitForStageWorkplane,
   type BrowserTestContext,
 } from './shared';
+import {createPreparedFiveWorkplaneState} from './fixtures';
 import {
   createOrbitPerformanceSample,
   formatOrbitPerformanceSummary,
@@ -22,15 +21,10 @@ export async function runStackOrbitCoverageFlow(
   context: BrowserTestContext,
   collector: TestPerformanceCollector,
 ): Promise<void> {
-  await openRoute(context.page, context.url);
-
-  for (let planeCount = 1; planeCount < 5; planeCount += 1) {
-    await pressPlaneStackKey(context.page, 'spawn-workplane');
-    await waitForStageWorkplane(context.page, {
-      activeWorkplaneId: `wp-${planeCount + 1}`,
-      planeCount: planeCount + 1,
-    });
-  }
+  await openRouteWithBootState(context.page, context.url, {
+    initialState: createPreparedFiveWorkplaneState(),
+    strategyPanelMode: 'label-edit',
+  });
 
   await pressStageModeKey(context.page);
   await context.page.waitForFunction(

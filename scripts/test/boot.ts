@@ -9,6 +9,7 @@ import {
   assertDemoRootLayerVisible,
   getCameraQueryState,
   getCanvasPixelSignature,
+  getStageRouteState,
   openRoute,
   readAppResult,
   waitForBrowserUpdate,
@@ -70,8 +71,13 @@ export async function runBootFlow(
   );
   assert.deepEqual(
     await getCameraQueryState(page),
-    {label: null, centerX: null, centerY: null, zoom: null},
-    'Default boot should not need explicit camera query params.',
+    {label: FIRST_ROOT_LABEL},
+    'Default boot should mirror the focused label into the route.',
+  );
+  assert.deepEqual(
+    await getStageRouteState(page),
+    {stageMode: '2d-mode', workplaneId: 'wp-1'},
+    'Default boot should mirror stage mode and workplane into the route.',
   );
 
   const initialSignature = await getCanvasPixelSignature(page);

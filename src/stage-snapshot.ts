@@ -35,7 +35,6 @@ export function createStageSnapshot(input: {
   cameraSnapshot: CameraSnapshot;
   gpuTimingEnabled: boolean;
   gridStats: GridStats | null | undefined;
-  historyTrackingEnabled: boolean;
   labelSetKind: LabelSetKind;
   labelTargetCount: number;
   layoutStrategy: LayoutStrategy;
@@ -60,7 +59,6 @@ export function createStageSnapshot(input: {
     cameraSnapshot,
     gpuTimingEnabled,
     gridStats,
-    historyTrackingEnabled,
     labelSetKind,
     labelTargetCount,
     layoutStrategy,
@@ -193,7 +191,6 @@ export function createStageSnapshot(input: {
       perfResourcesActive: String(perf?.resourcesActive ?? 0),
       perfTexturesActive: String(perf?.texturesActive ?? 0),
       perfTextureMemoryBytes: String(perf?.textureMemoryBytes ?? 0),
-      historyTrackingEnabled: String(historyTrackingEnabled),
       stageMode,
       stackCameraAzimuth: stackCamera.azimuthRadians.toFixed(4),
       stackCameraDistanceScale: stackCamera.distanceScale.toFixed(4),

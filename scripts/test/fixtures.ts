@@ -1,11 +1,9 @@
 import {
-  appendStageHistoryCheckpoint,
-  createStageHistoryState,
-} from '../../src/stage-history';
-import {
   INITIAL_WORKPLANE_ID,
+  cloneStageSystemState,
   createStageSystemState,
   replaceWorkplaneLabelTextOverride,
+  replaceWorkplaneScene,
   replaceWorkplaneView,
   selectPreviousWorkplane,
   spawnWorkplaneAfterActive,
@@ -13,17 +11,12 @@ import {
   type WorkplaneId,
 } from '../../src/plane-stack';
 import {createStageScene} from '../../src/scene-model';
-import type {PersistedStageHistorySession} from '../../src/stage-session-store';
 
 import {DEMO_LABEL_COUNT} from './types';
 
 const DEMO_LAYOUT_STRATEGY = 'flow-columns';
-const DEMO_LINE_STRATEGY = 'rounded-step-links';
-const SAVED_AT = '2026-03-31T00:00:00.000Z';
 
-export function createPreparedSingleWorkplaneSessionRecord(
-  sessionToken: string,
-): PersistedStageHistorySession {
+export function createPreparedSingleWorkplaneState(): StageSystemState {
   const scene = createDemoScene();
   let state = createStageSystemState(scene, {
     initialCameraLabel: '2:2:1',
@@ -36,28 +29,12 @@ export function createPreparedSingleWorkplaneSessionRecord(
     camera: {centerX: 22, centerY: 18, zoom: 2},
   });
 
-  return {
-    version: 2,
-    sessionToken,
-    savedAt: SAVED_AT,
-    config: {
-      demoLayerCount: 12,
-      labelSetKind: 'demo',
-    },
-    history: createStageHistoryState(state, 'Prepared single-workplane state'),
-    ui: {
-      layoutStrategy: DEMO_LAYOUT_STRATEGY,
-      lineStrategy: DEMO_LINE_STRATEGY,
-      strategyPanelMode: 'label-edit',
-      textStrategy: 'sdf-instanced',
-    },
-  };
+  return state;
 }
 
-export function createPreparedTwoWorkplaneSessionRecord(
-  sessionToken: string,
+export function createPreparedTwoWorkplaneState(
   options?: {activeWorkplaneId?: WorkplaneId},
-): PersistedStageHistorySession {
+): StageSystemState {
   const initialState = createStageSystemState(createDemoScene(), {
     initialCameraLabel: '1:1:1',
     stageMode: '2d-mode',
@@ -69,6 +46,7 @@ export function createPreparedTwoWorkplaneSessionRecord(
     camera: {centerX: 22, centerY: 18, zoom: 2},
   });
   state = spawnWorkplaneAfterActive(state);
+  state = replaceWorkplaneScene(state, 'wp-2', createDemoScene());
   state = setWorkplaneLabelText(state, 'wp-2', '3:3:1', 'Vector');
   state = replaceWorkplaneView(state, 'wp-2', {
     selectedLabelKey: '3:3:1',
@@ -79,51 +57,27 @@ export function createPreparedTwoWorkplaneSessionRecord(
     state = selectPreviousWorkplane(state);
   }
 
-  let history = createStageHistoryState(initialState);
-  history = appendStageHistoryCheckpoint(history, state, 'Prepared two-workplane state');
-
-  return {
-    version: 2,
-    sessionToken,
-    savedAt: SAVED_AT,
-    config: {
-      demoLayerCount: 12,
-      labelSetKind: 'demo',
-    },
-    history,
-    ui: {
-      layoutStrategy: DEMO_LAYOUT_STRATEGY,
-      lineStrategy: DEMO_LINE_STRATEGY,
-      strategyPanelMode: 'label-edit',
-      textStrategy: 'sdf-instanced',
-    },
-  };
+  return state;
 }
 
-export function createPreparedHighZoomPlaneFocusSessionRecord(
-  sessionToken: string,
-): PersistedStageHistorySession {
-  const state = createStageSystemState(createDemoScene(), {
-    initialCameraLabel: '1:9:3',
-    stageMode: '2d-mode',
-  });
+export function createPreparedFiveWorkplaneState(): StageSystemState {
+  let state = createPreparedSingleWorkplaneState();
 
-  return {
-    version: 2,
-    sessionToken,
-    savedAt: SAVED_AT,
-    config: {
-      demoLayerCount: 12,
-      labelSetKind: 'demo',
-    },
-    history: createStageHistoryState(state, 'Prepared high-zoom plane-focus state'),
-    ui: {
-      layoutStrategy: DEMO_LAYOUT_STRATEGY,
-      lineStrategy: DEMO_LINE_STRATEGY,
-      strategyPanelMode: 'label-edit',
-      textStrategy: 'sdf-instanced',
-    },
-  };
+  for (let index = 0; index < 4; index += 1) {
+    state = spawnWorkplaneAfterActive(state);
+    const activeWorkplaneId = state.session.activeWorkplaneId;
+    state = replaceWorkplaneScene(state, activeWorkplaneId, createDemoScene());
+    state = replaceWorkplaneView(state, activeWorkplaneId, {
+      selectedLabelKey: `${Math.min(6, index + 2)}:${Math.min(6, index + 2)}:1`,
+      camera: {
+        centerX: 12 + (index + 1) * 8,
+        centerY: 10 + (index + 1) * 7,
+        zoom: 1 + (index % 3),
+      },
+    });
+  }
+
+  return cloneStageSystemState(state);
 }
 
 function createDemoScene() {

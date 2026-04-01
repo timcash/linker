@@ -3,14 +3,15 @@ import assert from 'node:assert/strict';
 import {
   getCameraState,
   getStageState,
-  openPersistedSessionRoute,
+  openRouteWithBootState,
   pressPlaneStackKey,
   waitForStageWorkplane,
   type BrowserTestContext,
 } from './shared';
-import {createPreparedSingleWorkplaneSessionRecord} from './fixtures';
+import {createPreparedSingleWorkplaneState} from './fixtures';
 
 type LabelEditInputState = {
+  disabled: boolean;
   value: string;
   visible: boolean;
 };
@@ -18,11 +19,10 @@ type LabelEditInputState = {
 export async function runWorkplaneLifecycleFlow(
   context: BrowserTestContext,
 ): Promise<void> {
-  await openPersistedSessionRoute(
-    context.page,
-    context.url,
-    createPreparedSingleWorkplaneSessionRecord('stk-workplane-lifecycle'),
-  );
+  await openRouteWithBootState(context.page, context.url, {
+    initialState: createPreparedSingleWorkplaneState(),
+    strategyPanelMode: 'label-edit',
+  });
 
   const initialStage = await getStageState(context.page);
   assert.equal(initialStage.stageMode, '2d-mode', 'Workplane lifecycle should begin in plane-focus view.');
@@ -34,13 +34,18 @@ export async function runWorkplaneLifecycleFlow(
 
   assert.equal(
     (await getCameraState(context.page)).label,
-    '2:2:1',
-    'Spawning should clone the active workplane camera memory into the new workplane.',
+    '',
+    'Spawning should start the new workplane without a focused demo label.',
   );
   assert.equal(
     (await readLabelEditInputState(context)).value,
-    'Alpha',
-    'Spawning should clone the active workplane label edit into the new workplane.',
+    '',
+    'Spawning should start the new workplane with an empty label-edit input.',
+  );
+  assert.equal(
+    (await readLabelEditInputState(context)).disabled,
+    true,
+    'Spawning should leave the label editor disabled on an empty workplane.',
   );
 
   await pressPlaneStackKey(context.page, 'delete-active-workplane');
@@ -63,8 +68,14 @@ async function readLabelEditInputState(
   return context.page.evaluate(() => {
     const panel = document.querySelector<HTMLElement>('[data-testid="label-edit-panel"]');
     const input = document.querySelector<HTMLInputElement>('[data-testid="label-input-field"]');
+    const submitButton = document.querySelector<HTMLButtonElement>('[data-testid="label-input-submit"]');
 
     return {
+      disabled:
+        !(input instanceof HTMLInputElement) ||
+        !(submitButton instanceof HTMLButtonElement) ||
+        input.disabled ||
+        submitButton.disabled,
       value: input?.value ?? '',
       visible:
         panel instanceof HTMLElement &&

@@ -1,4 +1,4 @@
-import {cloneStageScene, type StageScene} from './scene-model';
+import {cloneStageScene, createEmptyStageScene, type StageScene} from './scene-model';
 import {
   cloneStackCameraState,
   DEFAULT_STACK_CAMERA_STATE,
@@ -189,8 +189,8 @@ export function spawnWorkplaneAfterActive(state: StageSystemState): StageSystemS
       workplanesById: {
         ...state.document.workplanesById,
         [workplaneId]: {
-          labelTextOverrides: {...activeDocument.labelTextOverrides},
-          scene: cloneStageScene(activeDocument.scene),
+          labelTextOverrides: {},
+          scene: createEmptyStageScene(activeDocument.scene.labelSetPreset),
           workplaneId,
         },
       },
@@ -200,7 +200,10 @@ export function spawnWorkplaneAfterActive(state: StageSystemState): StageSystemS
       activeWorkplaneId: workplaneId,
       workplaneViewsById: {
         ...state.session.workplaneViewsById,
-        [workplaneId]: cloneWorkplaneView(activeView),
+        [workplaneId]: {
+          camera: cloneWorkplaneView(activeView).camera,
+          selectedLabelKey: null,
+        },
       },
     },
   };

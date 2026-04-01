@@ -7,8 +7,6 @@ export type OrbitPerformanceSample = PerfSnapshot & {
 
 export type PlaneFocusPanPerformanceSample = PerfSnapshot & {
   durationMs: number;
-  historyHeadStepDelta: number;
-  historyTrackingEnabled: boolean;
   idleAfterStepMs: number;
   name: string;
   stepCount: number;
@@ -121,8 +119,6 @@ export function formatOrbitPerformanceSummary(sample: OrbitPerformanceSample): s
 
 export function createPlaneFocusPanPerformanceSample(input: {
   durationMs: number;
-  historyHeadStepDelta: number;
-  historyTrackingEnabled: boolean;
   idleAfterStepMs: number;
   name: string;
   snapshot: PerfSnapshot;
@@ -131,8 +127,6 @@ export function createPlaneFocusPanPerformanceSample(input: {
   return {
     ...input.snapshot,
     durationMs: input.durationMs,
-    historyHeadStepDelta: input.historyHeadStepDelta,
-    historyTrackingEnabled: input.historyTrackingEnabled,
     idleAfterStepMs: input.idleAfterStepMs,
     name: input.name,
     stepCount: input.stepDurationsMs.length,
@@ -149,8 +143,6 @@ export function formatPlaneFocusPanPerformanceSummary(
     `stage=${sample.stageMode}`,
     `planes=${sample.planeCount}`,
     `duration=${Math.round(sample.durationMs)}ms`,
-    `historyTracking=${sample.historyTrackingEnabled ? 'on' : 'off'}`,
-    `historySteps=${sample.historyHeadStepDelta}`,
     `idleAfterStep=${Math.round(sample.idleAfterStepMs)}ms`,
     `stepLatency=${sample.stepLatencyAvgMs.toFixed(1)}ms`,
     `stepLatencyMax=${sample.stepLatencyMaxMs.toFixed(1)}ms`,
@@ -246,33 +238,6 @@ function formatReportLines(
         planeFocusPanSamples.map((sample) => sample.cpuFrameAvgMs),
       )}`,
     );
-
-    const historyOnSample =
-      planeFocusPanSamples.find((sample) => sample.historyTrackingEnabled) ?? null;
-    const historyOffSample =
-      planeFocusPanSamples.find((sample) => !sample.historyTrackingEnabled) ?? null;
-
-    if (historyOnSample && historyOffSample) {
-      lines.push(
-        [
-          '[perf.pan.compare]',
-          `fps on=${formatFps(historyOnSample.frameGapAvgMs, historyOnSample.frameGapSamples)}`,
-          `off=${formatFps(historyOffSample.frameGapAvgMs, historyOffSample.frameGapSamples)}`,
-          `worstGap on=${formatOptionalMs(historyOnSample.frameGapMaxMs, historyOnSample.frameGapSamples > 0)}`,
-          `off=${formatOptionalMs(historyOffSample.frameGapMaxMs, historyOffSample.frameGapSamples > 0)}`,
-          `cpuFrame on=${historyOnSample.cpuFrameAvgMs.toFixed(3)}ms`,
-          `off=${historyOffSample.cpuFrameAvgMs.toFixed(3)}ms`,
-          `cpuFrameMax on=${historyOnSample.cpuFrameMaxMs.toFixed(3)}ms`,
-          `off=${historyOffSample.cpuFrameMaxMs.toFixed(3)}ms`,
-          `stepLatency on=${historyOnSample.stepLatencyAvgMs.toFixed(1)}ms`,
-          `off=${historyOffSample.stepLatencyAvgMs.toFixed(1)}ms`,
-          `stepLatencyMax on=${historyOnSample.stepLatencyMaxMs.toFixed(1)}ms`,
-          `off=${historyOffSample.stepLatencyMaxMs.toFixed(1)}ms`,
-          `historySteps on=${historyOnSample.historyHeadStepDelta}`,
-          `off=${historyOffSample.historyHeadStepDelta}`,
-        ].join(' '),
-      );
-    }
   }
 
   return lines;

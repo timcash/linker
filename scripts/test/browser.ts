@@ -1,8 +1,7 @@
 import assert from 'node:assert/strict';
 
 import type {Page} from 'puppeteer';
-import type {StageMode, WorkplaneId} from '../../src/plane-stack';
-import type {PersistedStageSessionRecord} from '../../src/stage-session-store';
+import type {StageSystemState} from '../../src/plane-stack';
 
 import {
   BROWSER_UPDATE_FRAME_COUNT,
@@ -15,7 +14,6 @@ import {
   type CameraQueryState,
   type CameraState,
   type CanvasPixelSignature,
-  type HistoryState,
   type LineState,
   type LineStrategy,
   type NonReadyResult,
@@ -133,19 +131,8 @@ export async function getCameraState(page: Page): Promise<CameraState> {
 export async function getCameraQueryState(page: Page): Promise<CameraQueryState> {
   return page.evaluate(() => {
     const url = new URL(window.location.href);
-    const labelValue = url.searchParams.get('cameraLabel');
-    const centerXValue = url.searchParams.get('cameraCenterX');
-    const centerYValue = url.searchParams.get('cameraCenterY');
-    const zoomValue = url.searchParams.get('cameraZoom');
-    const centerX = centerXValue === null ? null : Number(centerXValue);
-    const centerY = centerYValue === null ? null : Number(centerYValue);
-    const zoom = zoomValue === null ? null : Number(zoomValue);
-
     return {
-      label: labelValue,
-      centerX: Number.isFinite(centerX) ? centerX : null,
-      centerY: Number.isFinite(centerY) ? centerY : null,
-      zoom: Number.isFinite(zoom) ? zoom : null,
+      label: url.searchParams.get('cameraLabel'),
     };
   });
 }
@@ -181,15 +168,7 @@ export async function getStageState(page: Page): Promise<StageState> {
 export async function getStageRouteState(page: Page): Promise<StageRouteState> {
   return page.evaluate(() => {
     const url = new URL(window.location.href);
-    const queryHistoryValue = url.searchParams.get('history');
-    const queryHistoryStep = queryHistoryValue === null ? null : Number(queryHistoryValue);
-
     return {
-      historyStep:
-        Number.isInteger(queryHistoryStep) && queryHistoryStep !== null
-          ? queryHistoryStep
-          : null,
-      sessionToken: url.searchParams.get('session'),
       stageMode: url.searchParams.get('stageMode'),
       workplaneId: url.searchParams.get('workplane'),
     };
@@ -207,16 +186,6 @@ export async function getLineState(page: Page): Promise<LineState> {
     lineVisibleLinkCount: Number(document.body.dataset.lineVisibleLinkCount ?? '0'),
     strategyPanelMode: document.body.dataset.strategyPanelMode ?? '',
     submittedVertexCount: Number(document.body.dataset.lineSubmittedVertexCount ?? '0'),
-  }));
-}
-
-export async function getHistoryState(page: Page): Promise<HistoryState> {
-  return page.evaluate(() => ({
-    canGoBack: document.body.dataset.historyCanGoBack === 'true',
-    canGoForward: document.body.dataset.historyCanGoForward === 'true',
-    cursorStep: Number(document.body.dataset.historyCursorStep ?? '0'),
-    headStep: Number(document.body.dataset.historyHeadStep ?? '0'),
-    trackingEnabled: document.body.dataset.historyTrackingEnabled !== 'false',
   }));
 }
 
@@ -394,147 +363,35 @@ export async function waitForBenchmarkResult(
   return getBenchmarkState(page);
 }
 
-export async function seedPersistedStageSessionRecord(
-  page: Page,
-  record: PersistedStageSessionRecord,
-): Promise<void> {
-  await page.evaluate(async (snapshot) => {
-    const database = await new Promise<IDBDatabase>((resolve, reject) => {
-      const request = indexedDB.open('linker-stage', 3);
-
-      request.addEventListener('upgradeneeded', () => {
-        const nextDatabase = request.result;
-
-        if (!nextDatabase.objectStoreNames.contains('stage-sessions')) {
-          nextDatabase.createObjectStore('stage-sessions', {keyPath: 'sessionToken'});
-        }
-
-        let historyStore: IDBObjectStore;
-
-        if (!nextDatabase.objectStoreNames.contains('stage-history-entries')) {
-          historyStore = nextDatabase.createObjectStore('stage-history-entries', {
-            keyPath: ['sessionToken', 'step'],
-          });
-        } else {
-          historyStore = request.transaction!.objectStore('stage-history-entries');
-        }
-
-        if (!historyStore.indexNames.contains('by-session-token')) {
-          historyStore.createIndex('by-session-token', 'sessionToken', {unique: false});
-        }
-      });
-      request.addEventListener('success', () => resolve(request.result));
-      request.addEventListener('error', () => {
-        reject(request.error ?? new Error('Failed to open the stage session database.'));
-      });
-    });
-
-    try {
-      await new Promise<void>((resolve, reject) => {
-        const transaction = database.transaction(
-          ['stage-sessions', 'stage-history-entries'],
-          'readwrite',
-        );
-        const sessionStore = transaction.objectStore('stage-sessions');
-        const historyStore = transaction.objectStore('stage-history-entries');
-
-        historyStore.delete(
-          IDBKeyRange.bound(
-            [snapshot.sessionToken, 0],
-            [snapshot.sessionToken, Number.MAX_SAFE_INTEGER],
-          ),
-        );
-
-        if (snapshot.version === 1) {
-          sessionStore.put(snapshot);
-        } else {
-          sessionStore.put({
-            version: 3,
-            sessionToken: snapshot.sessionToken,
-            savedAt: snapshot.savedAt,
-            config: snapshot.config,
-            historyCursorStep: snapshot.history.cursorStep,
-            historyHeadStep: snapshot.history.headStep,
-            ui: snapshot.ui,
-          });
-
-          snapshot.history.entries.forEach((entry, step) => {
-            historyStore.put({
-              entry,
-              sessionToken: snapshot.sessionToken,
-              step,
-            });
-          });
-        }
-
-        transaction.addEventListener('complete', () => resolve());
-        transaction.addEventListener('error', () => {
-          reject(transaction.error ?? new Error('Failed to seed the stage session snapshot.'));
-        });
-        transaction.addEventListener('abort', () => {
-          reject(transaction.error ?? new Error('Stage session seeding was aborted.'));
-        });
-      });
-
-      window.localStorage.setItem('linker:last-session-token', snapshot.sessionToken);
-    } finally {
-      database.close();
-    }
-  }, record);
-}
-
-export async function openPersistedSessionRoute(
-  page: Page,
-  baseUrl: string,
-  record: PersistedStageSessionRecord,
-  options?: {
-    historyTrackingEnabled?: boolean;
-    historyStep?: number | null;
-    stageMode?: StageMode | null;
-    workplaneId?: WorkplaneId | null;
-  },
-): Promise<void> {
-  await seedPersistedStageSessionRecord(page, record);
-
-  const url = new URL(baseUrl);
-  url.searchParams.set('session', record.sessionToken);
-
-  if (options?.historyTrackingEnabled) {
-    url.searchParams.set('historyTracking', '1');
-  } else {
-    url.searchParams.delete('historyTracking');
-  }
-
-  if (options && 'historyStep' in options) {
-    if (options.historyStep === null) {
-      url.searchParams.delete('history');
-    } else {
-      url.searchParams.set('history', String(options.historyStep));
-    }
-  }
-
-  if (options && 'stageMode' in options) {
-    if (options.stageMode === null) {
-      url.searchParams.delete('stageMode');
-    } else {
-      url.searchParams.set('stageMode', options.stageMode);
-    }
-  }
-
-  if (options && 'workplaneId' in options) {
-    if (options.workplaneId === null) {
-      url.searchParams.delete('workplane');
-    } else {
-      url.searchParams.set('workplane', options.workplaneId);
-    }
-  }
-
-  await openRoute(page, url.toString());
-}
-
 export async function openRoute(page: Page, url: string): Promise<void> {
   await page.goto(url, {waitUntil: 'load'});
   await waitForAppDatasets(page);
+}
+
+export async function openRouteWithBootState(
+  page: Page,
+  url: string,
+  bootState: {
+    initialState: StageSystemState;
+    strategyPanelMode?: StrategyPanelMode;
+  },
+): Promise<void> {
+  const script = await page.evaluateOnNewDocument((nextBootState) => {
+    (window as Window & {
+      __LINKER_TEST_BOOT_STATE__?: {
+        initialState: StageSystemState;
+        strategyPanelMode?: StrategyPanelMode;
+      };
+    }).__LINKER_TEST_BOOT_STATE__ = nextBootState;
+  }, bootState);
+
+  try {
+    await openRoute(page, url);
+  } finally {
+    await page.removeScriptToEvaluateOnNewDocument(
+      (script as {identifier: string}).identifier,
+    );
+  }
 }
 
 export async function clickButton(
@@ -611,114 +468,6 @@ export async function waitForStageWorkplane(
     {
       expectedPlaneCount: expected.planeCount ?? null,
       expectedWorkplaneId: expected.activeWorkplaneId,
-    },
-  );
-  await waitForBrowserUpdate(page);
-}
-
-export async function waitForPersistedStageSession(
-  page: Page,
-  sessionToken: string,
-): Promise<void> {
-  await page.waitForFunction(
-    async (expectedSessionToken) => {
-      if (typeof indexedDB === 'undefined') {
-        return true;
-      }
-
-      const database = await new Promise<IDBDatabase>((resolve, reject) => {
-        const request = indexedDB.open('linker-stage');
-
-        request.addEventListener('success', () => resolve(request.result));
-        request.addEventListener('error', () => {
-          reject(request.error ?? new Error('Failed to open stage-session database.'));
-        });
-      });
-
-      try {
-        if (!database.objectStoreNames.contains('stage-sessions')) {
-          return false;
-        }
-
-        const snapshot = await new Promise<unknown>((resolve, reject) => {
-          const transaction = database.transaction('stage-sessions', 'readonly');
-          const store = transaction.objectStore('stage-sessions');
-          const request = store.get(expectedSessionToken);
-
-          request.addEventListener('success', () => resolve(request.result ?? null));
-          request.addEventListener('error', () => {
-            reject(request.error ?? new Error('Failed to read stage-session snapshot.'));
-          });
-        });
-
-        return Boolean(snapshot);
-      } finally {
-        database.close();
-      }
-    },
-    {timeout: 10_000},
-    sessionToken,
-  );
-  await waitForBrowserUpdate(page);
-}
-
-export async function waitForPersistedStageHistoryHead(
-  page: Page,
-  sessionToken: string,
-  expectedHeadStep: number,
-): Promise<void> {
-  await page.waitForFunction(
-    async ({expectedHead, expectedSessionToken}) => {
-      if (typeof indexedDB === 'undefined') {
-        return true;
-      }
-
-      const database = await new Promise<IDBDatabase>((resolve, reject) => {
-        const request = indexedDB.open('linker-stage');
-
-        request.addEventListener('success', () => resolve(request.result));
-        request.addEventListener('error', () => {
-          reject(request.error ?? new Error('Failed to open stage-session database.'));
-        });
-      });
-
-      try {
-        if (!database.objectStoreNames.contains('stage-sessions')) {
-          return false;
-        }
-
-        const metadata = await new Promise<unknown>((resolve, reject) => {
-          const transaction = database.transaction('stage-sessions', 'readonly');
-          const store = transaction.objectStore('stage-sessions');
-          const request = store.get(expectedSessionToken);
-
-          request.addEventListener('success', () => resolve(request.result ?? null));
-          request.addEventListener('error', () => {
-            reject(request.error ?? new Error('Failed to read stage-session metadata.'));
-          });
-        });
-
-        if (
-          !metadata ||
-          typeof metadata !== 'object' ||
-          !('historyHeadStep' in metadata) ||
-          !('historyCursorStep' in metadata)
-        ) {
-          return false;
-        }
-
-        return (
-          (metadata as {historyCursorStep?: unknown}).historyCursorStep === expectedHead &&
-          (metadata as {historyHeadStep?: unknown}).historyHeadStep === expectedHead
-        );
-      } finally {
-        database.close();
-      }
-    },
-    {timeout: 10_000},
-    {
-      expectedHead: expectedHeadStep,
-      expectedSessionToken: sessionToken,
     },
   );
   await waitForBrowserUpdate(page);
@@ -895,20 +644,6 @@ export async function pressNavigationKey(
   await waitForBrowserUpdate(page);
 }
 
-export async function pressHistoryKey(
-  page: Page,
-  action: 'history-back' | 'history-forward',
-): Promise<void> {
-  await page.evaluate(() => {
-    if (document.activeElement instanceof HTMLElement) {
-      document.activeElement.blur();
-    }
-  });
-
-  await page.keyboard.press(action === 'history-back' ? 'Comma' : 'Period');
-  await waitForBrowserUpdate(page);
-}
-
 export async function pressPlaneStackKey(
   page: Page,
   action:
@@ -925,7 +660,7 @@ export async function pressPlaneStackKey(
 
   switch (action) {
     case 'delete-active-workplane':
-      await page.keyboard.press('Delete');
+      await page.keyboard.press('Minus');
       break;
     case 'select-next-workplane':
       await page.keyboard.press('BracketRight');
@@ -955,53 +690,6 @@ export async function pressStageModeKey(page: Page): Promise<void> {
   });
   await page.keyboard.press('Slash');
   await waitForBrowserUpdate(page);
-}
-
-export async function navigateBrowserHistory(
-  page: Page,
-  direction: 'back' | 'forward',
-  options?: {expectedHistoryStep?: number | null},
-): Promise<void> {
-  await page.evaluate((nextDirection) => {
-    if (nextDirection === 'back') {
-      window.history.back();
-      return;
-    }
-
-    window.history.forward();
-  }, direction);
-  if (options && 'expectedHistoryStep' in options) {
-    await waitForRouteHistoryStep(page, options.expectedHistoryStep ?? null);
-  }
-  await waitForBrowserUpdate(page);
-}
-
-export async function waitForRouteHistoryStep(
-  page: Page,
-  expectedHistoryStep: number | null,
-): Promise<void> {
-  await page.waitForFunction(
-    (expectedStep) => {
-      const url = new URL(window.location.href);
-      const routeState: unknown = window.history.state;
-      const stateHistoryStep =
-        routeState && typeof routeState === 'object'
-          ? (routeState as {stageHistoryStep?: unknown}).stageHistoryStep
-          : null;
-      const queryHistoryValue = url.searchParams.get('history');
-      const queryHistoryStep = queryHistoryValue === null ? null : Number(queryHistoryValue);
-      const currentHistoryStep =
-        Number.isInteger(queryHistoryStep) && queryHistoryStep !== null
-          ? queryHistoryStep
-          : Number.isInteger(stateHistoryStep) && (stateHistoryStep as number) >= 0
-          ? (stateHistoryStep as number)
-          : null;
-
-      return currentHistoryStep === expectedStep;
-    },
-    {timeout: 10_000},
-    expectedHistoryStep,
-  );
 }
 
 export async function dragStackCameraOrbit(
@@ -1171,9 +859,6 @@ export async function waitForAppDatasets(page: Page): Promise<void> {
     return Boolean(
       document.body.dataset.activeWorkplaneId &&
         document.body.dataset.planeCount &&
-        document.body.dataset.cameraCenterX &&
-        document.body.dataset.cameraCenterY &&
-        document.body.dataset.cameraZoom &&
         document.body.dataset.gridLineCount &&
         document.body.dataset.stageMode &&
         document.body.dataset.textStrategy &&

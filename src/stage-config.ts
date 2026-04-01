@@ -1,4 +1,3 @@
-import type {CameraSnapshot} from './camera';
 import {
   DEFAULT_STAGE_MODE,
   isStageMode,
@@ -20,24 +19,17 @@ import {DEFAULT_LINE_STRATEGY, LINE_STRATEGIES, type LineStrategy} from './line/
 import {DEFAULT_TEXT_STRATEGY, type TextStrategy} from './text/types';
 
 export type LabelSetKind = 'demo' | 'benchmark';
-export type RouteUpdateMode = 'push' | 'replace';
-
-export type CameraView = Pick<CameraSnapshot, 'centerX' | 'centerY' | 'zoom'>;
 
 export type StageConfig = {
   benchmarkTraceStepCount: number;
   benchmarkEnabled: boolean;
   demoLayerCount: number;
   gpuTimingEnabled: boolean;
-  historyTrackingEnabled: boolean;
-  initialCamera: CameraView;
   initialCameraLabel: string | null;
   labelSetKind: LabelSetKind;
   layoutStrategy: LayoutStrategy;
   labelTargetCount: number;
   lineStrategy: LineStrategy;
-  requestedHistoryStep: number | null;
-  requestedSessionToken: string | null;
   requestedStageMode: StageMode | null;
   requestedWorkplaneId: WorkplaneId | null;
   stageMode: StageMode;
@@ -46,10 +38,13 @@ export type StageConfig = {
 
 const DEFAULT_BENCHMARK_TRACE_STEP_COUNT = 8;
 const MANAGED_STAGE_ROUTE_PARAM_KEYS = [
+  'demoLayers',
   'cameraCenterX',
   'cameraCenterY',
   'cameraLabel',
   'cameraZoom',
+  'labelCount',
+  'labelSet',
   'layoutStrategy',
   'lineStrategy',
   'stageMode',
@@ -84,19 +79,11 @@ export function readStageConfig(search: string): StageConfig {
     benchmarkEnabled: params.get('benchmark') === '1',
     demoLayerCount,
     gpuTimingEnabled: params.get('gpuTiming') !== '0',
-    historyTrackingEnabled: params.get('historyTracking') !== '0',
-    initialCamera: {
-      centerX: parseFiniteNumber(params.get('cameraCenterX'), 0),
-      centerY: parseFiniteNumber(params.get('cameraCenterY'), 0),
-      zoom: parseFiniteNumber(params.get('cameraZoom'), 0),
-    },
     initialCameraLabel: params.get('cameraLabel'),
     labelSetKind,
     layoutStrategy,
     labelTargetCount,
     lineStrategy,
-    requestedHistoryStep: parseNonNegativeInteger(params.get('history')),
-    requestedSessionToken: parseSessionToken(params.get('session')),
     requestedStageMode,
     requestedWorkplaneId: parseWorkplaneId(params.get('workplane')),
     stageMode: requestedStageMode ?? DEFAULT_STAGE_MODE,
@@ -104,101 +91,41 @@ export function readStageConfig(search: string): StageConfig {
   };
 }
 
-export function syncStageTextStrategyQueryParam(textStrategy: TextStrategy): void {
-  void textStrategy;
+export function syncStageRouteQueryParams(input: {
+  cameraLabel: string | null;
+  demoLayerCount: number;
+  labelSetKind: LabelSetKind;
+  labelTargetCount: number;
+  stageMode: StageMode;
+  workplaneId: WorkplaneId;
+}): void {
   updateRouteSearchParams((searchParams) => {
-    searchParams.delete('textStrategy');
-  }, 'replace');
-}
+    searchParams.set('labelSet', input.labelSetKind);
 
-export function syncStageLineStrategyQueryParam(lineStrategy: LineStrategy): void {
-  updateRouteSearchParams((searchParams) => {
-    if (lineStrategy === DEFAULT_LINE_STRATEGY) {
-      searchParams.delete('lineStrategy');
+    if (input.labelSetKind === 'benchmark') {
+      searchParams.delete('demoLayers');
+      searchParams.set('labelCount', String(input.labelTargetCount));
     } else {
-      searchParams.set('lineStrategy', lineStrategy);
+      searchParams.set('demoLayers', String(input.demoLayerCount));
+      searchParams.delete('labelCount');
     }
-  }, 'replace');
-}
 
-export function syncStageLayoutStrategyQueryParam(layoutStrategy: LayoutStrategy): void {
-  updateRouteSearchParams((searchParams) => {
-    if (layoutStrategy === DEFAULT_LAYOUT_STRATEGY) {
-      searchParams.delete('layoutStrategy');
-    } else {
-      searchParams.set('layoutStrategy', layoutStrategy);
-    }
-  }, 'replace');
-}
+    searchParams.set('stageMode', input.stageMode);
+    searchParams.set('workplane', input.workplaneId);
 
-export function syncStageModeQueryParam(stageMode: StageMode): void {
-  updateRouteSearchParams((searchParams) => {
-    if (stageMode === DEFAULT_STAGE_MODE) {
-      searchParams.delete('stageMode');
-    } else {
-      searchParams.set('stageMode', stageMode);
-    }
-  }, 'replace');
-}
-
-export function syncStageSessionQueryParam(sessionToken: string | null): void {
-  updateRouteSearchParams((searchParams) => {
-    if (!sessionToken) {
-      searchParams.delete('session');
+    if (input.cameraLabel) {
+      searchParams.delete('cameraCenterX');
+      searchParams.delete('cameraCenterY');
+      searchParams.delete('cameraZoom');
+      searchParams.set('cameraLabel', input.cameraLabel);
       return;
     }
 
-    searchParams.set('session', sessionToken);
-  }, 'replace');
-}
-
-export function syncStageWorkplaneQueryParam(activeWorkplaneId: WorkplaneId): void {
-  updateRouteSearchParams((searchParams) => {
-    if (activeWorkplaneId === 'wp-1') {
-      searchParams.delete('workplane');
-    } else {
-      searchParams.set('workplane', activeWorkplaneId);
-    }
-  }, 'replace');
-}
-
-export function syncStageNumericCameraQueryParams(camera: CameraView): void {
-  updateRouteSearchParams((searchParams) => {
     searchParams.delete('cameraLabel');
-    syncCameraNumberQueryParam(searchParams, 'cameraCenterX', camera.centerX);
-    syncCameraNumberQueryParam(searchParams, 'cameraCenterY', camera.centerY);
-    syncCameraNumberQueryParam(searchParams, 'cameraZoom', camera.zoom);
-  }, 'replace');
-}
-
-export function syncStageDemoCameraQueryParams(labelKey: string, defaultLabelKey: string): void {
-  updateRouteSearchParams((searchParams) => {
     searchParams.delete('cameraCenterX');
     searchParams.delete('cameraCenterY');
     searchParams.delete('cameraZoom');
-
-    if (labelKey === defaultLabelKey) {
-      searchParams.delete('cameraLabel');
-    } else {
-      searchParams.set('cameraLabel', labelKey);
-    }
-  }, 'replace');
-}
-
-export function syncStageHistoryQueryParam(
-  historyStep: number | null,
-): void {
-  updateRouteSearchParams((searchParams) => {
-    if (historyStep === null) {
-      searchParams.delete('history');
-    } else {
-      searchParams.set('history', String(Math.max(0, Math.trunc(historyStep))));
-    }
   });
-}
-
-export function readStageHistoryRouteState(): number | null {
-  return parseNonNegativeInteger(new URL(window.location.href).searchParams.get('history'));
 }
 
 function parseTextStrategy(value: string | null): TextStrategy {
@@ -220,25 +147,6 @@ function parseRequestedStageMode(value: string | null): StageMode | null {
 
 function parseWorkplaneId(value: string | null): WorkplaneId | null {
   return isWorkplaneId(value) ? value : null;
-}
-
-function parseSessionToken(value: string | null): string | null {
-  if (!value) {
-    return null;
-  }
-
-  const sessionToken = value.trim();
-  return sessionToken.length > 0 ? sessionToken : null;
-}
-
-function parseNonNegativeInteger(input: string | null): number | null {
-  const parsed = input ? Number.parseInt(input, 10) : Number.NaN;
-
-  if (!Number.isFinite(parsed) || parsed < 0) {
-    return null;
-  }
-
-  return parsed;
 }
 
 function parseBoundedInteger(
@@ -283,32 +191,4 @@ function stripManagedStageRouteParams(searchParams: URLSearchParams): void {
   for (const key of MANAGED_STAGE_ROUTE_PARAM_KEYS) {
     searchParams.delete(key);
   }
-}
-
-function syncCameraNumberQueryParam(
-  searchParams: URLSearchParams,
-  key: 'cameraCenterX' | 'cameraCenterY' | 'cameraZoom',
-  value: number,
-): void {
-  const normalizedValue = normalizeCameraQueryNumber(value);
-
-  if (normalizedValue === null) {
-    searchParams.delete(key);
-    return;
-  }
-
-  searchParams.set(key, normalizedValue);
-}
-
-function normalizeCameraQueryNumber(value: number): string | null {
-  if (Math.abs(value) < 0.00005) {
-    return null;
-  }
-
-  return value.toFixed(4).replace(/\.?0+$/u, '');
-}
-
-function parseFiniteNumber(input: string | null, fallback: number): number {
-  const parsed = input ? Number(input) : Number.NaN;
-  return Number.isFinite(parsed) ? parsed : fallback;
 }

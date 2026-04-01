@@ -5,7 +5,6 @@ import {
   FIRST_ROOT_LABEL,
   TEXT_STRATEGIES,
   type BenchmarkState,
-  type CameraQueryState,
   type CameraState,
   type LargeScaleSweepState,
   type StrategyComparisonOperator,
@@ -324,33 +323,5 @@ export function assertCameraStateClose(
       centerYTolerance <= 0.0001 &&
       zoomTolerance <= 0.0001,
     `${message} actual=(${actual.centerX.toFixed(4)}, ${actual.centerY.toFixed(4)}, ${actual.zoom.toFixed(4)}) expected=(${expected.centerX.toFixed(4)}, ${expected.centerY.toFixed(4)}, ${expected.zoom.toFixed(4)})`,
-  );
-}
-
-export function assertCameraQueryClose(
-  actual: CameraQueryState,
-  expected: CameraQueryState,
-  message: string,
-): void {
-  assert.equal(actual.label, expected.label, `${message} label`);
-  assertCameraQueryValueClose(actual.centerX, expected.centerX, `${message} centerX`);
-  assertCameraQueryValueClose(actual.centerY, expected.centerY, `${message} centerY`);
-  assertCameraQueryValueClose(actual.zoom, expected.zoom, `${message} zoom`);
-}
-
-function assertCameraQueryValueClose(
-  actual: number | null,
-  expected: number | null,
-  message: string,
-): void {
-  if (expected === null) {
-    assert.equal(actual, null, message);
-    return;
-  }
-
-  assert.notEqual(actual, null, message);
-  assert.ok(
-    Math.abs((actual ?? 0) - expected) <= 0.0001,
-    `${message} actual=${actual ?? 'null'} expected=${expected.toFixed(4)}`,
   );
 }

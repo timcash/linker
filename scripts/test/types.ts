@@ -69,9 +69,6 @@ export type CameraState = {
 
 export type CameraQueryState = {
   label: string | null;
-  centerX: number | null;
-  centerY: number | null;
-  zoom: number | null;
 };
 
 export type StageState = {
@@ -82,18 +79,8 @@ export type StageState = {
 };
 
 export type StageRouteState = {
-  historyStep: number | null;
-  sessionToken: string | null;
   stageMode: string | null;
   workplaneId: string | null;
-};
-
-export type HistoryState = {
-  canGoBack: boolean;
-  canGoForward: boolean;
-  cursorStep: number;
-  headStep: number;
-  trackingEnabled: boolean;
 };
 
 export type StrategyPanelMode = 'text' | 'line' | 'layout' | 'label-edit';

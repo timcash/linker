@@ -4,20 +4,16 @@ import {
   clickControl,
   flushPerformanceTelemetry,
   getCameraState,
-  getHistoryState,
   getPerformanceSnapshot,
   getTextState,
   openRoute,
   resetPerformanceTelemetry,
-  seedPersistedStageSessionRecord,
   waitForCameraLabel,
   type BrowserTestContext,
 } from './shared';
-import {createPreparedHighZoomPlaneFocusSessionRecord} from './fixtures';
 import {
   createPlaneFocusPanPerformanceSample,
   formatPlaneFocusPanPerformanceSummary,
-  type PlaneFocusPanPerformanceSample,
   type TestPerformanceCollector,
 } from './performance';
 
@@ -43,72 +39,35 @@ export async function runPlaneFocusHighZoomPerformanceFlow(
   context: BrowserTestContext,
   collector: TestPerformanceCollector,
 ): Promise<void> {
-  const historyOnSample = await runPlaneFocusHighZoomScenario(context, {
-    historyTrackingEnabled: true,
-    name: 'plane-focus-high-zoom.history-on',
-    sessionToken: 'stk-plane-focus-high-zoom-history-on',
-  });
-  const historyOffSample = await runPlaneFocusHighZoomScenario(context, {
-    historyTrackingEnabled: false,
-    name: 'plane-focus-high-zoom.history-off',
-    sessionToken: 'stk-plane-focus-high-zoom-history-off',
+  const sample = await runPlaneFocusHighZoomScenario(context, {
+    name: 'plane-focus-high-zoom',
   });
 
   assert.equal(
-    historyOnSample.stageMode,
+    sample.stageMode,
     '2d-mode',
-    'High-zoom plane-focus perf should record in 2d mode when history tracking is on.',
+    'High-zoom plane-focus perf should record in 2d mode.',
   );
   assert.equal(
-    historyOffSample.stageMode,
-    '2d-mode',
-    'High-zoom plane-focus perf should record in 2d mode when history tracking is off.',
-  );
-  assert.equal(
-    historyOnSample.planeCount,
+    sample.planeCount,
     1,
-    'High-zoom plane-focus perf should stay on a single workplane when history tracking is on.',
-  );
-  assert.equal(
-    historyOffSample.planeCount,
-    1,
-    'High-zoom plane-focus perf should stay on a single workplane when history tracking is off.',
+    'High-zoom plane-focus perf should stay on a single workplane.',
   );
   assert.ok(
-    historyOnSample.frameGapSamples > 0,
-    'High-zoom plane-focus perf should capture frame-gap samples when history tracking is on.',
-  );
-  assert.ok(
-    historyOffSample.frameGapSamples > 0,
-    'High-zoom plane-focus perf should capture frame-gap samples when history tracking is off.',
-  );
-  assert.ok(
-    historyOnSample.historyHeadStepDelta > 0,
-    'High-zoom plane-focus perf should advance history steps when history tracking is on.',
-  );
-  assert.equal(
-    historyOffSample.historyHeadStepDelta,
-    0,
-    'High-zoom plane-focus perf should not advance history steps when history tracking is off.',
+    sample.frameGapSamples > 0,
+    'High-zoom plane-focus perf should capture frame-gap samples.',
   );
 
-  collector.recordPlaneFocusPan(historyOnSample);
-  collector.recordPlaneFocusPan(historyOffSample);
-  context.addBrowserLog('perf.sample', formatPlaneFocusPanPerformanceSummary(historyOnSample));
-  context.addBrowserLog('perf.sample', formatPlaneFocusPanPerformanceSummary(historyOffSample));
+  collector.recordPlaneFocusPan(sample);
+  context.addBrowserLog('perf.sample', formatPlaneFocusPanPerformanceSummary(sample));
 }
 
 async function runPlaneFocusHighZoomScenario(
   context: BrowserTestContext,
   options: {
-    historyTrackingEnabled: boolean;
     name: string;
-    sessionToken: string;
   },
-): Promise<PlaneFocusPanPerformanceSample> {
-  const seededSession = createPreparedHighZoomPlaneFocusSessionRecord(options.sessionToken);
-
-  await seedPersistedStageSessionRecord(context.page, seededSession);
+){
   await openRoute(context.page, buildScenarioUrl(context.url, options).toString());
   await waitForCameraLabel(context.page, PLANE_FOCUS_HIGH_ZOOM_START_LABEL);
 
@@ -126,7 +85,6 @@ async function runPlaneFocusHighZoomScenario(
   );
 
   await resetPerformanceTelemetry(context.page);
-  const beforeHistory = await getHistoryState(context.page);
   const startedAt = Date.now();
   const stepDurationsMs: number[] = [];
 
@@ -145,7 +103,6 @@ async function runPlaneFocusHighZoomScenario(
   await flushPerformanceTelemetry(context.page);
 
   const durationMs = Date.now() - startedAt;
-  const afterHistory = await getHistoryState(context.page);
   const afterPerformance = await getPerformanceSnapshot(context.page);
   const finalCamera = await getCameraState(context.page);
 
@@ -157,8 +114,6 @@ async function runPlaneFocusHighZoomScenario(
 
   return createPlaneFocusPanPerformanceSample({
     durationMs,
-    historyHeadStepDelta: Math.max(0, afterHistory.headStep - beforeHistory.headStep),
-    historyTrackingEnabled: options.historyTrackingEnabled,
     idleAfterStepMs: PLANE_FOCUS_HIGH_ZOOM_IDLE_AFTER_STEP_MS,
     name: options.name,
     snapshot: afterPerformance,
@@ -169,20 +124,13 @@ async function runPlaneFocusHighZoomScenario(
 function buildScenarioUrl(
   baseUrl: string,
   options: {
-    historyTrackingEnabled: boolean;
-    sessionToken: string;
+    name: string;
   },
 ): URL {
   const url = new URL(baseUrl);
 
-  url.searchParams.set('session', options.sessionToken);
   url.searchParams.set('cameraLabel', PLANE_FOCUS_HIGH_ZOOM_START_LABEL);
-
-  if (options.historyTrackingEnabled) {
-    url.searchParams.set('historyTracking', '1');
-  } else {
-    url.searchParams.set('historyTracking', '0');
-  }
+  void options;
 
   return url;
 }
