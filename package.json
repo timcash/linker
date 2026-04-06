@@ -6,6 +6,7 @@
   "scripts": {
     "dev": "vite",
     "build": "tsc && vite build",
+    "build:pages": "tsx scripts/build-pages.ts",
     "lint": "eslint .",
     "perf:orbit-stutter": "tsx scripts/perf/orbit-stutter.ts",
     "perf:trace": "tsx scripts/perf/trace.ts",

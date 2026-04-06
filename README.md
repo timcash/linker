@@ -8,15 +8,35 @@ observe the same stage.
 
 ## 0. Screenshot and Links
 
-![Linker hero screenshot](./browser.png)
+<!-- README_SHOWCASE:START -->
 
+<table>
+  <tr>
+    <td align="center"><a href="https://timcash.github.io/linker/"><img src="./readme/screenshots/boot-ready.png" alt="Linker boot-ready mobile view" width="220" /></a><br/><sub>Boot</sub></td>
+    <td align="center"><a href="https://timcash.github.io/linker/?cameraLabel=wp-1%3A2%3A1%3A1&demoLayers=12&demoPreset=classic&labelSet=demo&stageMode=2d-mode&workplane=wp-1"><img src="./readme/screenshots/focus-zoom.png" alt="Linker classic grid zoom interaction" width="220" /></a><br/><sub>Zoom</sub></td>
+    <td align="center"><a href="https://timcash.github.io/linker/?cameraLabel=wp-3%3A1%3A6%3A6&demoPreset=editor-lab&labelSet=demo&stageMode=2d-mode&workplane=wp-3"><img src="./readme/screenshots/editor-link.png" alt="Linker editor ranked selection and link flow" width="220" /></a><br/><sub>Link</sub></td>
+  </tr>
+  <tr>
+    <td align="center"><a href="https://timcash.github.io/linker/?cameraLabel=wp-3%3A1%3A6%3A6&demoPreset=editor-lab&labelSet=demo&stageMode=2d-mode&workplane=wp-3"><img src="./readme/screenshots/workplane-spawn.png" alt="Linker workplane lifecycle controls" width="220" /></a><br/><sub>Spawn</sub></td>
+    <td align="center"><a href="https://timcash.github.io/linker/?cameraLabel=wp-3%3A1%3A6%3A6&demoPreset=workplane-showcase&labelSet=demo&stageMode=3d-mode&workplane=wp-3"><img src="./readme/screenshots/stack-view.png" alt="Linker five-workplane stack view" width="220" /></a><br/><sub>Stack</sub></td>
+    <td align="center"><a href="https://timcash.github.io/linker/?cameraLabel=wp-3%3A1%3A6%3A6&demoPreset=workplane-showcase&labelSet=demo&stageMode=3d-mode&workplane=wp-3"><img src="./readme/screenshots/stack-orbit.png" alt="Linker stack orbit interaction" width="220" /></a><br/><sub>Orbit</sub></td>
+  </tr>
+</table>
+
+- Live root: [timcash.github.io/linker](https://timcash.github.io/linker/)
+- Live classic 12x12x12: [Classic grid](https://timcash.github.io/linker/?cameraLabel=wp-1%3A1%3A1%3A1&demoLayers=12&demoPreset=classic&labelSet=demo&stageMode=2d-mode&workplane=wp-1)
+- Live editor lab: [Editor lab](https://timcash.github.io/linker/?cameraLabel=wp-3%3A1%3A6%3A6&demoPreset=editor-lab&labelSet=demo&stageMode=2d-mode&workplane=wp-3)
+- Live stack view: [Five-workplane showcase](https://timcash.github.io/linker/?cameraLabel=wp-3%3A1%3A6%3A6&demoPreset=workplane-showcase&labelSet=demo&stageMode=3d-mode&workplane=wp-3)
 - GitHub repository: [github.com/timcash/linker](https://github.com/timcash/linker)
-- GitHub Pages target URL: [timcash.github.io/linker](https://timcash.github.io/linker/)
+
+The browser test suite refreshes this gallery from the mobile interaction screenshots and keeps the links pointed at the live GitHub Pages routes.
+<!-- README_SHOWCASE:END -->
+
+
 - GitHub Pages owner site: [timcash.github.io](https://timcash.github.io/)
 - Local dev URL: `http://127.0.0.1:5173/`
 
-The repo-scoped GitHub Pages URL currently returns `404`, so this README links the intended public
-URL directly and keeps the hero screenshot local until Pages is enabled for the repository.
+GitHub Pages deploys from the `main` branch through the repo workflow in `.github/workflows/deploy-pages.yml`.
 
 ## 1. Command Line Interface
 
@@ -29,6 +49,7 @@ npm install --legacy-peer-deps
 npm run dev -- --host 127.0.0.1
 npm run lint
 npm run build
+npm run build:pages
 npm run preview -- --host 127.0.0.1
 npm run test:browser
 npm test
@@ -48,6 +69,7 @@ What they do:
 - `npm run dev -- --host 127.0.0.1`: starts the local Vite dev server.
 - `npm run lint`: runs the ESLint configuration over the repo.
 - `npm run build`: runs TypeScript and the production build.
+- `npm run build:pages`: builds the GitHub Pages bundle with `/linker/` as the public base path.
 - `npm run preview -- --host 127.0.0.1`: serves the production bundle locally.
 - `npm run test:browser`: runs the headed browser harness only.
 - `npm test`: runs `eslint` and then the browser suite.

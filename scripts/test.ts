@@ -11,6 +11,7 @@ import {runBootFlow} from './test/boot';
 import {runEditorInteractionsFlow} from './test/editor-interactions';
 import {runPlaneFocusControlsFlow} from './test/plane-focus-controls';
 import {runPlaneFocusHighZoomPerformanceFlow} from './test/plane-focus-high-zoom-performance';
+import {publishReadmeShowcase} from './test/readme-showcase';
 import {runStackOrbitCoverageFlow} from './test/stack-orbit-coverage';
 import {runViewModesFlow} from './test/view-modes';
 import {runWorkplaneLifecycleFlow} from './test/workplane-lifecycle';
@@ -47,6 +48,7 @@ try {
     await runWorkplaneLifecycleFlow(context);
     await runViewModesFlow(context);
     await runStackOrbitCoverageFlow(context, performanceCollector);
+    await publishReadmeShowcase(context);
   }
 
   if (context) {
