@@ -8,6 +8,7 @@ import {
 } from './test/setup';
 import {createTestPerformanceCollector} from './test/performance';
 import {runBootFlow} from './test/boot';
+import {runEditorInteractionsFlow} from './test/editor-interactions';
 import {runPlaneFocusControlsFlow} from './test/plane-focus-controls';
 import {runPlaneFocusHighZoomPerformanceFlow} from './test/plane-focus-high-zoom-performance';
 import {runStackOrbitCoverageFlow} from './test/stack-orbit-coverage';
@@ -42,6 +43,7 @@ try {
   if (bootResult !== null) {
     await runPlaneFocusControlsFlow(context);
     await runPlaneFocusHighZoomPerformanceFlow(context, performanceCollector);
+    await runEditorInteractionsFlow(context);
     await runWorkplaneLifecycleFlow(context);
     await runViewModesFlow(context);
     await runStackOrbitCoverageFlow(context, performanceCollector);

@@ -46,23 +46,28 @@ export function cloneStackCameraState(
 export function normalizeStackCameraState(
   stackCamera: Partial<StackCameraState> | null | undefined,
 ): StackCameraState {
+  const azimuthRadians =
+    typeof stackCamera?.azimuthRadians === 'number' && Number.isFinite(stackCamera.azimuthRadians)
+      ? stackCamera.azimuthRadians
+      : DEFAULT_STACK_CAMERA_STATE.azimuthRadians;
+  const distanceScale =
+    typeof stackCamera?.distanceScale === 'number' && Number.isFinite(stackCamera.distanceScale)
+      ? stackCamera.distanceScale
+      : DEFAULT_STACK_CAMERA_STATE.distanceScale;
+  const elevationRadians =
+    typeof stackCamera?.elevationRadians === 'number' && Number.isFinite(stackCamera.elevationRadians)
+      ? stackCamera.elevationRadians
+      : DEFAULT_STACK_CAMERA_STATE.elevationRadians;
+
   return {
-    azimuthRadians: wrapRadians(
-      Number.isFinite(stackCamera?.azimuthRadians)
-        ? stackCamera.azimuthRadians
-        : DEFAULT_STACK_CAMERA_STATE.azimuthRadians,
-    ),
+    azimuthRadians: wrapRadians(azimuthRadians),
     distanceScale: clamp(
-      Number.isFinite(stackCamera?.distanceScale)
-        ? stackCamera.distanceScale
-        : DEFAULT_STACK_CAMERA_STATE.distanceScale,
+      distanceScale,
       STACK_CAMERA_DISTANCE_SCALE_MIN,
       STACK_CAMERA_DISTANCE_SCALE_MAX,
     ),
     elevationRadians: clamp(
-      Number.isFinite(stackCamera?.elevationRadians)
-        ? stackCamera.elevationRadians
-        : DEFAULT_STACK_CAMERA_STATE.elevationRadians,
+      elevationRadians,
       STACK_CAMERA_ELEVATION_MIN_RADIANS,
       STACK_CAMERA_ELEVATION_MAX_RADIANS,
     ),

@@ -1,10 +1,10 @@
-import {LAYOUT_STRATEGY_OPTIONS} from './data/labels';
-import {LINE_STRATEGY_OPTIONS} from './line/types';
-import {TEXT_STRATEGY_OPTIONS} from './text/types';
-
 export type StageChromeElements = {
   cameraPanel: HTMLElement;
+  cameraPanelHint: HTMLParagraphElement;
   canvas: HTMLCanvasElement;
+  editorGhostLayer: HTMLDivElement;
+  editorSelectionLayer: HTMLDivElement;
+  editorSelectionSummary: HTMLParagraphElement;
   labelInputField: HTMLInputElement;
   labelInputForm: HTMLFormElement;
   labelInputHint: HTMLParagraphElement;
@@ -14,7 +14,7 @@ export type StageChromeElements = {
   selectionBox: HTMLDivElement;
   stage: HTMLDivElement;
   statusPanel: HTMLElement;
-  stats: HTMLParagraphElement;
+  stats: HTMLDivElement;
   strategyModePanel: HTMLElement;
 };
 
@@ -34,38 +34,23 @@ export function createStageChrome(root: HTMLElement): StageChromeElements {
   selectionBox.setAttribute('aria-hidden', 'true');
   selectionBox.hidden = true;
 
+  const editorSelectionLayer = document.createElement('div');
+  editorSelectionLayer.className = 'editor-selection-layer';
+  editorSelectionLayer.dataset.testid = 'editor-selection-layer';
+  editorSelectionLayer.setAttribute('aria-hidden', 'true');
+
+  const editorGhostLayer = document.createElement('div');
+  editorGhostLayer.className = 'editor-ghost-layer';
+  editorGhostLayer.dataset.testid = 'editor-ghost-layer';
+  editorGhostLayer.setAttribute('aria-label', 'Editor ghost slots');
+
   const statusPanel = document.createElement('aside');
   statusPanel.className = 'status-panel';
   statusPanel.dataset.testid = 'status-panel';
   statusPanel.innerHTML = `
-    <div class="status-eyebrow">Linker / Luma</div>
-    <h1>Network Mapping Lab</h1>
+    <div class="status-live-table" data-testid="status-stats"></div>
   `;
-
-  const stats = document.createElement('p');
-  stats.className = 'status-stats';
-  stats.textContent =
-    'center 0.00, 0.00  |  zoom 0.00  |  glyphs 0 visible / 0 total  |  vertices 0  |  cpu 0.00 ms frame / 0.00 ms text / gpu pending';
-  statusPanel.append(stats);
-
-  const textStrategyButtonsMarkup = TEXT_STRATEGY_OPTIONS.map(
-    ({mode, label}) =>
-      `<button type="button" class="control-button" data-text-strategy="${mode}" aria-pressed="false">${label}</button>`,
-  ).join('');
-  const lineStrategyButtonsMarkup = LINE_STRATEGY_OPTIONS.map(
-    ({mode, label}) =>
-      `<button type="button" class="control-button" data-line-strategy="${mode}" aria-pressed="false">${label}</button>`,
-  ).join('');
-  const layoutStrategyButtonsMarkup = LAYOUT_STRATEGY_OPTIONS.map(
-    ({mode, label}) =>
-      `<button type="button" class="control-button" data-layout-strategy="${mode}" aria-pressed="false">${label}</button>`,
-  ).join('');
-  const strategyModeButtonsMarkup = `
-    <button type="button" class="control-button" data-strategy-panel-mode="text" aria-pressed="false">Text Strategy</button>
-    <button type="button" class="control-button" data-strategy-panel-mode="line" aria-pressed="false">Line Strategy</button>
-    <button type="button" class="control-button" data-strategy-panel-mode="layout" aria-pressed="false">Layout Strategy</button>
-    <button type="button" class="control-button" data-strategy-panel-mode="label-edit" aria-pressed="false">Label Edit</button>
-  `;
+  const stats = statusPanel.querySelector<HTMLDivElement>('[data-testid="status-stats"]');
 
   const launchBanner = document.createElement('div');
   launchBanner.className = 'launch-banner';
@@ -78,77 +63,160 @@ export function createStageChrome(root: HTMLElement): StageChromeElements {
   const strategyModePanel = document.createElement('aside');
   strategyModePanel.className = 'strategy-mode-panel';
   strategyModePanel.dataset.testid = 'strategy-mode-panel';
+  strategyModePanel.setAttribute('aria-label', 'Control pad');
   strategyModePanel.innerHTML = `
-    <div class="panel-label">Strategy View</div>
-    <div class="control-row" data-testid="strategy-panel-mode">
-      ${strategyModeButtonsMarkup}
+    <div class="control-pad-header">
+      <div class="panel-label" data-testid="control-pad-label">Navigate</div>
+      <p class="panel-hint" data-testid="control-pad-summary" hidden></p>
     </div>
-  `;
-
-  const renderPanel = document.createElement('aside');
-  renderPanel.className = 'render-panel';
-  renderPanel.dataset.testid = 'render-panel';
-  renderPanel.setAttribute('aria-label', 'Render panel');
-  renderPanel.innerHTML = `
-    <div class="panel-label" data-testid="strategy-panel-label">Text Strategy</div>
-    <div class="control-row" data-testid="text-strategy-panel">
-      ${textStrategyButtonsMarkup}
+    <div class="control-page-grid" data-control-pad-page="navigate" data-testid="control-pad-page-navigate">
+      <button type="button" class="control-button control-button--tile" data-control="zoom-in">Zoom +</button>
+      <button type="button" class="control-button control-button--tile" data-control="pan-up">Up</button>
+      <button type="button" class="control-button control-button--tile" data-control="zoom-out">Zoom -</button>
+      <button type="button" class="control-button control-button--tile" data-control="pan-left">Left</button>
+      <button type="button" class="control-button control-button--tile" data-control="reset-camera">Reset</button>
+      <button type="button" class="control-button control-button--tile" data-control="pan-right">Right</button>
+      <button
+        type="button"
+        class="control-button control-button--chip"
+        data-testid="navigate-mode-chip"
+        disabled
+        aria-disabled="true"
+      >
+        Grid
+      </button>
+      <button type="button" class="control-button control-button--tile" data-control="pan-down">Down</button>
+      <button type="button" class="control-button control-button--toggle" data-control-pad-action="toggle-page">
+        Toggle
+      </button>
     </div>
-    <div class="control-row" data-testid="line-strategy-panel" hidden>
-      ${lineStrategyButtonsMarkup}
+    <div class="control-page-grid" data-control-pad-page="stage" data-testid="control-pad-page-stage" hidden>
+      <button type="button" class="control-button control-button--tile" data-stage-mode-action="set-2d-mode" aria-pressed="false">
+        2D
+      </button>
+      <button
+        type="button"
+        class="control-button control-button--chip"
+        data-testid="stage-mode-chip"
+        disabled
+        aria-disabled="true"
+      >
+        Grid
+      </button>
+      <button type="button" class="control-button control-button--tile" data-stage-mode-action="set-3d-mode" aria-pressed="false">
+        3D
+      </button>
+      <button type="button" class="control-button control-button--tile" data-workplane-action="select-previous-workplane">
+        Prev
+      </button>
+      <button
+        type="button"
+        class="control-button control-button--chip"
+        data-testid="stage-workplane-chip"
+        disabled
+        aria-disabled="true"
+      >
+        WP 1/1
+      </button>
+      <button type="button" class="control-button control-button--tile" data-workplane-action="select-next-workplane">
+        Next
+      </button>
+      <button type="button" class="control-button control-button--tile" data-workplane-action="spawn-workplane">
+        New
+      </button>
+      <button type="button" class="control-button control-button--tile" data-workplane-action="delete-active-workplane">
+        Delete
+      </button>
+      <button type="button" class="control-button control-button--toggle" data-control-pad-action="toggle-page">
+        Toggle
+      </button>
     </div>
-    <div class="control-row" data-testid="layout-strategy-panel" hidden>
-      ${layoutStrategyButtonsMarkup}
-    </div>
-    <div class="control-stack" data-testid="label-edit-panel" hidden>
-      <p class="panel-hint" data-testid="label-input-hint">Focused label 1:1:1</p>
-      <form class="label-edit-form" data-testid="label-input-form">
+    <section class="edit-page" data-control-pad-page="edit" data-testid="render-panel" hidden>
+      <div class="edit-page-meta" data-testid="label-edit-panel">
+        <p class="panel-meta" data-testid="label-input-hint">Label wp-1:1:1:1</p>
+        <p class="panel-meta" data-testid="editor-selection-summary">0 selected</p>
+      </div>
+      <form class="control-page-grid control-page-grid--edit" data-testid="label-input-form">
         <input
           type="text"
-          class="label-input-field"
+          class="label-input-field label-input-field--grid"
           data-testid="label-input-field"
           aria-label="Label text"
           autocomplete="off"
           spellcheck="false"
         />
-        <button type="submit" class="control-button" data-testid="label-input-submit">Submit</button>
+        <button type="submit" class="control-button control-button--tile" data-testid="label-input-submit">
+          Save
+        </button>
+        <button type="button" class="control-button control-button--tile" data-editor-shortcut="toggle-selection-or-create">
+          Select/Create
+        </button>
+        <button type="button" class="control-button control-button--tile" data-editor-action="link-selection">
+          Link
+        </button>
+        <button type="button" class="control-button control-button--tile" data-editor-action="remove-links">
+          Unlink
+        </button>
+        <button type="button" class="control-button control-button--tile" data-editor-action="remove-label">
+          Remove
+        </button>
+        <button type="button" class="control-button control-button--tile" data-editor-action="clear-selection">
+          Clear
+        </button>
+        <button type="button" class="control-button control-button--toggle" data-control-pad-action="toggle-page">
+          Toggle
+        </button>
       </form>
-    </div>
+    </section>
   `;
 
-  const labelInputField = renderPanel.querySelector<HTMLInputElement>('[data-testid="label-input-field"]');
-  const labelInputForm = renderPanel.querySelector<HTMLFormElement>('[data-testid="label-input-form"]');
-  const labelInputHint = renderPanel.querySelector<HTMLParagraphElement>('[data-testid="label-input-hint"]');
+  const renderPanel = strategyModePanel.querySelector<HTMLElement>('[data-testid="render-panel"]');
+  const labelInputField = strategyModePanel.querySelector<HTMLInputElement>('[data-testid="label-input-field"]');
+  const labelInputForm = strategyModePanel.querySelector<HTMLFormElement>('[data-testid="label-input-form"]');
+  const labelInputHint =
+    strategyModePanel.querySelector<HTMLParagraphElement>('[data-testid="label-input-hint"]');
+  const editorSelectionSummary =
+    strategyModePanel.querySelector<HTMLParagraphElement>('[data-testid="editor-selection-summary"]');
   const labelInputSubmitButton =
-    renderPanel.querySelector<HTMLButtonElement>('[data-testid="label-input-submit"]');
+    strategyModePanel.querySelector<HTMLButtonElement>('[data-testid="label-input-submit"]');
+  const cameraPanelHint =
+    strategyModePanel.querySelector<HTMLParagraphElement>('[data-testid="control-pad-summary"]');
 
-  if (!labelInputField || !labelInputForm || !labelInputHint || !labelInputSubmitButton) {
-    throw new Error('Failed to build the label edit controls.');
+  if (
+    !renderPanel ||
+    !labelInputField ||
+    !labelInputForm ||
+    !labelInputHint ||
+    !editorSelectionSummary ||
+    !labelInputSubmitButton ||
+    !cameraPanelHint ||
+    !stats
+  ) {
+    throw new Error('Failed to build the stage chrome controls.');
   }
 
-  const cameraPanel = document.createElement('aside');
-  cameraPanel.className = 'camera-panel';
-  cameraPanel.dataset.testid = 'camera-panel';
-  cameraPanel.setAttribute('aria-label', 'Camera panel');
-  cameraPanel.innerHTML = `
-    <div class="panel-label">Camera</div>
-    <div class="camera-grid" aria-label="Camera controls">
-      <button type="button" class="control-button" data-control="zoom-in">Zoom In</button>
-      <button type="button" class="control-button" data-control="zoom-out">Zoom Out</button>
-      <button type="button" class="control-button" data-control="reset-camera">Reset</button>
-      <button type="button" class="control-button" data-control="pan-up">Up</button>
-      <button type="button" class="control-button" data-control="pan-left">Left</button>
-      <button type="button" class="control-button" data-control="pan-down">Down</button>
-      <button type="button" class="control-button" data-control="pan-right">Right</button>
-    </div>
-  `;
+  const controlDock = document.createElement('div');
+  controlDock.className = 'control-dock';
+  controlDock.append(strategyModePanel);
 
-  stage.append(canvas, selectionBox, statusPanel, strategyModePanel, renderPanel, cameraPanel, launchBanner);
+  stage.append(
+    canvas,
+    editorSelectionLayer,
+    editorGhostLayer,
+    selectionBox,
+    statusPanel,
+    controlDock,
+    launchBanner,
+  );
   root.replaceChildren(stage);
 
   return {
-    cameraPanel,
+    cameraPanel: strategyModePanel,
+    cameraPanelHint,
     canvas,
+    editorGhostLayer,
+    editorSelectionLayer,
+    editorSelectionSummary,
     labelInputField,
     labelInputForm,
     labelInputHint,

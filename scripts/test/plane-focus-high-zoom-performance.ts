@@ -1,6 +1,9 @@
 import assert from 'node:assert/strict';
 
+import {buildLabelKey} from '../../src/label-key';
 import {
+  buildClassicDemoUrl,
+  captureInteractionScreenshot,
   clickControl,
   flushPerformanceTelemetry,
   getCameraState,
@@ -22,16 +25,16 @@ type PlaneFocusTraceStep = {
   expectedLabel: string;
 };
 
-const PLANE_FOCUS_HIGH_ZOOM_START_LABEL = '1:9:3';
+const PLANE_FOCUS_HIGH_ZOOM_START_LABEL = buildLabelKey('wp-1', 3, 9, 1);
 const PLANE_FOCUS_HIGH_ZOOM_IDLE_AFTER_STEP_MS = 900;
 const PLANE_FOCUS_HIGH_ZOOM_TRACE: PlaneFocusTraceStep[] = [
-  {control: 'pan-right', expectedLabel: '2:9:3'},
-  {control: 'pan-right', expectedLabel: '3:9:3'},
-  {control: 'pan-down', expectedLabel: '3:10:3'},
-  {control: 'pan-down', expectedLabel: '3:11:3'},
-  {control: 'pan-left', expectedLabel: '2:11:3'},
-  {control: 'pan-left', expectedLabel: '1:11:3'},
-  {control: 'pan-up', expectedLabel: '1:10:3'},
+  {control: 'pan-right', expectedLabel: buildLabelKey('wp-1', 3, 9, 2)},
+  {control: 'pan-right', expectedLabel: buildLabelKey('wp-1', 3, 9, 3)},
+  {control: 'pan-down', expectedLabel: buildLabelKey('wp-1', 3, 10, 3)},
+  {control: 'pan-down', expectedLabel: buildLabelKey('wp-1', 3, 11, 3)},
+  {control: 'pan-left', expectedLabel: buildLabelKey('wp-1', 3, 11, 2)},
+  {control: 'pan-left', expectedLabel: buildLabelKey('wp-1', 3, 11, 1)},
+  {control: 'pan-up', expectedLabel: buildLabelKey('wp-1', 3, 10, 1)},
   {control: 'pan-up', expectedLabel: PLANE_FOCUS_HIGH_ZOOM_START_LABEL},
 ];
 
@@ -70,6 +73,7 @@ async function runPlaneFocusHighZoomScenario(
 ){
   await openRoute(context.page, buildScenarioUrl(context.url, options).toString());
   await waitForCameraLabel(context.page, PLANE_FOCUS_HIGH_ZOOM_START_LABEL);
+  await captureInteractionScreenshot(context, `${options.name}-start`);
 
   const initialCamera = await getCameraState(context.page);
   const initialText = await getTextState(context.page);
@@ -111,6 +115,7 @@ async function runPlaneFocusHighZoomScenario(
     PLANE_FOCUS_HIGH_ZOOM_START_LABEL,
     `${options.name} should end back at the seeded high-zoom label after the pan loop.`,
   );
+  await captureInteractionScreenshot(context, `${options.name}-end`);
 
   return createPlaneFocusPanPerformanceSample({
     durationMs,
@@ -127,7 +132,7 @@ function buildScenarioUrl(
     name: string;
   },
 ): URL {
-  const url = new URL(baseUrl);
+  const url = new URL(buildClassicDemoUrl(baseUrl));
 
   url.searchParams.set('cameraLabel', PLANE_FOCUS_HIGH_ZOOM_START_LABEL);
   void options;

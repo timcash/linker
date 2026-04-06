@@ -19,10 +19,12 @@ import {DEFAULT_LINE_STRATEGY, LINE_STRATEGIES, type LineStrategy} from './line/
 import {DEFAULT_TEXT_STRATEGY, type TextStrategy} from './text/types';
 
 export type LabelSetKind = 'demo' | 'benchmark';
+export type DemoPreset = 'classic' | 'editor-lab' | 'workplane-showcase';
 
 export type StageConfig = {
   benchmarkTraceStepCount: number;
   benchmarkEnabled: boolean;
+  demoPreset: DemoPreset;
   demoLayerCount: number;
   gpuTimingEnabled: boolean;
   initialCameraLabel: string | null;
@@ -38,6 +40,7 @@ export type StageConfig = {
 
 const DEFAULT_BENCHMARK_TRACE_STEP_COUNT = 8;
 const MANAGED_STAGE_ROUTE_PARAM_KEYS = [
+  'demoPreset',
   'demoLayers',
   'cameraCenterX',
   'cameraCenterY',
@@ -55,6 +58,7 @@ const MANAGED_STAGE_ROUTE_PARAM_KEYS = [
 export function readStageConfig(search: string): StageConfig {
   const params = new URLSearchParams(search);
   const labelSetKind: LabelSetKind = params.get('labelSet') === 'benchmark' ? 'benchmark' : 'demo';
+  const demoPreset = parseDemoPreset(params, labelSetKind);
   const layoutStrategy = parseLayoutStrategy(params.get('layoutStrategy'));
   const lineStrategy = parseLineStrategy(params.get('lineStrategy'));
   const requestedStageMode = parseRequestedStageMode(params.get('stageMode'));
@@ -77,6 +81,7 @@ export function readStageConfig(search: string): StageConfig {
       120,
     ),
     benchmarkEnabled: params.get('benchmark') === '1',
+    demoPreset,
     demoLayerCount,
     gpuTimingEnabled: params.get('gpuTiming') !== '0',
     initialCameraLabel: params.get('cameraLabel'),
@@ -93,6 +98,7 @@ export function readStageConfig(search: string): StageConfig {
 
 export function syncStageRouteQueryParams(input: {
   cameraLabel: string | null;
+  demoPreset: DemoPreset;
   demoLayerCount: number;
   labelSetKind: LabelSetKind;
   labelTargetCount: number;
@@ -103,10 +109,16 @@ export function syncStageRouteQueryParams(input: {
     searchParams.set('labelSet', input.labelSetKind);
 
     if (input.labelSetKind === 'benchmark') {
+      searchParams.delete('demoPreset');
       searchParams.delete('demoLayers');
       searchParams.set('labelCount', String(input.labelTargetCount));
     } else {
-      searchParams.set('demoLayers', String(input.demoLayerCount));
+      searchParams.set('demoPreset', input.demoPreset);
+      if (input.demoPreset === 'classic') {
+        searchParams.set('demoLayers', String(input.demoLayerCount));
+      } else {
+        searchParams.delete('demoLayers');
+      }
       searchParams.delete('labelCount');
     }
 
@@ -131,6 +143,27 @@ export function syncStageRouteQueryParams(input: {
 function parseTextStrategy(value: string | null): TextStrategy {
   void value;
   return DEFAULT_TEXT_STRATEGY;
+}
+
+function parseDemoPreset(
+  params: URLSearchParams,
+  labelSetKind: LabelSetKind,
+): DemoPreset {
+  if (labelSetKind === 'benchmark') {
+    return 'classic';
+  }
+
+  const requestedPreset = params.get('demoPreset');
+
+  if (
+    requestedPreset === 'classic' ||
+    requestedPreset === 'editor-lab' ||
+    requestedPreset === 'workplane-showcase'
+  ) {
+    return requestedPreset;
+  }
+
+  return hasClassicDemoRouteHints(params) ? 'classic' : 'workplane-showcase';
 }
 
 function parseLineStrategy(value: string | null): LineStrategy {
@@ -170,6 +203,14 @@ function isLineStrategy(value: string | null | undefined): value is LineStrategy
 
 function isLayoutStrategy(value: string | null | undefined): value is LayoutStrategy {
   return LAYOUT_STRATEGIES.includes(value as LayoutStrategy);
+}
+
+function hasClassicDemoRouteHints(params: URLSearchParams): boolean {
+  return (
+    params.has('cameraLabel') ||
+    params.has('demoLayers') ||
+    params.has('layoutStrategy')
+  );
 }
 
 function updateRouteSearchParams(

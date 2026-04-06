@@ -1,4 +1,4 @@
-import {appendFile, writeFile} from 'node:fs/promises';
+import {appendFile, mkdir, rm, writeFile} from 'node:fs/promises';
 import path from 'node:path';
 
 import puppeteer, {
@@ -18,6 +18,12 @@ import {
 const logPath = path.resolve(process.cwd(), 'test.log');
 const errorLogPath = path.resolve(process.cwd(), 'error.log');
 const screenshotPath = path.resolve(process.cwd(), 'browser.png');
+const interactionScreenshotDir = path.resolve(process.cwd(), 'artifacts', 'test-screenshots');
+const MOBILE_VIEWPORT = {
+  width: 393,
+  height: 852,
+  deviceScaleFactor: 2,
+};
 
 export {runStaticUnitTests};
 
@@ -28,6 +34,8 @@ export async function createBrowserTestContext(): Promise<BrowserTestContext> {
   if (process.env.LINKER_APPEND_ERROR_LOG !== '1') {
     await writeFile(errorLogPath, '', 'utf8');
   }
+  await rm(interactionScreenshotDir, {force: true, recursive: true});
+  await mkdir(interactionScreenshotDir, {recursive: true});
 
   const browserLogLines: string[] = [];
   let flushedLineCount = 0;
@@ -77,7 +85,7 @@ export async function createBrowserTestContext(): Promise<BrowserTestContext> {
   const browser = await puppeteer.launch({
     headless: false,
     channel: 'chrome',
-    defaultViewport: {width: 1280, height: 800},
+    defaultViewport: MOBILE_VIEWPORT,
     args: [
       '--enable-unsafe-webgpu',
       '--disable-background-timer-throttling',
@@ -87,6 +95,7 @@ export async function createBrowserTestContext(): Promise<BrowserTestContext> {
   });
 
   const page = await browser.newPage();
+  await page.setViewport(MOBILE_VIEWPORT);
   const pageErrors: string[] = [];
 
   page.on('console', (message: ConsoleMessage) => {
@@ -144,6 +153,8 @@ export async function createBrowserTestContext(): Promise<BrowserTestContext> {
     browser,
     flushBrowserLog,
     flushErrorLog,
+    interactionScreenshotCounter: 0,
+    interactionScreenshotDir,
     logPath,
     page,
     pageErrors,

@@ -348,7 +348,7 @@ export {StackCameraProjector as IsometricStackProjector};
 
 function measurePerspectivePixelsPerWorldUnit(
   camera: PerspectiveCameraState,
-  sceneBounds: SceneBounds3D,
+  _sceneBounds: SceneBounds3D,
   viewport: ViewportSize,
 ): number {
   const start = projectPerspectiveWorldPointToScreen(camera, camera.target, viewport);

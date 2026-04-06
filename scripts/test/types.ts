@@ -20,6 +20,7 @@ import {
   DEFAULT_DEMO_LAYER_COUNT,
   getDemoLabelCount,
 } from '../../src/data/labels';
+import {buildLabelKey} from '../../src/label-key';
 import {
   DEFAULT_TEXT_STRATEGY,
   TEXT_STRATEGIES,
@@ -27,12 +28,16 @@ import {
 } from '../../src/text/types';
 
 export type ReadyResult = {
+  canvasHeight: number;
+  canvasWidth: number;
+  devicePixelRatio: number;
   state: 'ready';
   width: number;
   height: number;
   innerWidth: number;
   innerHeight: number;
   camera: CameraState;
+  editor: EditorState;
   stage: StageState;
   text: TextState;
 };
@@ -73,9 +78,24 @@ export type CameraQueryState = {
 
 export type StageState = {
   activeWorkplaneId: string;
+  controlPadPage: string;
+  documentBridgeLinkCount: number;
   planeCount: number;
+  renderBridgeLinkCount: number;
   stageMode: string;
   workplaneCanDelete: boolean;
+};
+
+export type EditorState = {
+  cursorColumn: number;
+  cursorKey: string;
+  cursorKind: string;
+  cursorLayer: number;
+  cursorRow: number;
+  documentLabelCount: number;
+  documentLinkCount: number;
+  selectedLabelCount: number;
+  selectedLabelKeys: string;
 };
 
 export type StageRouteState = {
@@ -208,6 +228,8 @@ export type BrowserTestContext = {
   browser: Browser;
   flushBrowserLog: () => Promise<void>;
   flushErrorLog: () => Promise<void>;
+  interactionScreenshotCounter: number;
+  interactionScreenshotDir: string;
   logPath: string;
   page: Page;
   pageErrors: string[];
@@ -241,13 +263,13 @@ export const DEMO_ROOT_LABEL_COUNT = DEMO_SOURCE_COLUMN_COUNT * DEMO_ROWS_PER_SO
 export const DEMO_LABEL_COUNT = getDemoLabelCount(DEFAULT_DEMO_LAYER_COUNT);
 export const DEMO_ROOT_LABEL_SIZE = 0.26;
 export const DEMO_CHILD_LABEL_SIZE = 0.28;
-export const FIRST_ROOT_LABEL = '1:1:1';
-export const FIRST_CHILD_LABEL = '1:1:2';
-export const CENTER_ROOT_LABEL = '6:6:1';
-export const CENTER_CHILD_LABEL = '6:6:2';
-export const LAST_ROOT_LABEL = '12:12:1';
-export const LAST_CHILD_LABEL = '12:12:2';
-export const LAST_DEMO_LABEL = `12:12:${DEFAULT_DEMO_LAYER_COUNT}`;
+export const FIRST_ROOT_LABEL = buildLabelKey('wp-1', 1, 1, 1);
+export const FIRST_CHILD_LABEL = buildLabelKey('wp-1', 2, 1, 1);
+export const CENTER_ROOT_LABEL = buildLabelKey('wp-1', 1, 6, 6);
+export const CENTER_CHILD_LABEL = buildLabelKey('wp-1', 2, 6, 6);
+export const LAST_ROOT_LABEL = buildLabelKey('wp-1', 1, 12, 12);
+export const LAST_CHILD_LABEL = buildLabelKey('wp-1', 2, 12, 12);
+export const LAST_DEMO_LABEL = buildLabelKey('wp-1', DEFAULT_DEMO_LAYER_COUNT, 12, 12);
 export const RUN_EXTENDED_TEST_MATRIX = process.env.LINKER_EXTENDED_TEST_MATRIX === '1';
 
 export const BYTE_UPLOAD_RULES: readonly StrategyMetricRule<{

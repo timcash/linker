@@ -2,12 +2,17 @@ import assert from 'node:assert/strict';
 
 import {Camera2D, type ScreenPoint, type ViewportSize} from '../../src/camera';
 import {
+  createDefaultEditorLabState,
+} from '../../src/data/editor-lab';
+import {
   layoutDemoEntries,
   type DemoLayoutEntry,
   type DemoLayoutNodeBox,
 } from '../../src/data/demo-layout';
 import {getDemoLinks} from '../../src/data/links';
 import {DEMO_LABELS} from '../../src/data/labels';
+import {createDefaultWorkplaneShowcaseState} from '../../src/data/workplane-showcase';
+import {GRID_LAYER_ZOOM_STEP} from '../../src/layer-grid';
 import {
   createLabelNavigationIndex,
   getLabelNavigationNode,
@@ -15,6 +20,7 @@ import {
   hasLabelNavigationTarget,
 } from '../../src/label-navigation';
 import {sampleLineCurve} from '../../src/line/curves';
+import {buildLabelKey} from '../../src/label-key';
 import {
   INITIAL_WORKPLANE_ID,
   MAX_WORKPLANE_COUNT,
@@ -31,6 +37,7 @@ import {
   selectNextWorkplane,
   selectPreviousWorkplane,
   spawnWorkplaneAfterActive,
+  type StageSystemState,
 } from '../../src/plane-stack';
 import {
   PlaneFocusProjector,
@@ -39,6 +46,11 @@ import {
 } from '../../src/projector';
 import {cloneStageScene, createStageScene} from '../../src/scene-model';
 import {readStageConfig} from '../../src/stage-config';
+import {
+  addLabelAtStageEditorCursor,
+  createStageEditorState,
+  moveStageEditorCursor,
+} from '../../src/stage-editor';
 import {hydrateStageBootState} from '../../src/stage-session';
 import {
   DEFAULT_STACK_CAMERA_STATE,
@@ -75,6 +87,7 @@ export function runStaticUnitTests(): void {
   runCameraAndProjectionTests();
   runLayoutAndLinkTests();
   runNavigationAndZoomTests();
+  runDemoPresetGeometryTests();
 }
 
 function runRouteAndSessionTests(): void {
@@ -100,18 +113,18 @@ function runRouteAndSessionTests(): void {
   const missingSessionBootState = hydrateStageBootState(readStageConfig('?session=stk-missing'), null);
   assert.equal(
     getPlaneCount(missingSessionBootState.initialState),
-    1,
-    'Ignored persisted-session routes should still boot a fresh one-workplane stage.',
+    5,
+    'Ignored persisted-session routes should still boot the default demo preset instead of restoring a missing session.',
   );
   assert.equal(
     missingSessionBootState.initialState.session.activeWorkplaneId,
-    INITIAL_WORKPLANE_ID,
-    'Fresh route boot should start on the initial workplane.',
+    'wp-3',
+    'Fresh route boot should start on the default editor-demo workplane.',
   );
   assert.equal(
     missingSessionBootState.initialState.session.stageMode,
-    '2d-mode',
-    'Fresh route boot should keep the default stage mode.',
+    '3d-mode',
+    'Fresh route boot should keep the default preset stage mode.',
   );
   assert.equal(
     isStackCameraAtDefault(missingSessionBootState.initialState.session.stackCamera),
@@ -126,17 +139,27 @@ function runRouteAndSessionTests(): void {
     layoutStrategy: 'flow-columns',
   });
   let snapshot = createStageSystemState(cloneStageScene(scene), {
-    initialCameraLabel: '2:2:1',
+    initialCameraLabel: buildLabelKey(INITIAL_WORKPLANE_ID, 1, 2, 2),
     stageMode: '3d-mode',
   });
   snapshot = replaceWorkplaneView(snapshot, INITIAL_WORKPLANE_ID, {
-    selectedLabelKey: '2:2:1',
+    selectedLabelKey: buildLabelKey(INITIAL_WORKPLANE_ID, 1, 2, 2),
     camera: {centerX: 22, centerY: 18, zoom: 2},
   });
   snapshot = spawnWorkplaneAfterActive(snapshot);
-  snapshot = replaceWorkplaneScene(snapshot, 'wp-2', cloneStageScene(scene));
+  snapshot = replaceWorkplaneScene(
+    snapshot,
+    'wp-2',
+    createStageScene({
+      demoLayerCount: 12,
+      labelSetKind: 'demo',
+      labelTargetCount: DEMO_LABEL_COUNT,
+      layoutStrategy: 'flow-columns',
+      workplaneId: 'wp-2',
+    }),
+  );
   snapshot = replaceWorkplaneView(snapshot, 'wp-2', {
-    selectedLabelKey: '3:3:1',
+    selectedLabelKey: buildLabelKey('wp-2', 1, 3, 3),
     camera: {centerX: 44, centerY: 39, zoom: 4},
   });
   snapshot = {
@@ -194,7 +217,7 @@ function runPlaneStackStateTests(): void {
   const state = createStageSystemState(scene, {
     activeWorkplaneId: 'wp-7',
     initialCamera: {centerX: 9, centerY: -4, zoom: 3},
-    initialCameraLabel: '2:2:1',
+    initialCameraLabel: buildLabelKey(INITIAL_WORKPLANE_ID, 1, 2, 2),
     stageMode: '3d-mode',
   });
 
@@ -217,7 +240,7 @@ function runPlaneStackStateTests(): void {
   );
   assert.equal(
     getActiveWorkplaneView(state).selectedLabelKey,
-    '2:2:1',
+    buildLabelKey(INITIAL_WORKPLANE_ID, 1, 2, 2),
     'Initial demo workplane view should store the resolved active label per workplane.',
   );
   assert.equal(
@@ -227,11 +250,16 @@ function runPlaneStackStateTests(): void {
   );
 
   const storedViewState = replaceWorkplaneView(state, INITIAL_WORKPLANE_ID, {
-    selectedLabelKey: '3:3:1',
+    selectedLabelKey: buildLabelKey(INITIAL_WORKPLANE_ID, 1, 3, 3),
     camera: {centerX: 12, centerY: 14, zoom: 5},
   });
   const spawnedState = spawnWorkplaneAfterActive(
-    replaceWorkplaneLabelTextOverride(storedViewState, INITIAL_WORKPLANE_ID, '1:1:1', 'Signal'),
+    replaceWorkplaneLabelTextOverride(
+      storedViewState,
+      INITIAL_WORKPLANE_ID,
+      buildLabelKey(INITIAL_WORKPLANE_ID, 1, 1, 1),
+      'Signal',
+    ),
   );
 
   assert.equal(getPlaneCount(spawnedState), 2, 'Spawning should add a second workplane.');
@@ -350,10 +378,17 @@ function runCameraAndProjectionTests(): void {
 
   for (let planeCount = 1; planeCount < 5; planeCount += 1) {
     stageState = spawnWorkplaneAfterActive(stageState);
+    const activeWorkplaneId = stageState.session.activeWorkplaneId;
     stageState = replaceWorkplaneScene(
       stageState,
-      stageState.session.activeWorkplaneId,
-      cloneStageScene(projectionScene),
+      activeWorkplaneId,
+      createStageScene({
+        demoLayerCount: 12,
+        labelSetKind: 'demo',
+        labelTargetCount: DEMO_LABEL_COUNT,
+        layoutStrategy: 'flow-columns',
+        workplaneId: activeWorkplaneId,
+      }),
     );
   }
 
@@ -610,8 +645,14 @@ function runLayoutAndLinkTests(): void {
   }
 
   const links = getDemoLinks('flow-columns');
-  const horizontalStartBox = getRequiredRootBox(rootBoxByLabel, '1:2:1');
-  const horizontalEndBox = getRequiredRootBox(rootBoxByLabel, '2:2:1');
+  const horizontalStartBox = getRequiredRootBox(
+    rootBoxByLabel,
+    buildLabelKey('wp-1', 1, 2, 1),
+  );
+  const horizontalEndBox = getRequiredRootBox(
+    rootBoxByLabel,
+    buildLabelKey('wp-1', 1, 2, 2),
+  );
   const horizontalLink = links.find((link) => {
     return (
       Math.abs(link.outputLocation.x - horizontalStartBox.maxX) < 0.0001 &&
@@ -628,8 +669,14 @@ function runLayoutAndLinkTests(): void {
   assert.equal(horizontalLink?.outputLinkPoint, 'right-center', 'Horizontal links should use the source right-center link-point.');
   assert.equal(horizontalLink?.inputLinkPoint, 'left-center', 'Horizontal links should use the target left-center link-point.');
 
-  const verticalStartBox = getRequiredRootBox(rootBoxByLabel, '3:1:1');
-  const verticalEndBox = getRequiredRootBox(rootBoxByLabel, '3:2:1');
+  const verticalStartBox = getRequiredRootBox(
+    rootBoxByLabel,
+    buildLabelKey('wp-1', 1, 1, 3),
+  );
+  const verticalEndBox = getRequiredRootBox(
+    rootBoxByLabel,
+    buildLabelKey('wp-1', 1, 2, 3),
+  );
   const verticalLink = links.find((link) => {
     return (
       Math.abs(link.outputLocation.x - getBoxCenterX(verticalStartBox)) < 0.0001 &&
@@ -668,13 +715,29 @@ function runLayoutAndLinkTests(): void {
     'Rounded-step links should sample extra points for rounded corners.',
   );
   assert.deepEqual(
-    roundedStepPoints[0],
-    diagonalLink.outputLocation,
+    {
+      x: roundedStepPoints[0]?.x,
+      y: roundedStepPoints[0]?.y,
+      z: roundedStepPoints[0]?.z ?? 0,
+    },
+    {
+      x: diagonalLink.outputLocation.x,
+      y: diagonalLink.outputLocation.y,
+      z: diagonalLink.outputLocation.z ?? 0,
+    },
     'Rounded-step links should preserve the source endpoint.',
   );
   assert.deepEqual(
-    roundedStepPoints[roundedStepPoints.length - 1],
-    diagonalLink.inputLocation,
+    {
+      x: roundedStepPoints[roundedStepPoints.length - 1]?.x,
+      y: roundedStepPoints[roundedStepPoints.length - 1]?.y,
+      z: roundedStepPoints[roundedStepPoints.length - 1]?.z ?? 0,
+    },
+    {
+      x: diagonalLink.inputLocation.x,
+      y: diagonalLink.inputLocation.y,
+      z: diagonalLink.inputLocation.z ?? 0,
+    },
     'Rounded-step links should preserve the target endpoint.',
   );
 }
@@ -695,17 +758,25 @@ function runNavigationAndZoomTests(): void {
 
   assert.equal(
     getLabelNavigationTarget(navigationIndex, FIRST_ROOT_LABEL, 'pan-right')?.key,
-    '2:1:1',
+    buildLabelKey('wp-1', 1, 1, 2),
     'Right should advance to the next column on the same row and layer.',
   );
   assert.equal(
-    getLabelNavigationTarget(navigationIndex, '2:2:1', 'pan-up')?.key,
-    '2:1:1',
+    getLabelNavigationTarget(
+      navigationIndex,
+      buildLabelKey('wp-1', 1, 2, 2),
+      'pan-up',
+    )?.key,
+    buildLabelKey('wp-1', 1, 1, 2),
     'Up should move to the visually higher row.',
   );
   assert.equal(
-    getLabelNavigationTarget(navigationIndex, '2:2:1', 'zoom-in')?.key,
-    '2:2:2',
+    getLabelNavigationTarget(
+      navigationIndex,
+      buildLabelKey('wp-1', 1, 2, 2),
+      'zoom-in',
+    )?.key,
+    buildLabelKey('wp-1', 2, 2, 2),
     'Zoom In should move to the next layer in the same cell.',
   );
   assert.equal(
@@ -745,6 +816,258 @@ function runNavigationAndZoomTests(): void {
   );
 }
 
+function runDemoPresetGeometryTests(): void {
+  const classicScene = createStageScene({
+    demoLayerCount: 12,
+    labelSetKind: 'demo',
+    labelTargetCount: DEMO_LABEL_COUNT,
+    layoutStrategy: 'flow-columns',
+  });
+  const editorLabState = createDefaultEditorLabState();
+  const showcaseState = createDefaultWorkplaneShowcaseState();
+
+  assertSceneUsesAlignedGrid(classicScene, 'Classic demo scene');
+  assertBridgeLinksResolveInStackView(
+    editorLabState,
+    'Editor lab should resolve authored workplane bridge links in stack view.',
+  );
+  assertBridgeLinksResolveInStackView(
+    showcaseState,
+    'Workplane showcase should resolve authored workplane bridge links in stack view.',
+  );
+
+  for (const workplaneId of editorLabState.document.workplaneOrder) {
+    assertSceneUsesAlignedGrid(
+      editorLabState.document.workplanesById[workplaneId].scene,
+      `Editor lab ${workplaneId}`,
+    );
+  }
+
+  for (const workplaneId of showcaseState.document.workplaneOrder) {
+    assertSceneUsesAlignedGrid(
+      showcaseState.document.workplanesById[workplaneId].scene,
+      `Workplane showcase ${workplaneId}`,
+    );
+  }
+
+  const editorLabScene = getActiveWorkplaneDocument(editorLabState).scene;
+  const editorLabStartState = createStageEditorState(
+    editorLabScene,
+    buildLabelKey('wp-3', 1, 6, 12),
+  );
+  const editorLabGhostState = moveStageEditorCursor(
+    editorLabStartState,
+    editorLabScene,
+    'pan-right',
+  );
+  const editorLabMutation = addLabelAtStageEditorCursor(
+    editorLabScene,
+    editorLabGhostState,
+  );
+
+  assert.equal(
+    editorLabGhostState.cursor.kind,
+    'ghost',
+    'Editor lab geometry tests should navigate to a ghost slot before adding a label.',
+  );
+  assert.equal(
+    editorLabMutation.changed,
+    true,
+    'Adding a label from a ghost slot should mutate the scene.',
+  );
+  assertSceneUsesAlignedGrid(
+    editorLabMutation.scene,
+    'Editor-created editor-lab scene',
+  );
+}
+
+function assertSceneUsesAlignedGrid(
+  scene: ReturnType<typeof createStageScene>,
+  name: string,
+): void {
+  const labelsByCellKey = new Map<string, LabelDefinition[]>();
+  const rootLabels: LabelDefinition[] = [];
+
+  for (const label of scene.labels) {
+    if (!label.navigation) {
+      continue;
+    }
+
+    const cellKey = `${label.navigation.column}:${label.navigation.row}`;
+    const cellLabels = labelsByCellKey.get(cellKey);
+
+    if (cellLabels) {
+      cellLabels.push(label);
+    } else {
+      labelsByCellKey.set(cellKey, [label]);
+    }
+
+    if (label.navigation.layer === 1) {
+      rootLabels.push(label);
+    }
+  }
+
+  assert.ok(rootLabels.length > 0, `${name} should include root labels.`);
+
+  for (const [cellKey, cellLabels] of labelsByCellKey.entries()) {
+    const sortedLabels = [...cellLabels].sort(
+      (left, right) =>
+        (left.navigation?.layer ?? 0) - (right.navigation?.layer ?? 0),
+    );
+    const rootLabel = sortedLabels[0];
+
+    assert.equal(
+      rootLabel?.navigation?.layer,
+      1,
+      `${name} ${cellKey} should start at layer 1.`,
+    );
+
+    for (let index = 0; index < sortedLabels.length; index += 1) {
+      const currentLabel = sortedLabels[index];
+      const previousLabel = sortedLabels[index - 1] ?? null;
+
+      assert.ok(
+        Math.abs((currentLabel?.location.x ?? 0) - (rootLabel?.location.x ?? 0)) <= 0.0001 &&
+          Math.abs((currentLabel?.location.y ?? 0) - (rootLabel?.location.y ?? 0)) <= 0.0001,
+        `${name} ${cellKey} should keep every layer on the same grid location.`,
+      );
+
+      if (previousLabel) {
+        assert.ok(
+          Math.abs(currentLabel.zoomLevel - previousLabel.zoomLevel - GRID_LAYER_ZOOM_STEP) <= 0.0001,
+          `${name} ${cellKey} should use a consistent 3x zoom step between layers.`,
+        );
+      }
+    }
+  }
+
+  assertGridAxisConsistency(rootLabels, 'column', name);
+  assertGridAxisConsistency(rootLabels, 'row', name);
+}
+
+function assertGridAxisConsistency(
+  rootLabels: LabelDefinition[],
+  axis: 'column' | 'row',
+  name: string,
+): void {
+  const perStepSamples: number[] = [];
+
+  if (axis === 'column') {
+    const labelsByRow = new Map<number, LabelDefinition[]>();
+
+    for (const label of rootLabels) {
+      const row = label.navigation?.row ?? 0;
+      const rowLabels = labelsByRow.get(row);
+
+      if (rowLabels) {
+        rowLabels.push(label);
+      } else {
+        labelsByRow.set(row, [label]);
+      }
+    }
+
+    for (const rowLabels of labelsByRow.values()) {
+      rowLabels.sort(
+        (left, right) =>
+          (left.navigation?.column ?? 0) - (right.navigation?.column ?? 0),
+      );
+
+      for (let index = 1; index < rowLabels.length; index += 1) {
+        const previousLabel = rowLabels[index - 1];
+        const nextLabel = rowLabels[index];
+        const columnDelta =
+          (nextLabel.navigation?.column ?? 0) -
+          (previousLabel.navigation?.column ?? 0);
+
+        if (columnDelta > 0) {
+          perStepSamples.push(
+            (nextLabel.location.x - previousLabel.location.x) / columnDelta,
+          );
+        }
+      }
+    }
+  } else {
+    const labelsByColumn = new Map<number, LabelDefinition[]>();
+
+    for (const label of rootLabels) {
+      const column = label.navigation?.column ?? 0;
+      const columnLabels = labelsByColumn.get(column);
+
+      if (columnLabels) {
+        columnLabels.push(label);
+      } else {
+        labelsByColumn.set(column, [label]);
+      }
+    }
+
+    for (const columnLabels of labelsByColumn.values()) {
+      columnLabels.sort(
+        (left, right) =>
+          (left.navigation?.row ?? 0) - (right.navigation?.row ?? 0),
+      );
+
+      for (let index = 1; index < columnLabels.length; index += 1) {
+        const previousLabel = columnLabels[index - 1];
+        const nextLabel = columnLabels[index];
+        const rowDelta =
+          (nextLabel.navigation?.row ?? 0) -
+          (previousLabel.navigation?.row ?? 0);
+
+        if (rowDelta > 0) {
+          perStepSamples.push(
+            (nextLabel.location.y - previousLabel.location.y) / rowDelta,
+          );
+        }
+      }
+    }
+  }
+
+  assert.ok(
+    perStepSamples.length > 0,
+    `${name} should provide enough root labels to measure ${axis} spacing.`,
+  );
+
+  const expectedStep = perStepSamples[0] ?? 0;
+
+  for (const sample of perStepSamples) {
+    assert.ok(
+      Math.abs(sample - expectedStep) <= 0.0001,
+      `${name} should keep a constant ${axis} step across the grid.`,
+    );
+  }
+
+  if (axis === 'column') {
+    assert.ok(expectedStep > 0, `${name} should increase x as columns increase.`);
+  } else {
+    assert.ok(expectedStep < 0, `${name} should decrease y as rows increase.`);
+  }
+}
+
+function assertBridgeLinksResolveInStackView(
+  state: StageSystemState,
+  message: string,
+): void {
+  const stackViewState = createStackViewState({
+    ...state,
+    session: {
+      ...state.session,
+      stageMode: '3d-mode',
+    },
+  });
+
+  assert.equal(
+    countRenderedBridgeLinks(stackViewState.scene.links),
+    state.document.workplaneBridgeLinks.length,
+    message,
+  );
+}
+
+function countRenderedBridgeLinks(
+  links: ReturnType<typeof createStackViewState>['scene']['links'],
+): number {
+  return links.filter((link) => link.linkKey.startsWith('bridge:')).length;
+}
+
 function createCanonicalDemoLayoutEntries(): DemoLayoutEntry[] {
   const entries: DemoLayoutEntry[] = [];
 
@@ -752,11 +1075,11 @@ function createCanonicalDemoLayoutEntries(): DemoLayoutEntry[] {
     for (let columnIndex = 0; columnIndex < DEMO_SOURCE_COLUMN_COUNT; columnIndex += 1) {
       const column = columnIndex + 1;
       const row = rowIndex + 1;
-      const rootText = `${column}:${row}:1`;
+      const rootText = buildLabelKey('wp-1', 1, row, column);
       entries.push({
         nodes: {
           root: {text: rootText, size: DEMO_ROOT_LABEL_SIZE},
-          child: {text: `${column}:${row}:2`, size: DEMO_CHILD_LABEL_SIZE},
+          child: {text: buildLabelKey('wp-1', 2, row, column), size: DEMO_CHILD_LABEL_SIZE},
         },
         sourceColumnIndex: columnIndex,
         sourceRowIndex: rowIndex,

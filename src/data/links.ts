@@ -5,6 +5,10 @@ import {
   type LayoutStrategy,
 } from './demo-layout';
 import {getDemoLayoutEntries} from './labels';
+import {
+  DEFAULT_LABEL_KEY_WORKPLANE_ID,
+  buildLabelKey,
+} from '../label-key';
 
 import type {LinkDefinition, LinkPoint} from '../line/types';
 import type {LabelLocation, RgbaColor} from '../text/types';
@@ -36,7 +40,10 @@ type ResolvedLinkPoint = {
   location: LabelLocation;
 };
 
-export function getDemoLinks(layoutStrategy: LayoutStrategy = DEFAULT_LAYOUT_STRATEGY): LinkDefinition[] {
+export function getDemoLinks(
+  layoutStrategy: LayoutStrategy = DEFAULT_LAYOUT_STRATEGY,
+  workplaneId: string = DEFAULT_LABEL_KEY_WORKPLANE_ID,
+): LinkDefinition[] {
   const entries = getDemoLayoutEntries();
   const placement = layoutDemoEntries(entries, layoutStrategy);
   const rootBoxByKey = new Map<string, DemoLayoutNodeBox>();
@@ -62,6 +69,7 @@ export function getDemoLinks(layoutStrategy: LayoutStrategy = DEFAULT_LAYOUT_STR
       pushLink(
         links,
         rootBoxByKey,
+        workplaneId,
         sourceColumnIndex,
         sourceRowIndex,
         sourceColumnIndex + 1,
@@ -83,6 +91,7 @@ export function getDemoLinks(layoutStrategy: LayoutStrategy = DEFAULT_LAYOUT_STR
       pushLink(
         links,
         rootBoxByKey,
+        workplaneId,
         sourceColumnIndex,
         sourceRowIndex,
         sourceColumnIndex,
@@ -103,6 +112,7 @@ export function getDemoLinks(layoutStrategy: LayoutStrategy = DEFAULT_LAYOUT_STR
       pushLink(
         links,
         rootBoxByKey,
+        workplaneId,
         sourceColumnIndex,
         sourceRowIndex,
         sourceColumnIndex + 1,
@@ -123,6 +133,7 @@ export function getDemoLinks(layoutStrategy: LayoutStrategy = DEFAULT_LAYOUT_STR
       pushLink(
         links,
         rootBoxByKey,
+        workplaneId,
         sourceColumnIndex,
         sourceRowIndex,
         sourceColumnIndex + 1,
@@ -143,6 +154,7 @@ export function getDemoLinks(layoutStrategy: LayoutStrategy = DEFAULT_LAYOUT_STR
     pushLink(
       links,
       rootBoxByKey,
+      workplaneId,
       0,
       sourceRowIndex,
       11,
@@ -163,6 +175,7 @@ export function getDemoLinks(layoutStrategy: LayoutStrategy = DEFAULT_LAYOUT_STR
 function pushLink(
   links: LinkDefinition[],
   rootBoxByKey: Map<string, DemoLayoutNodeBox>,
+  workplaneId: string,
   startColumn: number,
   startRow: number,
   endColumn: number,
@@ -186,11 +199,11 @@ function pushLink(
   links.push({
     ...options,
     color: getColumnDistanceColor(columnDistance),
-    inputLabelKey: getRootLabelKey(endColumn, endRow),
+    inputLabelKey: getRootLabelKey(workplaneId, endColumn, endRow),
     inputLinkPoint: inputLinkPoint.linkPoint,
     inputLocation: inputLinkPoint.location,
-    linkKey: `${getRootLabelKey(startColumn, startRow)}->${getRootLabelKey(endColumn, endRow)}`,
-    outputLabelKey: getRootLabelKey(startColumn, startRow),
+    linkKey: `${getRootLabelKey(workplaneId, startColumn, startRow)}->${getRootLabelKey(workplaneId, endColumn, endRow)}`,
+    outputLabelKey: getRootLabelKey(workplaneId, startColumn, startRow),
     outputLinkPoint: outputLinkPoint.linkPoint,
     outputLocation: outputLinkPoint.location,
     zoomLevel: DEMO_LINK_ZOOM_LEVEL,
@@ -246,6 +259,10 @@ function getGridKey(sourceColumnIndex: number, sourceRowIndex: number): string {
   return `${sourceColumnIndex}:${sourceRowIndex}`;
 }
 
-function getRootLabelKey(sourceColumnIndex: number, sourceRowIndex: number): string {
-  return `${sourceColumnIndex + 1}:${sourceRowIndex + 1}:1`;
+function getRootLabelKey(
+  workplaneId: string,
+  sourceColumnIndex: number,
+  sourceRowIndex: number,
+): string {
+  return buildLabelKey(workplaneId, 1, sourceRowIndex + 1, sourceColumnIndex + 1);
 }

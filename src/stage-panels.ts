@@ -1,78 +1,100 @@
-import type {LayoutStrategy} from './data/labels';
 import type {
   LabelFocusedCameraAction,
   LabelFocusedCameraAvailability,
 } from './label-focused-camera';
-import type {LineStrategy} from './line/types';
+import type {StageMode} from './plane-stack';
 import type {LabelSetKind} from './stage-config';
-import type {TextStrategy} from './text/types';
 
 export type StrategyPanelMode = 'text' | 'line' | 'layout' | 'label-edit';
+export type ControlPadPage = 'edit' | 'navigate' | 'stage';
 
 export function syncStageStrategyPanels(input: {
+  activeWorkplaneIndex: number;
+  canDeleteWorkplane: boolean;
+  canSpawnWorkplane: boolean;
+  controlPadPage: ControlPadPage;
   labelSetKind: LabelSetKind;
-  layoutStrategy: LayoutStrategy;
-  lineStrategy: LineStrategy;
+  planeCount: number;
   renderPanel: HTMLElement;
+  stageMode: StageMode;
   strategyModePanel: HTMLElement;
   strategyPanelMode: StrategyPanelMode;
-  textStrategy: TextStrategy;
 }): void {
   const {
-    labelSetKind,
-    layoutStrategy,
-    lineStrategy,
+    activeWorkplaneIndex,
+    canDeleteWorkplane,
+    canSpawnWorkplane,
+    controlPadPage,
+    planeCount,
     renderPanel,
+    stageMode,
     strategyModePanel,
-    strategyPanelMode,
-    textStrategy,
   } = input;
 
-  for (const button of renderPanel.querySelectorAll<HTMLButtonElement>('[data-text-strategy]')) {
-    setButtonPressed(button, button.dataset.textStrategy === textStrategy);
+  for (const page of strategyModePanel.querySelectorAll<HTMLElement>('[data-control-pad-page]')) {
+    page.hidden = page.dataset.controlPadPage !== controlPadPage;
   }
 
-  for (const button of renderPanel.querySelectorAll<HTMLButtonElement>('[data-line-strategy]')) {
-    setButtonPressed(button, button.dataset.lineStrategy === lineStrategy);
+  const isSingleWorkplane = planeCount <= 1;
+  const isFirstWorkplane = activeWorkplaneIndex <= 1;
+  const isLastWorkplane = activeWorkplaneIndex >= planeCount;
+
+  for (const button of strategyModePanel.querySelectorAll<HTMLButtonElement>('[data-stage-mode-action]')) {
+    const action = button.dataset.stageModeAction;
+    const isActive =
+      (action === 'set-2d-mode' && stageMode === '2d-mode') ||
+      (action === 'set-3d-mode' && stageMode === '3d-mode');
+
+    setButtonPressed(button, isActive);
   }
 
-  for (const button of renderPanel.querySelectorAll<HTMLButtonElement>('[data-layout-strategy]')) {
-    setButtonPressed(button, button.dataset.layoutStrategy === layoutStrategy);
+  for (const button of strategyModePanel.querySelectorAll<HTMLButtonElement>('[data-workplane-action]')) {
+    switch (button.dataset.workplaneAction) {
+      case 'select-previous-workplane':
+        button.disabled = isSingleWorkplane || isFirstWorkplane;
+        break;
+      case 'select-next-workplane':
+        button.disabled = isSingleWorkplane || isLastWorkplane;
+        break;
+      case 'spawn-workplane':
+        button.disabled = !canSpawnWorkplane;
+        break;
+      case 'delete-active-workplane':
+        button.disabled = !canDeleteWorkplane;
+        break;
+      default:
+        button.disabled = false;
+    }
   }
 
-  for (const button of strategyModePanel.querySelectorAll<HTMLButtonElement>('[data-strategy-panel-mode]')) {
-    const mode = button.dataset.strategyPanelMode;
-    const requiresDemoLabelSet = mode === 'layout' || mode === 'line' || mode === 'label-edit';
-
-    button.disabled = requiresDemoLabelSet && labelSetKind !== 'demo';
-    setButtonPressed(button, mode === strategyPanelMode);
-  }
-
-  const panelLabel = renderPanel.querySelector<HTMLElement>('[data-testid="strategy-panel-label"]');
-
-  if (panelLabel) {
-    panelLabel.textContent = getStrategyPanelLabel(strategyPanelMode);
-  }
-
-  const textStrategyPanel = renderPanel.querySelector<HTMLElement>('[data-testid="text-strategy-panel"]');
-  const lineStrategyPanel = renderPanel.querySelector<HTMLElement>('[data-testid="line-strategy-panel"]');
-  const layoutStrategyPanel = renderPanel.querySelector<HTMLElement>('[data-testid="layout-strategy-panel"]');
+  const controlPadLabel =
+    strategyModePanel.querySelector<HTMLElement>('[data-testid="control-pad-label"]');
+  const navigateModeChip =
+    strategyModePanel.querySelector<HTMLButtonElement>('[data-testid="navigate-mode-chip"]');
+  const stageModeChip =
+    strategyModePanel.querySelector<HTMLButtonElement>('[data-testid="stage-mode-chip"]');
+  const stageWorkplaneChip =
+    strategyModePanel.querySelector<HTMLButtonElement>('[data-testid="stage-workplane-chip"]');
   const labelEditPanel = renderPanel.querySelector<HTMLElement>('[data-testid="label-edit-panel"]');
 
-  if (textStrategyPanel) {
-    textStrategyPanel.hidden = strategyPanelMode !== 'text';
+  if (controlPadLabel) {
+    controlPadLabel.textContent = getControlPadLabel(controlPadPage);
   }
 
-  if (lineStrategyPanel) {
-    lineStrategyPanel.hidden = strategyPanelMode !== 'line' || labelSetKind !== 'demo';
+  if (navigateModeChip) {
+    navigateModeChip.textContent = stageMode === '3d-mode' ? 'Orbit' : 'Grid';
   }
 
-  if (layoutStrategyPanel) {
-    layoutStrategyPanel.hidden = strategyPanelMode !== 'layout' || labelSetKind !== 'demo';
+  if (stageModeChip) {
+    stageModeChip.textContent = stageMode === '3d-mode' ? 'Stack' : 'Grid';
+  }
+
+  if (stageWorkplaneChip) {
+    stageWorkplaneChip.textContent = planeCount <= 0 ? 'WP 0/0' : `WP ${activeWorkplaneIndex}/${planeCount}`;
   }
 
   if (labelEditPanel) {
-    labelEditPanel.hidden = strategyPanelMode !== 'label-edit' || labelSetKind !== 'demo';
+    labelEditPanel.hidden = false;
   }
 }
 
@@ -108,17 +130,15 @@ function setButtonPressed(button: HTMLButtonElement, isActive: boolean): void {
   button.setAttribute('aria-pressed', String(isActive));
 }
 
-function getStrategyPanelLabel(mode: StrategyPanelMode): string {
-  switch (mode) {
-    case 'label-edit':
-      return 'Label Edit';
-    case 'layout':
-      return 'Layout Strategy';
-    case 'line':
-      return 'Line Strategy';
-    case 'text':
+function getControlPadLabel(page: ControlPadPage): string {
+  switch (page) {
+    case 'edit':
+      return 'Edit';
+    case 'stage':
+      return 'Stage';
+    case 'navigate':
     default:
-      return 'Text Strategy';
+      return 'Navigate';
   }
 }
 

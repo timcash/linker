@@ -1,10 +1,14 @@
 import {
   DEFAULT_LAYOUT_STRATEGY,
   layoutDemoEntries,
-  type DemoHierarchyLocations,
   type DemoLayoutEntry,
   type LayoutStrategy,
 } from './demo-layout';
+import {getLayerZoomLevel} from '../layer-grid';
+import {
+  DEFAULT_LABEL_KEY_WORKPLANE_ID,
+  buildLabelKey,
+} from '../label-key';
 
 import type {LabelDefinition, RgbaColor} from '../text/types';
 import type {ZoomBand} from '../text/zoom';
@@ -13,14 +17,8 @@ type ZoomBandPreset = ZoomBand & {
   size: number;
 };
 
-type DemoHierarchyTexts = {
-  child: string;
-  root: string;
-};
-
 type DemoLabelEntry = {
   childWindow: ZoomBandPreset;
-  hierarchyTexts: DemoHierarchyTexts;
   layoutEntry: DemoLayoutEntry;
   palette: (typeof DEMO_COLUMN_PALETTES)[number];
   rootWindow: ZoomBandPreset;
@@ -49,7 +47,7 @@ const DEMO_ROOT_WINDOW: ZoomBandPreset = {
 };
 const DEMO_CHILD_WINDOW: ZoomBandPreset = {
   size: 0.28,
-  zoomLevel: 2,
+  zoomLevel: getLayerZoomLevel(0, 2),
   zoomRange: 2.4,
 };
 
@@ -78,6 +76,7 @@ export const DEMO_LABELS: LabelDefinition[] = getDemoLabels();
 export function getDemoLabels(
   layoutStrategy: LayoutStrategy = DEFAULT_LAYOUT_STRATEGY,
   layerCount: number = DEFAULT_DEMO_LAYER_COUNT,
+  workplaneId: string = DEFAULT_LABEL_KEY_WORKPLANE_ID,
 ): LabelDefinition[] {
   const normalizedLayerCount = normalizeDemoLayerCount(layerCount);
   const placement = layoutDemoEntries(
@@ -95,7 +94,15 @@ export function getDemoLabels(
         continue;
       }
 
-      labels.push(createDemoLayerLabel(entry, locations, layer, normalizedLayerCount));
+      labels.push(
+        createDemoLayerLabel(
+          entry,
+          locations,
+          layer,
+          normalizedLayerCount,
+          workplaneId,
+        ),
+      );
     }
   }
 
@@ -115,19 +122,26 @@ function createDemoLabelEntries(): DemoLabelEntry[] {
 
   for (let rowIndex = 0; rowIndex < DEMO_ROWS_PER_SOURCE_COLUMN; rowIndex += 1) {
     for (let columnIndex = 0; columnIndex < DEMO_SOURCE_COLUMN_COUNT; columnIndex += 1) {
-      const hierarchyTexts = createDemoHierarchyTexts(columnIndex, rowIndex);
-
       entries.push({
         childWindow: DEMO_CHILD_WINDOW,
-        hierarchyTexts,
         layoutEntry: {
           nodes: {
             root: {
-              text: hierarchyTexts.root,
+              text: createDemoHierarchyText(
+                DEFAULT_LABEL_KEY_WORKPLANE_ID,
+                1,
+                rowIndex + 1,
+                columnIndex + 1,
+              ),
               size: DEMO_ROOT_WINDOW.size,
             },
             child: {
-              text: hierarchyTexts.child,
+              text: createDemoHierarchyText(
+                DEFAULT_LABEL_KEY_WORKPLANE_ID,
+                2,
+                rowIndex + 1,
+                columnIndex + 1,
+              ),
               size: DEMO_CHILD_WINDOW.size,
             },
           },
@@ -143,37 +157,38 @@ function createDemoLabelEntries(): DemoLabelEntry[] {
   return entries;
 }
 
-function createDemoHierarchyTexts(columnIndex: number, rowIndex: number): DemoHierarchyTexts {
-  const column = columnIndex + 1;
-  const row = rowIndex + 1;
-
-  return {
-    root: `${column}:${row}:1`,
-    child: `${column}:${row}:2`,
-  };
+function createDemoHierarchyText(
+  workplaneId: string,
+  layer: number,
+  row: number,
+  column: number,
+): string {
+  return buildLabelKey(workplaneId, layer, row, column);
 }
 
 function createDemoLayerLabel(
   entry: DemoLabelEntry,
-  locations: DemoHierarchyLocations,
+  locations: ReturnType<typeof layoutDemoEntries>['locations'][number],
   layer: number,
   layerCount: number,
+  workplaneId: string,
 ): LabelDefinition {
   const column = entry.layoutEntry.sourceColumnIndex + 1;
   const row = entry.layoutEntry.sourceRowIndex + 1;
-  const key = `${column}:${row}:${layer}`;
+  const key = buildLabelKey(workplaneId, layer, row, column);
   const layerWindow = getDemoLayerWindow(layer);
   const location = layer === 1 ? locations.root : locations.child;
 
   return {
     inputLinkKeys: [],
-    text: key,
+    text: createDemoHierarchyText(workplaneId, layer, row, column),
     location,
     navigation: {
       key,
       column,
       row,
       layer,
+      workplaneId,
     },
     outputLinkKeys: [],
     size: layerWindow.size,
@@ -194,7 +209,7 @@ function getDemoLayerWindow(layer: number): ZoomBandPreset {
 
   return {
     size: DEMO_CHILD_WINDOW.size,
-    zoomLevel: DEMO_CHILD_WINDOW.zoomLevel + (layer - 2),
+    zoomLevel: getLayerZoomLevel(0, layer),
     zoomRange: DEMO_CHILD_WINDOW.zoomRange,
   };
 }

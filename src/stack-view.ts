@@ -1,5 +1,6 @@
 import {
   getActiveWorkplaneDocument,
+  type WorkplaneBridgeLinkDefinition,
   type StageSystemState,
   type WorkplaneId,
 } from './plane-stack';
@@ -40,6 +41,7 @@ export type StackViewState = {
 export function createStackViewState(state: StageSystemState): StackViewState {
   const activeWorkplane = getActiveWorkplaneDocument(state);
   const sceneBoundsById = new Map<WorkplaneId, ScenePlaneBounds>();
+  const projectedLabelsByWorkplaneId = new Map<WorkplaneId, Map<string, LabelDefinition>>();
   let maxSceneWidth = 1;
   let maxSceneHeight = 1;
 
@@ -89,10 +91,11 @@ export function createStackViewState(state: StageSystemState): StackViewState {
       };
     }
 
+    const projectedLabels = new Map<string, LabelDefinition>();
+
     for (const label of workplane.scene.labels) {
       const stackLocation = projectWorkplanePointToScene(label.location, planeZ);
-
-      labels.push({
+      const stackLabel: LabelDefinition = {
         ...label,
         color: label.color ? scaleColorAlpha(label.color, alphaScale) : undefined,
         inputLinkKeys: [...label.inputLinkKeys],
@@ -101,9 +104,16 @@ export function createStackViewState(state: StageSystemState): StackViewState {
         outputLinkKeys: [...label.outputLinkKeys],
         planeBasisX: {...STACK_PLANE_BASIS_X},
         planeBasisY: {...STACK_PLANE_BASIS_Y},
-      });
+      };
+
+      labels.push(stackLabel);
+      if (stackLabel.navigation?.key) {
+        projectedLabels.set(stackLabel.navigation.key, stackLabel);
+      }
       sceneBounds = includeScenePointInBounds(sceneBounds, stackLocation);
     }
+
+    projectedLabelsByWorkplaneId.set(workplaneId, projectedLabels);
 
     for (const link of workplane.scene.links) {
       const inputLocation = projectWorkplanePointToScene(link.inputLocation, planeZ);
@@ -120,6 +130,15 @@ export function createStackViewState(state: StageSystemState): StackViewState {
     }
   }
 
+  for (const link of resolveWorkplaneBridgeLinks(
+    state.document.workplaneBridgeLinks,
+    projectedLabelsByWorkplaneId,
+  )) {
+    links.push(link);
+    sceneBounds = includeScenePointInBounds(sceneBounds, link.inputLocation);
+    sceneBounds = includeScenePointInBounds(sceneBounds, link.outputLocation);
+  }
+
   return {
     backplates,
     orbitTarget: orbitTarget ?? {x: 0, y: 0, z: 0},
@@ -127,6 +146,7 @@ export function createStackViewState(state: StageSystemState): StackViewState {
       labelSetPreset: activeWorkplane.scene.labelSetPreset,
       labels,
       links,
+      workplaneId: activeWorkplane.scene.workplaneId,
     },
     sceneBounds:
       sceneBounds ?? {
@@ -233,4 +253,76 @@ function scaleColorAlpha(
   alphaScale: number,
 ): RgbaColor {
   return [color[0], color[1], color[2], Math.min(1, color[3] * alphaScale)];
+}
+
+function resolveWorkplaneBridgeLinks(
+  bridgeLinks: WorkplaneBridgeLinkDefinition[],
+  projectedLabelsByWorkplaneId: Map<WorkplaneId, Map<string, LabelDefinition>>,
+): LinkDefinition[] {
+  const resolvedLinks: LinkDefinition[] = [];
+
+  for (const bridgeLink of bridgeLinks) {
+    const outputLabel = projectedLabelsByWorkplaneId
+      .get(bridgeLink.outputWorkplaneId)
+      ?.get(bridgeLink.outputLabelKey);
+    const inputLabel = projectedLabelsByWorkplaneId
+      .get(bridgeLink.inputWorkplaneId)
+      ?.get(bridgeLink.inputLabelKey);
+
+    if (!outputLabel || !inputLabel) {
+      continue;
+    }
+
+    const linkPoints = resolveLinkPoints(outputLabel.location, inputLabel.location);
+
+    resolvedLinks.push({
+      bendDirection: bridgeLink.bendDirection,
+      color: [...bridgeLink.color],
+      curveBias: bridgeLink.curveBias,
+      curveDepth: bridgeLink.curveDepth,
+      curveLift: bridgeLink.curveLift,
+      inputLabelKey: bridgeLink.inputLabelKey,
+      inputLinkPoint: linkPoints.inputLinkPoint,
+      inputLocation: {...inputLabel.location},
+      linkKey: bridgeLink.linkKey,
+      lineWidth: bridgeLink.lineWidth,
+      outputLabelKey: bridgeLink.outputLabelKey,
+      outputLinkPoint: linkPoints.outputLinkPoint,
+      outputLocation: {...outputLabel.location},
+      zoomLevel: bridgeLink.zoomLevel,
+      zoomRange: bridgeLink.zoomRange,
+    });
+  }
+
+  return resolvedLinks;
+}
+
+function resolveLinkPoints(
+  outputLocation: LabelDefinition['location'],
+  inputLocation: LabelDefinition['location'],
+): {inputLinkPoint: LinkDefinition['inputLinkPoint']; outputLinkPoint: LinkDefinition['outputLinkPoint']} {
+  const deltaX = inputLocation.x - outputLocation.x;
+  const deltaY = inputLocation.y - outputLocation.y;
+
+  if (Math.abs(deltaX) >= Math.abs(deltaY)) {
+    return deltaX >= 0
+      ? {
+          inputLinkPoint: 'left-center',
+          outputLinkPoint: 'right-center',
+        }
+      : {
+          inputLinkPoint: 'right-center',
+          outputLinkPoint: 'left-center',
+        };
+  }
+
+  return deltaY >= 0
+    ? {
+        inputLinkPoint: 'bottom-center',
+        outputLinkPoint: 'top-center',
+      }
+    : {
+        inputLinkPoint: 'top-center',
+        outputLinkPoint: 'bottom-center',
+      };
 }

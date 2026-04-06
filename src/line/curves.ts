@@ -1,7 +1,16 @@
-import type {WorldPoint} from '../camera';
 import type {LinkDefinition, LinkPoint, LineStrategy} from './types';
 
-type Vec2 = WorldPoint;
+type CurvePoint = {
+  x: number;
+  y: number;
+  z?: number;
+};
+
+type Vec2 = {
+  x: number;
+  y: number;
+};
+
 type SampleLinePointStrategy =
   | LineStrategy
   | 'arc-links'
@@ -15,14 +24,14 @@ export function sampleLineCurve(
   link: LinkDefinition,
   strategy: LineStrategy,
   segmentCount: number,
-): Vec2[] {
+): CurvePoint[] {
   const safeSegmentCount = Math.max(4, segmentCount);
 
   if (strategy === 'rounded-step-links') {
     return sampleRoundedStepLinks(link, safeSegmentCount);
   }
 
-  const points: Vec2[] = [];
+  const points: CurvePoint[] = [];
 
   for (let segmentIndex = 0; segmentIndex <= safeSegmentCount; segmentIndex += 1) {
     const t = segmentIndex / safeSegmentCount;
@@ -36,7 +45,7 @@ function sampleLinePoint(
   link: LinkDefinition,
   strategy: SampleLinePointStrategy,
   t: number,
-): Vec2 {
+): CurvePoint {
   switch (strategy) {
     case 'cubic-links':
       return sampleCubicLinks(link, t);
@@ -50,8 +59,12 @@ function sampleLinePoint(
   }
 }
 
-function sampleRoundedStepLinks(link: LinkDefinition, segmentCount: number): Vec2[] {
-  const routePoints = getRoundedStepRoute(link);
+function sampleRoundedStepLinks(link: LinkDefinition, segmentCount: number): CurvePoint[] {
+  const routePoints = applyInterpolatedDepth(
+    getRoundedStepRoute(link),
+    link.outputLocation.z ?? 0,
+    link.inputLocation.z ?? 0,
+  );
 
   if (routePoints.length <= 2) {
     return routePoints;
@@ -64,7 +77,7 @@ function sampleRoundedStepLinks(link: LinkDefinition, segmentCount: number): Vec
   );
 }
 
-function sampleArcLinks(link: LinkDefinition, t: number): Vec2 {
+function sampleArcLinks(link: LinkDefinition, t: number): CurvePoint {
   const tangent = getLinkTangent(link);
   const normal = getLinkNormal(link);
   const base = lerpVec2(link.outputLocation, link.inputLocation, t);
@@ -75,10 +88,11 @@ function sampleArcLinks(link: LinkDefinition, t: number): Vec2 {
   return {
     x: base.x + normal.x * normalOffset + tangent.x * tangentDrift,
     y: base.y + normal.y * normalOffset + tangent.y * tangentDrift,
+    z: base.z,
   };
 }
 
-function sampleCubicLinks(link: LinkDefinition, t: number): Vec2 {
+function sampleCubicLinks(link: LinkDefinition, t: number): CurvePoint {
   const tangent = getLinkTangent(link);
   const normal = getLinkNormal(link);
   const distance = getLinkDistance(link);
@@ -93,6 +107,7 @@ function sampleCubicLinks(link: LinkDefinition, t: number): Vec2 {
       link.outputLocation.y +
       tangent.y * handle +
       normal.y * curveAmplitude * link.bendDirection,
+    z: lerpNumber(link.outputLocation.z ?? 0, link.inputLocation.z ?? 0, 1 / 3),
   };
   const control2 = {
     x:
@@ -103,12 +118,13 @@ function sampleCubicLinks(link: LinkDefinition, t: number): Vec2 {
       link.inputLocation.y -
       tangent.y * handle +
       normal.y * curveAmplitude * link.bendDirection,
+    z: lerpNumber(link.outputLocation.z ?? 0, link.inputLocation.z ?? 0, 2 / 3),
   };
 
   return cubicBezier(link.outputLocation, control1, control2, link.inputLocation, t);
 }
 
-function sampleFanLinks(link: LinkDefinition, t: number): Vec2 {
+function sampleFanLinks(link: LinkDefinition, t: number): CurvePoint {
   const tangent = getLinkTangent(link);
   const normal = getLinkNormal(link);
   const distance = getLinkDistance(link);
@@ -124,6 +140,7 @@ function sampleFanLinks(link: LinkDefinition, t: number): Vec2 {
       link.outputLocation.y +
       tangent.y * startHandle +
       normal.y * curveAmplitude * link.bendDirection,
+    z: lerpNumber(link.outputLocation.z ?? 0, link.inputLocation.z ?? 0, 1 / 3),
   };
   const control2 = {
     x:
@@ -134,12 +151,13 @@ function sampleFanLinks(link: LinkDefinition, t: number): Vec2 {
       link.inputLocation.y -
       tangent.y * endHandle +
       normal.y * curveAmplitude * link.bendDirection * 0.38,
+    z: lerpNumber(link.outputLocation.z ?? 0, link.inputLocation.z ?? 0, 2 / 3),
   };
 
   return cubicBezier(link.outputLocation, control1, control2, link.inputLocation, t);
 }
 
-function sampleOrbitLinks(link: LinkDefinition, t: number): Vec2 {
+function sampleOrbitLinks(link: LinkDefinition, t: number): CurvePoint {
   const tangent = getLinkTangent(link);
   const normal = getLinkNormal(link);
   const distance = getLinkDistance(link);
@@ -154,6 +172,7 @@ function sampleOrbitLinks(link: LinkDefinition, t: number): Vec2 {
       link.outputLocation.y +
       tangent.y * handle +
       normal.y * curveAmplitude * link.bendDirection,
+    z: lerpNumber(link.outputLocation.z ?? 0, link.inputLocation.z ?? 0, 1 / 3),
   };
   const control2 = {
     x:
@@ -164,12 +183,13 @@ function sampleOrbitLinks(link: LinkDefinition, t: number): Vec2 {
       link.inputLocation.y -
       tangent.y * handle -
       normal.y * curveAmplitude * link.bendDirection * 0.82,
+    z: lerpNumber(link.outputLocation.z ?? 0, link.inputLocation.z ?? 0, 2 / 3),
   };
 
   return cubicBezier(link.outputLocation, control1, control2, link.inputLocation, t);
 }
 
-function getRoundedStepRoute(link: LinkDefinition): Vec2[] {
+function getRoundedStepRoute(link: LinkDefinition): CurvePoint[] {
   const outputAxis = getLinkPointAxis(link.outputLinkPoint);
   const inputAxis = getLinkPointAxis(link.inputLinkPoint);
 
@@ -227,10 +247,10 @@ function getRoundedStepRoute(link: LinkDefinition): Vec2[] {
 }
 
 function sampleRoundedPolyline(
-  routePoints: Vec2[],
+  routePoints: CurvePoint[],
   segmentCount: number,
   cornerRadius: number,
-): Vec2[] {
+): CurvePoint[] {
   if (routePoints.length <= 2 || cornerRadius <= 0.0001) {
     return routePoints;
   }
@@ -241,7 +261,7 @@ function sampleRoundedPolyline(
     return routePoints;
   }
 
-  const sampledPoints: Vec2[] = [firstPoint];
+  const sampledPoints: CurvePoint[] = [firstPoint];
   const cornerCount = Math.max(1, routePoints.length - 2);
   const cornerSegments = Math.max(4, Math.floor(segmentCount / cornerCount));
 
@@ -292,19 +312,23 @@ function sampleRoundedPolyline(
     const entry = {
       x: corner.x - incomingDirection.x * effectiveRadius,
       y: corner.y - incomingDirection.y * effectiveRadius,
+      z: corner.z,
     };
     const exit = {
       x: corner.x + outgoingDirection.x * effectiveRadius,
       y: corner.y + outgoingDirection.y * effectiveRadius,
+      z: corner.z,
     };
     const handleLength = effectiveRadius * CUBIC_ARC_HANDLE_RATIO;
     const control1 = {
       x: entry.x + incomingDirection.x * handleLength,
       y: entry.y + incomingDirection.y * handleLength,
+      z: corner.z,
     };
     const control2 = {
       x: exit.x - outgoingDirection.x * handleLength,
       y: exit.y - outgoingDirection.y * handleLength,
+      z: corner.z,
     };
 
     pushUniquePoint(sampledPoints, entry);
@@ -328,11 +352,11 @@ function sampleRoundedPolyline(
 }
 
 function appendCubicSegmentSamples(
-  sampledPoints: Vec2[],
-  start: Vec2,
-  control1: Vec2,
-  control2: Vec2,
-  end: Vec2,
+  sampledPoints: CurvePoint[],
+  start: CurvePoint,
+  control1: CurvePoint,
+  control2: CurvePoint,
+  end: CurvePoint,
   segmentCount: number,
 ): void {
   for (let segmentIndex = 1; segmentIndex <= segmentCount; segmentIndex += 1) {
@@ -342,12 +366,12 @@ function appendCubicSegmentSamples(
 }
 
 function cubicBezier(
-  start: Vec2,
-  control1: Vec2,
-  control2: Vec2,
-  end: Vec2,
+  start: CurvePoint,
+  control1: CurvePoint,
+  control2: CurvePoint,
+  end: CurvePoint,
   t: number,
-): Vec2 {
+): CurvePoint {
   const inverse = 1 - t;
   const inverseSquared = inverse * inverse;
   const tSquared = t * t;
@@ -367,18 +391,24 @@ function cubicBezier(
       control1.y * control1Weight +
       control2.y * control2Weight +
       end.y * endWeight,
+    z:
+      (start.z ?? 0) * startWeight +
+      (control1.z ?? 0) * control1Weight +
+      (control2.z ?? 0) * control2Weight +
+      (end.z ?? 0) * endWeight,
   };
 }
 
-function lerpVec2(start: Vec2, end: Vec2, t: number): Vec2 {
+function lerpVec2(start: CurvePoint, end: CurvePoint, t: number): CurvePoint {
   return {
     x: start.x + (end.x - start.x) * t,
     y: start.y + (end.y - start.y) * t,
+    z: lerpNumber(start.z ?? 0, end.z ?? 0, t),
   };
 }
 
-function createRoutePoints(...points: Vec2[]): Vec2[] {
-  const routePoints: Vec2[] = [];
+function createRoutePoints(...points: CurvePoint[]): CurvePoint[] {
+  const routePoints: CurvePoint[] = [];
 
   for (const point of points) {
     pushUniquePoint(routePoints, point);
@@ -391,7 +421,7 @@ function getCurveAmplitude(link: LinkDefinition): number {
   return getLinkDistance(link) * link.curveDepth + link.curveLift;
 }
 
-function getRoundedStepCornerRadius(link: LinkDefinition, routePoints: Vec2[]): number {
+function getRoundedStepCornerRadius(link: LinkDefinition, routePoints: CurvePoint[]): number {
   let minSegmentLength = Number.POSITIVE_INFINITY;
 
   for (let pointIndex = 0; pointIndex < routePoints.length - 1; pointIndex += 1) {
@@ -457,18 +487,38 @@ function getLinkPointAxis(linkPoint: LinkPoint): 'horizontal' | 'vertical' {
   }
 }
 
-function pushUniquePoint(points: Vec2[], point: Vec2): void {
+function pushUniquePoint(points: CurvePoint[], point: CurvePoint): void {
   const previous = points[points.length - 1];
 
   if (
     previous &&
     Math.abs(previous.x - point.x) <= 0.0001 &&
-    Math.abs(previous.y - point.y) <= 0.0001
+    Math.abs(previous.y - point.y) <= 0.0001 &&
+    Math.abs((previous.z ?? 0) - (point.z ?? 0)) <= 0.0001
   ) {
     return;
   }
 
   points.push(point);
+}
+
+function applyInterpolatedDepth(
+  points: CurvePoint[],
+  startZ: number,
+  endZ: number,
+): CurvePoint[] {
+  if (points.length <= 1) {
+    return points.map((point) => ({...point, z: startZ}));
+  }
+
+  return points.map((point, index) => ({
+    ...point,
+    z: lerpNumber(startZ, endZ, index / (points.length - 1)),
+  }));
+}
+
+function lerpNumber(start: number, end: number, t: number): number {
+  return start + (end - start) * t;
 }
 
 function clamp(value: number, min: number, max: number): number {

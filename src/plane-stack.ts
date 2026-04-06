@@ -4,6 +4,7 @@ import {
   DEFAULT_STACK_CAMERA_STATE,
   type StackCameraState,
 } from './stack-camera';
+import type {LinkDefinition} from './line/types';
 
 export const STAGE_MODES = ['2d-mode', '3d-mode'] as const;
 
@@ -26,8 +27,20 @@ export type WorkplaneDocumentState = {
   scene: StageScene;
 };
 
+export type WorkplaneBridgeLinkDefinition = Pick<
+  LinkDefinition,
+  'bendDirection' | 'color' | 'curveBias' | 'curveDepth' | 'curveLift' | 'lineWidth' | 'zoomLevel' | 'zoomRange'
+> & {
+  inputLabelKey: string;
+  inputWorkplaneId: WorkplaneId;
+  linkKey: string;
+  outputLabelKey: string;
+  outputWorkplaneId: WorkplaneId;
+};
+
 export type PlaneStackDocumentState = {
   nextWorkplaneNumber: number;
+  workplaneBridgeLinks: WorkplaneBridgeLinkDefinition[];
   workplaneOrder: WorkplaneId[];
   workplanesById: Record<WorkplaneId, WorkplaneDocumentState>;
 };
@@ -72,6 +85,7 @@ export function createStageSystemState(
   return {
     document: {
       nextWorkplaneNumber: INITIAL_NEXT_WORKPLANE_NUMBER,
+      workplaneBridgeLinks: [],
       workplaneOrder: [workplane.workplaneId],
       workplanesById: {
         [workplane.workplaneId]: workplane,
@@ -116,6 +130,7 @@ export function cloneStageSystemState(
   return {
     document: {
       nextWorkplaneNumber: state.document.nextWorkplaneNumber,
+      workplaneBridgeLinks: state.document.workplaneBridgeLinks.map(cloneWorkplaneBridgeLink),
       workplaneOrder: [...state.document.workplaneOrder],
       workplanesById,
     },
@@ -184,13 +199,14 @@ export function spawnWorkplaneAfterActive(state: StageSystemState): StageSystemS
 
   return {
     document: {
+      ...state.document,
       nextWorkplaneNumber: state.document.nextWorkplaneNumber + 1,
       workplaneOrder,
       workplanesById: {
         ...state.document.workplanesById,
         [workplaneId]: {
           labelTextOverrides: {},
-          scene: createEmptyStageScene(activeDocument.scene.labelSetPreset),
+          scene: createEmptyStageScene(activeDocument.scene.labelSetPreset, workplaneId),
           workplaneId,
         },
       },
@@ -382,6 +398,15 @@ function cloneWorkplaneView(view: WorkplaneViewState): WorkplaneViewState {
       centerY: view.camera.centerY,
       zoom: view.camera.zoom,
     },
+  };
+}
+
+function cloneWorkplaneBridgeLink(
+  link: WorkplaneBridgeLinkDefinition,
+): WorkplaneBridgeLinkDefinition {
+  return {
+    ...link,
+    color: [...link.color],
   };
 }
 

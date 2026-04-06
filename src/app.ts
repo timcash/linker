@@ -25,6 +25,7 @@ import {
   type LabelFocusedCameraAction,
   type LabelFocusedCameraState,
 } from './label-focused-camera';
+import type {LabelNavigationNode} from './label-navigation';
 import {LineLayer} from './line/layer';
 import {
   LINE_STRATEGIES,
@@ -32,7 +33,9 @@ import {
 } from './line/types';
 import {FrameTelemetry} from './perf';
 import {
+  cloneStageSystemState,
   canDeleteActiveWorkplane,
+  canSpawnWorkplane,
   deleteActiveWorkplane,
   getActiveWorkplaneDocument,
   getActiveWorkplaneView,
@@ -52,6 +55,8 @@ import {
   createDemoStageScene,
   type StageScene,
 } from './scene-model';
+import {GRID_LAYER_ZOOM_STEP} from './layer-grid';
+import {parseLabelKey} from './label-key';
 import {
   PlaneFocusProjector,
   StackCameraProjector,
@@ -64,12 +69,39 @@ import {
   type StageConfig,
 } from './stage-config';
 import {
+  type ControlPadPage,
   syncStageCameraPanel,
   syncStageStrategyPanels,
   type StrategyPanelMode,
 } from './stage-panels';
 import {createStageChrome, type StageChromeElements} from './stage-chrome';
-import {syncStageSelectionBox} from './stage-selection-box';
+import {
+  syncStageEditorGhostLayer,
+  syncStageEditorSelectionBox,
+  syncStageEditorSelectionLayer,
+} from './stage-editor-overlay';
+import {
+  addLabelAtStageEditorCursor,
+  canLinkStageEditorSelection,
+  canRemoveStageEditorLinks,
+  clearStageEditorSelection,
+  createStageEditorState,
+  focusStageEditorLabel,
+  getStageEditorFocusedLabel,
+  getStageEditorFocusedLabelKey,
+  getStageEditorCursorLocation,
+  getStageEditorGhosts,
+  getStageEditorSelectionRanks,
+  linkStageEditorSelection,
+  moveStageEditorCursor,
+  relayoutStageEditorState,
+  removeLabelAtStageEditorCursor,
+  removeStageEditorLinks,
+  toggleStageEditorSelection,
+  type StageEditorCursor,
+  type StageEditorDirection,
+  type StageEditorState,
+} from './stage-editor';
 import {createStageSnapshot, writeStageSnapshot} from './stage-snapshot';
 import {
   hydrateStageBootState,
@@ -150,7 +182,7 @@ const QUAD_UVS = new Float32Array([
   1, 1,
 ]);
 
-const DEMO_DEEP_ZOOM_STEP = 1;
+const DEMO_DEEP_ZOOM_STEP = GRID_LAYER_ZOOM_STEP;
 const STACK_CAMERA_CONTROL_AZIMUTH_STEP_RADIANS = Math.PI / 18;
 const STACK_CAMERA_CONTROL_ELEVATION_STEP_RADIANS = Math.PI / 24;
 const STACK_CAMERA_DRAG_RADIANS_PER_PIXEL = 0.0055;
@@ -162,7 +194,14 @@ const MAX_RENDER_FRAME_DELTA_MS = 33.34;
 type AppState = 'loading' | 'ready' | 'unsupported' | 'error';
 
 type ControlAction = LabelFocusedCameraAction;
-type StageModeAction = 'toggle-stage-mode';
+type EditorAction =
+  | 'add-label'
+  | 'clear-selection'
+  | 'link-selection'
+  | 'remove-label'
+  | 'remove-links';
+type EditorShortcutAction = 'toggle-selection-or-create';
+type StageModeAction = 'set-2d-mode' | 'set-3d-mode' | 'toggle-stage-mode';
 type WorkplaneAction =
   | 'delete-active-workplane'
   | 'select-next-workplane'
@@ -220,6 +259,8 @@ class LumaStageController {
   private backgroundModel: Model | null = null;
   private benchmarkStarted = false;
   private benchmarkSummary: StageBenchmarkSummary | null = null;
+  private editorState: StageEditorState | null = null;
+  private editorWorkplaneId: string | null = null;
   private frameTelemetry: FrameTelemetry | null = null;
   private gridLayer: GridLayer | null = null;
   private labelFocusedCamera: LabelFocusedCameraState | null = null;
@@ -235,10 +276,15 @@ class LumaStageController {
   private readonly planeFocusProjector = new PlaneFocusProjector(this.camera);
   private readonly stackProjector = new StackCameraProjector();
   private readonly actionButtons: HTMLButtonElement[] = [];
+  private readonly editorActionButtons: HTMLButtonElement[] = [];
+  private readonly editorShortcutButtons: HTMLButtonElement[] = [];
   private readonly layoutStrategyButtons: HTMLButtonElement[] = [];
   private readonly lineStrategyButtons: HTMLButtonElement[] = [];
-  private readonly strategyModeButtons: HTMLButtonElement[] = [];
+  private readonly controlPadToggleButtons: HTMLButtonElement[] = [];
+  private readonly stageModeActionButtons: HTMLButtonElement[] = [];
   private readonly textStrategyButtons: HTMLButtonElement[] = [];
+  private readonly workplaneActionButtons: HTMLButtonElement[] = [];
+  private controlPadPage: ControlPadPage = 'navigate';
   private destroyed = false;
   private labelInputPending = false;
   private labelInputSyncedKey: string | null = null;
@@ -271,14 +317,24 @@ class LumaStageController {
     this.stackProjector.setStackCamera(initialState.session.stackCamera);
     this.layoutStrategy = config.layoutStrategy;
     this.lineStrategy = config.lineStrategy;
-    this.strategyPanelMode = strategyPanelMode;
+    this.strategyPanelMode =
+      strategyPanelMode === 'label-edit' ? strategyPanelMode : DEFAULT_STRATEGY_PANEL_MODE;
     this.textStrategy = config.textStrategy;
     const initialView = getActiveWorkplaneView(initialState);
 
     if (config.labelSetKind === 'demo') {
+      this.editorState = createStageEditorState(
+        this.scene,
+        initialView.selectedLabelKey,
+      );
+      this.editorWorkplaneId = initialState.session.activeWorkplaneId;
+    }
+
+    if (config.labelSetKind === 'demo') {
       this.labelFocusedCamera = createOptionalLabelFocusedCameraState(
         this.scene.labels,
-        initialView.selectedLabelKey,
+        getStageEditorFocusedLabelKey(this.editorState, this.scene) ??
+          initialView.selectedLabelKey,
       );
     }
 
@@ -352,14 +408,24 @@ class LumaStageController {
       this.installInteractionHandlers();
       this.updateStrategyPanels();
       this.updateCameraPanel();
+      this.syncEditorPanel();
       this.syncLabelInputPanel({forceValue: true});
       this.syncHistorySnapshot();
       this.chrome.launchBanner.hidden = true;
       this.chrome.canvas.hidden = false;
+      this.syncCanvasDrawingBufferSize();
       this.setState('ready');
       this.syncCurrentRouteQueryParams();
       this.updateStatus();
       this.requestRender();
+      requestAnimationFrame(() => {
+        if (this.destroyed) {
+          return;
+        }
+
+        this.syncCanvasDrawingBufferSize();
+        this.requestRender();
+      });
 
       if (this.config.benchmarkEnabled) {
         void this.runBenchmark();
@@ -416,7 +482,7 @@ class LumaStageController {
       const stageProjector = this.getActiveProjector(viewport);
       const activeLabelNode = this.workplaneSyncPending || this.state.session.stageMode === '3d-mode'
         ? null
-        : getActiveLabelFocusedCameraNode(this.labelFocusedCamera);
+        : this.getFocusedEditorLabelNode();
 
       if (this.state.session.stageMode === '2d-mode') {
         this.frameTelemetry?.startCpuGrid();
@@ -436,15 +502,26 @@ class LumaStageController {
       this.textLayer.update(stageProjector, viewport, activeLabelNode?.key ?? null);
       this.frameTelemetry?.endCpuText();
       if (this.state.session.stageMode === '2d-mode') {
-        syncStageSelectionBox({
-          activeLabelNode,
-          projector: this.planeFocusProjector,
+        const cursor = this.getEditorCursor();
+
+        syncStageEditorSelectionBox({
+          bounds: this.getEditorCursorScreenBounds(),
+          cursorKind: cursor?.kind ?? null,
+          key: cursor?.key ?? null,
           selectionBox: this.chrome.selectionBox,
-          textLayer: this.textLayer,
-          viewport,
+        });
+        syncStageEditorGhostLayer({
+          ghostLayer: this.chrome.editorGhostLayer,
+          ghosts: this.getGhostOverlayItems(),
+        });
+        syncStageEditorSelectionLayer({
+          selectionLayer: this.chrome.editorSelectionLayer,
+          selections: this.getSelectionRankOverlayItems(),
         });
       } else {
         this.chrome.selectionBox.hidden = true;
+        this.chrome.editorGhostLayer.replaceChildren();
+        this.chrome.editorSelectionLayer.replaceChildren();
       }
 
       this.frameTelemetry?.startCpuDraw();
@@ -540,63 +617,65 @@ class LumaStageController {
     }
 
     this.updateCameraPanel();
+    this.syncEditorPanel();
     this.syncLabelInputPanel();
   }
 
   private applyDemoControlAction(action: ControlAction): boolean {
-    const activeNode = getActiveLabelFocusedCameraNode(this.labelFocusedCamera);
-
-    if (!activeNode) {
-      return false;
-    }
-
+    const focusedLabel = this.getFocusedEditorLabel();
     const targetZoom = this.camera.getTargetSnapshot().zoom;
 
     switch (action) {
       case 'pan-up':
       case 'pan-down':
       case 'pan-left':
-      case 'pan-right': {
-        const targetNode = getLabelFocusedCameraTarget(this.labelFocusedCamera, action);
-
-        if (!targetNode || targetNode.key === this.labelFocusedCamera?.activeLabelKey) {
-          return false;
-        }
-
-        return this.setActiveDemoLabelKey(targetNode.key, {zoom: targetZoom});
-      }
+      case 'pan-right':
+        return this.moveEditorCursor(action);
       case 'zoom-in': {
-        const deeperNode = getLabelFocusedCameraTarget(this.labelFocusedCamera, action);
+        if (focusedLabel) {
+          const deeperNode = getLabelFocusedCameraTarget(this.labelFocusedCamera, action);
 
-        if (deeperNode && deeperNode.key !== this.labelFocusedCamera?.activeLabelKey) {
-          return this.setActiveDemoLabelKey(deeperNode.key);
-        }
+          if (deeperNode && deeperNode.key !== this.labelFocusedCamera?.activeLabelKey) {
+            return this.setActiveDemoLabelKey(deeperNode.key);
+          }
 
-        return this.syncActiveDemoCameraView({zoom: targetZoom + DEMO_DEEP_ZOOM_STEP});
-      }
-      case 'zoom-out': {
-        if (targetZoom > activeNode.label.zoomLevel + 0.0001) {
           return this.syncActiveDemoCameraView({
-            zoom: Math.max(activeNode.label.zoomLevel, targetZoom - DEMO_DEEP_ZOOM_STEP),
+            zoom: targetZoom + DEMO_DEEP_ZOOM_STEP,
           });
         }
 
-        const shallowerNode = getLabelFocusedCameraTarget(this.labelFocusedCamera, action);
+        return this.applyNumericControlAction(action);
+      }
+      case 'zoom-out': {
+        const activeNode = this.getFocusedEditorLabelNode();
 
-        if (!shallowerNode || shallowerNode.key === this.labelFocusedCamera?.activeLabelKey) {
-          return false;
+        if (focusedLabel && activeNode) {
+          if (targetZoom > activeNode.label.zoomLevel + 0.0001) {
+            return this.syncActiveDemoCameraView({
+              zoom: Math.max(activeNode.label.zoomLevel, targetZoom - DEMO_DEEP_ZOOM_STEP),
+            });
+          }
+
+          const shallowerNode = getLabelFocusedCameraTarget(this.labelFocusedCamera, action);
+
+          if (!shallowerNode || shallowerNode.key === this.labelFocusedCamera?.activeLabelKey) {
+            return false;
+          }
+
+          return this.setActiveDemoLabelKey(shallowerNode.key);
         }
 
-        return this.setActiveDemoLabelKey(shallowerNode.key);
+        return this.applyNumericControlAction(action);
       }
       case 'reset-camera': {
         const defaultKey = this.labelFocusedCamera?.navigationIndex.defaultKey;
 
-        if (!defaultKey) {
-          return false;
+        if (defaultKey) {
+          return this.setActiveDemoLabelKey(defaultKey);
         }
 
-        return this.setActiveDemoLabelKey(defaultKey);
+        this.camera.reset();
+        return true;
       }
       default:
         return false;
@@ -754,17 +833,23 @@ class LumaStageController {
     requestedLabelKey: string | null,
     syncQuery: boolean,
   ): void {
-    this.labelFocusedCamera = relayoutOptionalLabelFocusedCameraState(
-      this.labelFocusedCamera,
-      this.scene.labels,
-      requestedLabelKey,
-    );
+    if (this.editorState) {
+      this.editorState = relayoutStageEditorState(
+        this.editorState,
+        this.scene,
+        requestedLabelKey,
+      );
+    } else {
+      this.editorState = createStageEditorState(this.scene, requestedLabelKey);
+    }
+    this.syncLabelFocusedCameraFromEditor();
     this.syncActiveDemoCameraView({immediate: true});
     this.state = this.captureActiveWorkplaneRuntimeState(this.state);
     if (syncQuery) {
       this.syncCurrentRouteQueryParams();
     }
     this.updateCameraPanel();
+    this.syncEditorPanel();
     this.syncLabelInputPanel({forceValue: true});
   }
 
@@ -778,6 +863,9 @@ class LumaStageController {
       return false;
     }
 
+    if (this.editorState) {
+      this.editorState = focusStageEditorLabel(this.editorState, this.scene, labelKey);
+    }
     this.labelFocusedCamera = nextState;
     return this.syncActiveDemoCameraView({zoom: options?.zoom});
   }
@@ -815,12 +903,103 @@ class LumaStageController {
     return this.config.labelSetKind === 'demo' && this.labelFocusedCamera !== null;
   }
 
+  private getEditorCursor(): StageEditorCursor | null {
+    return this.editorState?.cursor ?? null;
+  }
+
+  private getFocusedEditorLabel(): StageScene['labels'][number] | null {
+    return getStageEditorFocusedLabel(this.editorState, this.scene);
+  }
+
+  private getFocusedEditorLabelKey(): string | null {
+    return getStageEditorFocusedLabelKey(this.editorState, this.scene);
+  }
+
+  private getFocusedEditorLabelNode(): LabelNavigationNode | null {
+    const label = this.getFocusedEditorLabel();
+
+    return label?.navigation
+      ? {
+          ...label.navigation,
+          label,
+        }
+      : null;
+  }
+
+  private focusEditorCursorLabel(labelKey: string): boolean {
+    if (!this.editorState) {
+      return false;
+    }
+
+    const nextEditorState = focusStageEditorLabel(
+      this.editorState,
+      this.scene,
+      labelKey,
+    );
+
+    if (nextEditorState.cursor.key === this.editorState.cursor.key) {
+      return false;
+    }
+
+    this.editorState = nextEditorState;
+    this.syncLabelFocusedCameraFromEditor();
+    return true;
+  }
+
+  private moveEditorCursor(direction: StageEditorDirection): boolean {
+    if (!this.editorState) {
+      return false;
+    }
+
+    const nextEditorState = moveStageEditorCursor(
+      this.editorState,
+      this.scene,
+      direction,
+    );
+
+    if (
+      nextEditorState.cursor.key === this.editorState.cursor.key &&
+      nextEditorState.cursor.kind === this.editorState.cursor.kind
+    ) {
+      return false;
+    }
+
+    this.editorState = nextEditorState;
+    this.syncLabelFocusedCameraFromEditor();
+    const location = getStageEditorCursorLocation(this.scene, nextEditorState.cursor);
+    const targetZoom = this.camera.getTargetSnapshot().zoom;
+
+    this.camera.setTargetView(location.x, location.y, targetZoom);
+    return true;
+  }
+
+  private syncLabelFocusedCameraFromEditor(): void {
+    if (this.config.labelSetKind !== 'demo') {
+      this.labelFocusedCamera = null;
+      return;
+    }
+
+    const focusedLabelKey = this.getFocusedEditorLabelKey();
+
+    if (!this.labelFocusedCamera) {
+      this.labelFocusedCamera = createOptionalLabelFocusedCameraState(
+        this.scene.labels,
+        focusedLabelKey,
+      );
+      return;
+    }
+
+    this.labelFocusedCamera = relayoutOptionalLabelFocusedCameraState(
+      this.labelFocusedCamera,
+      this.scene.labels,
+      focusedLabelKey ?? undefined,
+    );
+  }
+
   private syncCurrentRouteQueryParams(): void {
     syncStageRouteQueryParams({
-      cameraLabel:
-        this.isDemoLabelCameraEnabled() && this.labelFocusedCamera
-          ? this.labelFocusedCamera.activeLabelKey
-          : null,
+      cameraLabel: this.getFocusedEditorLabelKey(),
+      demoPreset: this.config.demoPreset,
       demoLayerCount: this.config.demoLayerCount,
       labelSetKind: this.config.labelSetKind,
       labelTargetCount: this.config.labelTargetCount,
@@ -848,6 +1027,167 @@ class LumaStageController {
     });
   }
 
+  private applyEditorAction(action: EditorAction): void {
+    if (
+      this.workplaneSyncPending ||
+      this.labelInputPending ||
+      this.state.session.stageMode === '3d-mode' ||
+      this.config.labelSetKind !== 'demo' ||
+      document.body.dataset.benchmarkState === 'running' ||
+      !this.editorState
+    ) {
+      return;
+    }
+
+    switch (action) {
+      case 'add-label': {
+        const result = addLabelAtStageEditorCursor(this.scene, this.editorState);
+        this.applyEditorMutationResult(result);
+        return;
+      }
+      case 'remove-label': {
+        const result = removeLabelAtStageEditorCursor(this.scene, this.editorState);
+        this.applyEditorMutationResult(result);
+        return;
+      }
+      case 'link-selection': {
+        const result = linkStageEditorSelection(this.scene, this.editorState);
+        this.applyEditorMutationResult(result);
+        return;
+      }
+      case 'remove-links': {
+        const result = removeStageEditorLinks(this.scene, this.editorState);
+        this.applyEditorMutationResult(result);
+        return;
+      }
+      case 'clear-selection': {
+        this.editorState = clearStageEditorSelection(this.editorState);
+        this.syncLabelFocusedCameraFromEditor();
+        this.updateCameraPanel();
+        this.syncEditorPanel();
+        this.syncLabelInputPanel({forceValue: true});
+        this.updateStatus();
+        this.requestRender();
+        return;
+      }
+      default:
+        return;
+    }
+  }
+
+  private applyEditorShortcutAction(action: EditorShortcutAction): void {
+    switch (action) {
+      case 'toggle-selection-or-create':
+        this.applyEditorKeyboardShortcut('toggle-selection-or-create');
+        return;
+      default:
+        return;
+    }
+  }
+
+  private applyEditorKeyboardShortcut(
+    action:
+      | 'clear-selection'
+      | 'link-selection'
+      | 'remove-label'
+      | 'remove-links'
+      | 'toggle-selection-or-create',
+  ): void {
+    if (
+      this.workplaneSyncPending ||
+      this.labelInputPending ||
+      this.state.session.stageMode === '3d-mode' ||
+      this.config.labelSetKind !== 'demo' ||
+      document.body.dataset.benchmarkState === 'running' ||
+      !this.editorState
+    ) {
+      return;
+    }
+
+    switch (action) {
+      case 'toggle-selection-or-create':
+        if (this.editorState.cursor.kind === 'ghost') {
+          this.applyEditorAction('add-label');
+          return;
+        }
+
+        this.editorState = toggleStageEditorSelection(this.editorState, this.scene);
+        this.syncLabelFocusedCameraFromEditor();
+        this.syncEditorPanel();
+        this.syncLabelInputPanel({forceValue: true});
+        this.updateStatus();
+        this.requestRender();
+        return;
+      case 'clear-selection':
+        this.applyEditorAction('clear-selection');
+        return;
+      case 'link-selection':
+        this.applyEditorAction('link-selection');
+        return;
+      case 'remove-label':
+        this.applyEditorAction('remove-label');
+        return;
+      case 'remove-links':
+        this.applyEditorAction('remove-links');
+        return;
+      default:
+        return;
+    }
+  }
+
+  private applyEditorMutationResult(result: {
+    changed: boolean;
+    editorState: StageEditorState;
+    scene: StageScene;
+  }): void {
+    this.editorState = result.editorState;
+    this.syncLabelFocusedCameraFromEditor();
+
+    if (!result.changed) {
+      this.updateCameraPanel();
+      this.syncEditorPanel();
+      this.syncLabelInputPanel({forceValue: true});
+      this.updateStatus();
+      this.requestRender();
+      return;
+    }
+
+    this.applyEditedScene(result.scene);
+  }
+
+  private applyEditedScene(nextScene: StageScene): void {
+    const nextState = cloneStageSystemState(this.state);
+    const activeWorkplaneId = nextState.session.activeWorkplaneId;
+    const nextView = nextState.session.workplaneViewsById[activeWorkplaneId];
+    const focusedLabelKey = this.getFocusedEditorLabelKey();
+
+    nextState.document.workplanesById[activeWorkplaneId].scene = nextScene;
+    nextState.session.workplaneViewsById[activeWorkplaneId] = {
+      ...nextView,
+      camera: toWorkplaneCameraView(this.camera.getTargetSnapshot()),
+      selectedLabelKey: focusedLabelKey,
+    };
+
+    this.applyStageSystemState(nextState, {
+      forceLabelInput: true,
+      syncQuery: true,
+    });
+  }
+
+  private syncCanvasDrawingBufferSize(): void {
+    if (!this.device) {
+      return;
+    }
+
+    const canvasContext = this.device.getDefaultCanvasContext();
+    const rect = this.chrome.canvas.getBoundingClientRect();
+    const devicePixelRatio = canvasContext.getDevicePixelRatio();
+    const width = Math.max(1, Math.round((rect.width || window.innerWidth) * devicePixelRatio));
+    const height = Math.max(1, Math.round((rect.height || window.innerHeight) * devicePixelRatio));
+
+    canvasContext.resize({width, height});
+  }
+
   private getViewportSize(): ViewportSize {
     const rect = this.chrome.canvas.getBoundingClientRect();
 
@@ -855,6 +1195,181 @@ class LumaStageController {
       width: rect.width || window.innerWidth,
       height: rect.height || window.innerHeight,
     };
+  }
+
+  private focusSceneLabelAtScreenPoint(
+    clientX: number,
+    clientY: number,
+  ): boolean {
+    if (
+      this.state.session.stageMode !== '2d-mode' ||
+      this.config.labelSetKind !== 'demo' ||
+      !this.textLayer
+    ) {
+      return false;
+    }
+
+    const canvasBounds = this.chrome.canvas.getBoundingClientRect();
+    const pointX = clientX - canvasBounds.left;
+    const pointY = clientY - canvasBounds.top;
+    const viewport = this.getViewportSize();
+    let bestLabel: StageScene['labels'][number] | null = null;
+    let bestArea = Number.POSITIVE_INFINITY;
+
+    for (const label of this.scene.labels) {
+      const bounds = this.textLayer.getLabelScreenBounds(
+        label,
+        this.planeFocusProjector,
+        viewport,
+      );
+
+      if (
+        !bounds ||
+        pointX < bounds.left ||
+        pointX > bounds.left + bounds.width ||
+        pointY < bounds.top ||
+        pointY > bounds.top + bounds.height
+      ) {
+        continue;
+      }
+
+      const area = bounds.width * bounds.height;
+
+      if (area < bestArea) {
+        bestArea = area;
+        bestLabel = label;
+      }
+    }
+
+    if (!bestLabel?.navigation || !this.focusEditorCursorLabel(bestLabel.navigation.key)) {
+      return false;
+    }
+
+    this.camera.setTargetView(
+      bestLabel.location.x,
+      bestLabel.location.y,
+      this.camera.getTargetSnapshot().zoom,
+    );
+    return true;
+  }
+
+  private getEditorCursorScreenBounds(): {
+    height: number;
+    left: number;
+    top: number;
+    width: number;
+  } | null {
+    if (!this.editorState || this.state.session.stageMode !== '2d-mode') {
+      return null;
+    }
+
+    const viewport = this.getViewportSize();
+    const focusedLabel = this.getFocusedEditorLabel();
+
+    if (focusedLabel && this.textLayer) {
+      return this.textLayer.getLabelScreenBounds(
+        focusedLabel,
+        this.planeFocusProjector,
+        viewport,
+      );
+    }
+
+    const location = getStageEditorCursorLocation(
+      this.scene,
+      this.editorState.cursor,
+    );
+    const center = this.planeFocusProjector.projectWorldPoint(location, viewport);
+    const unitSize = this.camera.pixelsPerWorldUnit;
+    const width = Math.max(72, unitSize * 2.1);
+    const height = Math.max(30, unitSize * 0.88);
+
+    return {
+      height,
+      left: center.x - width * 0.5,
+      top: center.y - height * 0.5,
+      width,
+    };
+  }
+
+  private getGhostOverlayItems(): Array<{
+    bounds: {height: number; left: number; top: number; width: number};
+    direction: string;
+    key: string;
+  }> {
+    if (!this.editorState || this.state.session.stageMode !== '2d-mode') {
+      return [];
+    }
+
+    const viewport = this.getViewportSize();
+    const unitSize = this.camera.pixelsPerWorldUnit;
+
+    return getStageEditorGhosts(this.scene, this.editorState).map((ghost) => {
+      const location = getStageEditorCursorLocation(this.scene, ghost);
+      const center = this.planeFocusProjector.projectWorldPoint(location, viewport);
+      const width = Math.max(64, unitSize * 1.8);
+      const height = Math.max(28, unitSize * 0.76);
+
+      return {
+        bounds: {
+          height,
+          left: center.x - width * 0.5,
+          top: center.y - height * 0.5,
+          width,
+        },
+        direction: ghost.direction,
+        key: ghost.key,
+      };
+    });
+  }
+
+  private getSelectionRankOverlayItems(): Array<{
+    bounds: {height: number; left: number; top: number; width: number};
+    key: string;
+    rank: number;
+  }> {
+    if (
+      !this.editorState ||
+      !this.textLayer ||
+      this.state.session.stageMode !== '2d-mode'
+    ) {
+      return [];
+    }
+
+    const viewport = this.getViewportSize();
+    const selectionRanks = getStageEditorSelectionRanks(this.editorState);
+    const items: Array<{
+      bounds: {height: number; left: number; top: number; width: number};
+      key: string;
+      rank: number;
+    }> = [];
+
+    for (const [labelKey, rank] of selectionRanks.entries()) {
+      const label = this.scene.labels.find(
+        (candidateLabel) => candidateLabel.navigation?.key === labelKey,
+      );
+
+      if (!label) {
+        continue;
+      }
+
+      const bounds = this.textLayer.getLabelScreenBounds(
+        label,
+        this.planeFocusProjector,
+        viewport,
+      );
+
+      if (!bounds) {
+        continue;
+      }
+
+      items.push({
+        bounds,
+        key: labelKey,
+        rank,
+      });
+    }
+
+    return items;
   }
 
   private handleActionButtonClick = (event: MouseEvent): void => {
@@ -869,6 +1384,46 @@ class LumaStageController {
     if (action) {
       this.applyControlAction(action);
     }
+  };
+
+  private handleEditorActionButtonClick = (event: MouseEvent): void => {
+    const button = event.currentTarget;
+
+    if (!(button instanceof HTMLButtonElement)) {
+      return;
+    }
+
+    const action = button.dataset.editorAction;
+
+    if (isEditorAction(action)) {
+      this.applyEditorAction(action);
+    }
+  };
+
+  private handleGhostLayerClick = (event: MouseEvent): void => {
+    const target = event.target;
+
+    if (!(target instanceof HTMLElement) || !this.editorState) {
+      return;
+    }
+
+    const button = target.closest<HTMLButtonElement>('[data-ghost-key]');
+    const ghostKey = button?.dataset.ghostKey;
+
+    if (!ghostKey) {
+      return;
+    }
+
+    this.editorState = {
+      ...this.editorState,
+      cursor: {
+        ...this.editorState.cursor,
+        ...toCursorFromLabelKey(ghostKey),
+        kind: 'ghost',
+      },
+    };
+    this.syncLabelFocusedCameraFromEditor();
+    this.applyEditorAction('add-label');
   };
 
   private handleWindowKeyDown = (event: KeyboardEvent): void => {
@@ -902,6 +1457,14 @@ class LumaStageController {
       return;
     }
 
+    const editorShortcut = getKeyboardEditorShortcut(event);
+
+    if (editorShortcut) {
+      event.preventDefault();
+      this.applyEditorKeyboardShortcut(editorShortcut);
+      return;
+    }
+
     const action = getKeyboardControlAction(event);
 
     if (!action) {
@@ -916,12 +1479,26 @@ class LumaStageController {
     if (
       event.defaultPrevented ||
       this.destroyed ||
-      this.state.session.stageMode !== '3d-mode' ||
       this.labelInputPending ||
       this.workplaneSyncPending ||
       document.body.dataset.benchmarkState === 'running' ||
       event.button !== 0
     ) {
+      return;
+    }
+
+    if (this.state.session.stageMode === '2d-mode') {
+      if (this.focusSceneLabelAtScreenPoint(event.clientX, event.clientY)) {
+        this.state = this.captureActiveWorkplaneRuntimeState(this.state);
+        this.syncCurrentRouteQueryParams();
+        this.updateCameraPanel();
+        this.syncEditorPanel();
+        this.syncLabelInputPanel({forceValue: true});
+        this.updateStatus();
+        this.requestRender();
+        event.preventDefault();
+      }
+
       return;
     }
 
@@ -1002,6 +1579,7 @@ class LumaStageController {
       return;
     }
 
+    this.syncCanvasDrawingBufferSize();
     this.requestRender();
   };
 
@@ -1047,18 +1625,52 @@ class LumaStageController {
     }
   };
 
-  private handleStrategyModeButtonClick = (event: MouseEvent): void => {
+  private handleStageModeActionButtonClick = (event: MouseEvent): void => {
     const button = event.currentTarget;
 
     if (!(button instanceof HTMLButtonElement)) {
       return;
     }
 
-    const mode = button.dataset.strategyPanelMode;
+    const action = button.dataset.stageModeAction;
 
-    if (isStrategyPanelMode(mode)) {
-      this.setStrategyPanelMode(mode);
+    if (isStageModeAction(action)) {
+      this.applyStageModeAction(action);
     }
+  };
+
+  private handleWorkplaneActionButtonClick = (event: MouseEvent): void => {
+    const button = event.currentTarget;
+
+    if (!(button instanceof HTMLButtonElement)) {
+      return;
+    }
+
+    const action = button.dataset.workplaneAction;
+
+    if (isWorkplaneAction(action)) {
+      this.applyWorkplaneAction(action);
+    }
+  };
+
+  private handleEditorShortcutButtonClick = (event: MouseEvent): void => {
+    const button = event.currentTarget;
+
+    if (!(button instanceof HTMLButtonElement)) {
+      return;
+    }
+
+    const action = button.dataset.editorShortcut;
+
+    if (isEditorShortcutAction(action)) {
+      this.applyEditorShortcutAction(action);
+    }
+  };
+
+  private handleControlPadToggleButtonClick = (): void => {
+    this.controlPadPage = getNextControlPadPage(this.controlPadPage);
+    this.updateStrategyPanels();
+    this.updateCameraPanel();
   };
 
   private handleLabelInputFormSubmit = (event: SubmitEvent): void => {
@@ -1074,20 +1686,21 @@ class LumaStageController {
       return;
     }
 
-    const activeNode = getActiveLabelFocusedCameraNode(this.labelFocusedCamera);
+    const focusedLabelKey = this.getFocusedEditorLabelKey();
+    const focusedLabel = this.getFocusedEditorLabel();
 
-    if (!activeNode) {
+    if (!focusedLabelKey || !focusedLabel) {
       return;
     }
 
     const nextText = this.chrome.labelInputField.value;
 
-    if (nextText === activeNode.label.text) {
+    if (nextText === focusedLabel.text) {
       this.syncLabelInputPanel({forceValue: true});
       return;
     }
 
-    void this.updateFocusedLabelText(activeNode.key, nextText);
+    void this.updateFocusedLabelText(focusedLabelKey, nextText);
   };
 
   private setTextStrategy(mode: TextStrategy): void {
@@ -1161,36 +1774,27 @@ class LumaStageController {
     this.requestRender();
   }
 
-  private setStrategyPanelMode(mode: StrategyPanelMode): void {
-    if ((mode === 'layout' || mode === 'line' || mode === 'label-edit') && this.config.labelSetKind !== 'demo') {
-      return;
-    }
-
-    if (mode === this.strategyPanelMode) {
-      return;
-    }
-
-    this.strategyPanelMode = mode;
-    this.updateStrategyPanels();
-    this.syncLabelInputPanel();
-    this.updateStatus();
-    this.requestRender();
-  }
-
   private updateStrategyPanels(): void {
+    document.body.dataset.controlPadPage = this.controlPadPage;
     syncStageStrategyPanels({
+      activeWorkplaneIndex:
+        getWorkplaneIndex(this.state, this.state.session.activeWorkplaneId) + 1,
+      canDeleteWorkplane: canDeleteActiveWorkplane(this.state),
+      canSpawnWorkplane: canSpawnWorkplane(this.state),
+      controlPadPage: this.controlPadPage,
       labelSetKind: this.config.labelSetKind,
-      layoutStrategy: this.layoutStrategy,
-      lineStrategy: this.lineStrategy,
+      planeCount: getPlaneCount(this.state),
       renderPanel: this.chrome.renderPanel,
+      stageMode: this.state.session.stageMode,
       strategyModePanel: this.chrome.strategyModePanel,
       strategyPanelMode: this.strategyPanelMode,
-      textStrategy: this.textStrategy,
     });
+    this.syncEditorPanel();
     this.syncLabelInputPanel();
   }
 
   private updateCameraPanel(): void {
+    this.chrome.cameraPanelHint.textContent = this.getControlPadSummary();
     syncStageCameraPanel({
       buttons: this.actionButtons,
       cameraAvailability: this.getEffectiveCameraAvailability(),
@@ -1198,9 +1802,69 @@ class LumaStageController {
     });
   }
 
+  private syncEditorPanel(): void {
+    const editorState = this.editorState;
+    const focusedLabel = this.getFocusedEditorLabel();
+    const editorReady =
+      !this.labelInputPending &&
+      !this.workplaneSyncPending &&
+      this.state.session.stageMode === '2d-mode' &&
+      this.config.labelSetKind === 'demo' &&
+      document.body.dataset.benchmarkState !== 'running' &&
+      editorState !== null;
+    const selectedCount = editorState?.selectedLabelKeys.length ?? 0;
+    const cursorKey = editorState?.cursor.key ?? '';
+    const cursorKind = editorState?.cursor.kind ?? 'ghost';
+    const summary =
+      this.state.session.stageMode === '3d-mode'
+        ? '3D locked'
+        : !editorState
+        ? 'Unavailable'
+        : selectedCount === 0
+        ? `${cursorKind === 'ghost' ? 'Ghost' : 'Focus'} ${cursorKey}`
+        : `${selectedCount} selected`;
+
+    this.chrome.editorSelectionSummary.textContent = summary;
+
+    for (const button of this.editorActionButtons) {
+      const action = button.dataset.editorAction;
+
+      button.disabled =
+        !editorReady ||
+        !isEditorActionEnabled(action, {
+          canAddLabel: editorState?.cursor.kind === 'ghost',
+          canClearSelection: selectedCount > 0,
+          canLinkSelection: editorState ? canLinkStageEditorSelection(editorState) : false,
+          canRemoveLabel: focusedLabel !== null,
+          canRemoveLinks:
+            editorState !== null && canRemoveStageEditorLinks(this.scene, editorState),
+        });
+    }
+
+    for (const button of this.editorShortcutButtons) {
+      const action = button.dataset.editorShortcut;
+
+      button.disabled = !isEditorShortcutActionEnabled(action, {
+        canToggleSelectionOrCreate: editorReady,
+      });
+    }
+  }
+
   private installInteractionHandlers(): void {
     this.actionButtons.push(
-      ...this.chrome.cameraPanel.querySelectorAll<HTMLButtonElement>('[data-control]'),
+      ...this.chrome.strategyModePanel.querySelectorAll<HTMLButtonElement>('[data-control]'),
+    );
+    this.editorActionButtons.push(
+      ...this.chrome.strategyModePanel.querySelectorAll<HTMLButtonElement>('[data-editor-action]'),
+    );
+    this.editorShortcutButtons.push(
+      ...this.chrome.strategyModePanel.querySelectorAll<HTMLButtonElement>('[data-editor-shortcut]'),
+    );
+    this.controlPadToggleButtons.push(
+      ...this.chrome.strategyModePanel.querySelectorAll<HTMLButtonElement>('[data-control-pad-action="toggle-page"]'),
+    );
+    this.stageModeActionButtons.push(
+      ...this.chrome.strategyModePanel.querySelectorAll<HTMLButtonElement>('[data-stage-mode-action]'),
     );
     this.textStrategyButtons.push(
       ...this.chrome.renderPanel.querySelectorAll<HTMLButtonElement>('[data-text-strategy]'),
@@ -1211,12 +1875,28 @@ class LumaStageController {
     this.layoutStrategyButtons.push(
       ...this.chrome.renderPanel.querySelectorAll<HTMLButtonElement>('[data-layout-strategy]'),
     );
-    this.strategyModeButtons.push(
-      ...this.chrome.strategyModePanel.querySelectorAll<HTMLButtonElement>('[data-strategy-panel-mode]'),
+    this.workplaneActionButtons.push(
+      ...this.chrome.strategyModePanel.querySelectorAll<HTMLButtonElement>('[data-workplane-action]'),
     );
 
     for (const button of this.actionButtons) {
       button.addEventListener('click', this.handleActionButtonClick);
+    }
+
+    for (const button of this.editorActionButtons) {
+      button.addEventListener('click', this.handleEditorActionButtonClick);
+    }
+
+    for (const button of this.editorShortcutButtons) {
+      button.addEventListener('click', this.handleEditorShortcutButtonClick);
+    }
+
+    for (const button of this.controlPadToggleButtons) {
+      button.addEventListener('click', this.handleControlPadToggleButtonClick);
+    }
+
+    for (const button of this.stageModeActionButtons) {
+      button.addEventListener('click', this.handleStageModeActionButtonClick);
     }
 
     for (const button of this.textStrategyButtons) {
@@ -1231,11 +1911,12 @@ class LumaStageController {
       button.addEventListener('click', this.handleLayoutStrategyButtonClick);
     }
 
-    for (const button of this.strategyModeButtons) {
-      button.addEventListener('click', this.handleStrategyModeButtonClick);
+    for (const button of this.workplaneActionButtons) {
+      button.addEventListener('click', this.handleWorkplaneActionButtonClick);
     }
 
     this.chrome.labelInputForm.addEventListener('submit', this.handleLabelInputFormSubmit);
+    this.chrome.editorGhostLayer.addEventListener('click', this.handleGhostLayerClick);
     this.chrome.canvas.addEventListener('pointerdown', this.handleCanvasPointerDown);
     this.chrome.canvas.addEventListener('wheel', this.handleCanvasWheel, {passive: false});
     window.addEventListener('keydown', this.handleWindowKeyDown);
@@ -1250,6 +1931,22 @@ class LumaStageController {
       button.removeEventListener('click', this.handleActionButtonClick);
     }
 
+    for (const button of this.editorActionButtons) {
+      button.removeEventListener('click', this.handleEditorActionButtonClick);
+    }
+
+    for (const button of this.editorShortcutButtons) {
+      button.removeEventListener('click', this.handleEditorShortcutButtonClick);
+    }
+
+    for (const button of this.controlPadToggleButtons) {
+      button.removeEventListener('click', this.handleControlPadToggleButtonClick);
+    }
+
+    for (const button of this.stageModeActionButtons) {
+      button.removeEventListener('click', this.handleStageModeActionButtonClick);
+    }
+
     for (const button of this.textStrategyButtons) {
       button.removeEventListener('click', this.handleStrategyButtonClick);
     }
@@ -1262,11 +1959,12 @@ class LumaStageController {
       button.removeEventListener('click', this.handleLayoutStrategyButtonClick);
     }
 
-    for (const button of this.strategyModeButtons) {
-      button.removeEventListener('click', this.handleStrategyModeButtonClick);
+    for (const button of this.workplaneActionButtons) {
+      button.removeEventListener('click', this.handleWorkplaneActionButtonClick);
     }
 
     this.chrome.labelInputForm.removeEventListener('submit', this.handleLabelInputFormSubmit);
+    this.chrome.editorGhostLayer.removeEventListener('click', this.handleGhostLayerClick);
     this.chrome.canvas.removeEventListener('pointerdown', this.handleCanvasPointerDown);
     this.chrome.canvas.removeEventListener('wheel', this.handleCanvasWheel);
     window.removeEventListener('keydown', this.handleWindowKeyDown);
@@ -1276,10 +1974,14 @@ class LumaStageController {
     window.removeEventListener('resize', this.handleWindowResize);
 
     this.actionButtons.length = 0;
+    this.editorActionButtons.length = 0;
+    this.editorShortcutButtons.length = 0;
+    this.controlPadToggleButtons.length = 0;
+    this.stageModeActionButtons.length = 0;
     this.textStrategyButtons.length = 0;
     this.lineStrategyButtons.length = 0;
     this.layoutStrategyButtons.length = 0;
-    this.strategyModeButtons.length = 0;
+    this.workplaneActionButtons.length = 0;
   }
 
   private async runBenchmark(): Promise<void> {
@@ -1341,20 +2043,29 @@ class LumaStageController {
 
   private getEditableLabelHint(): string {
     if (this.state.session.stageMode === '3d-mode') {
-      return 'Stack view disables label editing. Return to 2d-mode to edit the active workplane.';
+      return '3D locked';
     }
 
     if (this.config.labelSetKind !== 'demo') {
-      return 'Label editing is only available for the demo label set.';
+      return 'Demo only';
     }
 
-    const activeNode = getActiveLabelFocusedCameraNode(this.labelFocusedCamera);
+    const focusedLabel = this.getFocusedEditorLabel();
+    const editorCursor = this.getEditorCursor();
 
-    if (!activeNode) {
-      return 'No focused demo label is available.';
+    if (!editorCursor) {
+      return 'No focus';
     }
 
-    return `Focused label ${activeNode.key}`;
+    if (!focusedLabel) {
+      return `Ghost ${editorCursor.key}`;
+    }
+
+    return `Label ${focusedLabel.navigation?.key ?? editorCursor.key}`;
+  }
+
+  private getControlPadSummary(): string {
+    return '';
   }
 
   private findSceneLabelByKey(labelKey: string): StageScene['labels'][number] | null {
@@ -1392,7 +2103,8 @@ class LumaStageController {
   }
 
   private syncLabelInputPanel(options?: {forceValue?: boolean}): void {
-    const activeNode = getActiveLabelFocusedCameraNode(this.labelFocusedCamera);
+    const focusedLabel = this.getFocusedEditorLabel();
+    const focusedLabelKey = focusedLabel?.navigation?.key ?? null;
     const input = this.chrome.labelInputField;
     const submitButton = this.chrome.labelInputSubmitButton;
     const shouldDisableInput =
@@ -1400,21 +2112,21 @@ class LumaStageController {
       this.state.session.stageMode === '3d-mode' ||
       this.workplaneSyncPending ||
       this.config.labelSetKind !== 'demo' ||
-      activeNode === null ||
+      focusedLabel === null ||
       document.body.dataset.benchmarkState === 'running';
     const shouldSyncValue =
       Boolean(options?.forceValue) ||
-      activeNode?.key !== this.labelInputSyncedKey ||
+      focusedLabelKey !== this.labelInputSyncedKey ||
       (!shouldDisableInput &&
         document.activeElement !== input &&
-        activeNode !== null &&
-        activeNode.label.text !== this.labelInputSyncedText);
+        focusedLabel !== null &&
+        focusedLabel.text !== this.labelInputSyncedText);
 
     this.chrome.labelInputHint.textContent = this.getEditableLabelHint();
     input.disabled = shouldDisableInput;
     submitButton.disabled = shouldDisableInput;
 
-    if (!activeNode) {
+    if (!focusedLabel) {
       this.labelInputSyncedKey = null;
       this.labelInputSyncedText = '';
 
@@ -1426,11 +2138,11 @@ class LumaStageController {
     }
 
     if (shouldSyncValue) {
-      input.value = activeNode.label.text;
+      input.value = focusedLabel.text;
     }
 
-    this.labelInputSyncedKey = activeNode.key;
-    this.labelInputSyncedText = activeNode.label.text;
+    this.labelInputSyncedKey = focusedLabelKey;
+    this.labelInputSyncedText = focusedLabel.text;
   }
 
   private async updateFocusedLabelText(labelKey: string, nextText: string): Promise<void> {
@@ -1494,7 +2206,7 @@ class LumaStageController {
 
   private captureActiveWorkplaneRuntimeState(state: StageSystemState): StageSystemState {
     return replaceWorkplaneView(state, state.session.activeWorkplaneId, {
-      selectedLabelKey: this.labelFocusedCamera?.activeLabelKey ?? null,
+      selectedLabelKey: this.getFocusedEditorLabelKey(),
       camera: toWorkplaneCameraView(this.camera.getTargetSnapshot()),
     });
   }
@@ -1568,12 +2280,21 @@ class LumaStageController {
     syncQuery?: boolean;
   }, stackViewState?: StackViewState): void {
     const view = getActiveWorkplaneView(this.state);
+    const activeWorkplaneId = this.state.session.activeWorkplaneId;
 
     this.syncRenderSceneFromState(stackViewState);
-    this.labelFocusedCamera =
-      this.config.labelSetKind === 'demo'
-        ? createOptionalLabelFocusedCameraState(this.scene.labels, view.selectedLabelKey)
-        : null;
+    if (this.config.labelSetKind === 'demo') {
+      this.editorState =
+        this.editorWorkplaneId !== activeWorkplaneId || !this.editorState
+          ? createStageEditorState(this.scene, view.selectedLabelKey)
+          : relayoutStageEditorState(this.editorState, this.scene, view.selectedLabelKey);
+      this.editorWorkplaneId = activeWorkplaneId;
+      this.syncLabelFocusedCameraFromEditor();
+    } else {
+      this.editorState = null;
+      this.editorWorkplaneId = null;
+      this.labelFocusedCamera = null;
+    }
     this.camera.setView(view.camera.centerX, view.camera.centerY, view.camera.zoom);
     this.lineLayer?.setLinks(this.renderScene.links);
     this.textLayer?.setLayoutLabels(this.renderScene.labels);
@@ -1582,7 +2303,9 @@ class LumaStageController {
       this.syncCurrentRouteQueryParams();
     }
 
+    this.updateStrategyPanels();
     this.updateCameraPanel();
+    this.syncEditorPanel();
     this.syncLabelInputPanel({forceValue: options?.forceLabelInput ?? true});
     this.updateStatus();
     this.requestRender();
@@ -1605,7 +2328,11 @@ class LumaStageController {
 
     this.workplaneSyncPending = true;
     this.chrome.selectionBox.hidden = true;
+    this.chrome.editorGhostLayer.replaceChildren();
+    this.chrome.editorSelectionLayer.replaceChildren();
+    this.updateStrategyPanels();
     this.updateCameraPanel();
+    this.syncEditorPanel();
     this.syncLabelInputPanel({forceValue: true});
 
     try {
@@ -1621,10 +2348,18 @@ class LumaStageController {
 
       this.state = nextState;
       this.syncRenderSceneFromState(nextStackViewState);
-      this.labelFocusedCamera =
-        this.config.labelSetKind === 'demo'
-          ? createOptionalLabelFocusedCameraState(this.scene.labels, view.selectedLabelKey)
-          : null;
+      if (this.config.labelSetKind === 'demo') {
+        this.editorState =
+          this.editorWorkplaneId !== nextState.session.activeWorkplaneId || !this.editorState
+            ? createStageEditorState(this.scene, view.selectedLabelKey)
+            : relayoutStageEditorState(this.editorState, this.scene, view.selectedLabelKey);
+        this.editorWorkplaneId = nextState.session.activeWorkplaneId;
+        this.syncLabelFocusedCameraFromEditor();
+      } else {
+        this.editorState = null;
+        this.editorWorkplaneId = null;
+        this.labelFocusedCamera = null;
+      }
       this.camera.setView(view.camera.centerX, view.camera.centerY, view.camera.zoom);
       this.lineLayer?.setLinks(this.renderScene.links);
       this.textLayer = nextTextLayer;
@@ -1634,7 +2369,9 @@ class LumaStageController {
         this.syncCurrentRouteQueryParams();
       }
 
+      this.updateStrategyPanels();
       this.updateCameraPanel();
+      this.syncEditorPanel();
       this.syncLabelInputPanel({forceValue: options?.forceLabelInput ?? true});
       this.updateStatus();
       this.requestRender();
@@ -1644,7 +2381,9 @@ class LumaStageController {
     } finally {
       if (generation === this.workplaneSyncGeneration) {
         this.workplaneSyncPending = false;
+        this.updateStrategyPanels();
         this.updateCameraPanel();
+        this.syncEditorPanel();
         this.syncLabelInputPanel({forceValue: true});
       }
     }
@@ -1691,13 +2430,27 @@ class LumaStageController {
   private updateStatus(): void {
     const isStackView = this.state.session.stageMode === '3d-mode';
     const snapshot = createStageSnapshot({
-      activeLabelNode: getActiveLabelFocusedCameraNode(this.labelFocusedCamera),
+      activeLabelNode: this.getFocusedEditorLabelNode(),
       activeWorkplaneIndex:
         getWorkplaneIndex(this.state, this.state.session.activeWorkplaneId) + 1,
       activeWorkplaneId: this.state.session.activeWorkplaneId,
       cameraAnimating: this.camera.isAnimating,
       cameraAvailability: this.getEffectiveCameraAvailability(),
       cameraSnapshot: this.camera.getSnapshot(),
+      documentBridgeLinkCount: this.state.document.workplaneBridgeLinks.length,
+      documentLabelCount: this.state.document.workplaneOrder.reduce(
+        (total, workplaneId) =>
+          total + this.state.document.workplanesById[workplaneId].scene.labels.length,
+        0,
+      ),
+      documentLinkCount: this.state.document.workplaneOrder.reduce(
+        (total, workplaneId) =>
+          total + this.state.document.workplanesById[workplaneId].scene.links.length,
+        0,
+      ) + this.state.document.workplaneBridgeLinks.length,
+      editorCursor: this.getEditorCursor(),
+      editorSelectedLabelCount: this.editorState?.selectedLabelKeys.length ?? 0,
+      editorSelectedLabelKeys: this.editorState?.selectedLabelKeys ?? [],
       gpuTimingEnabled: this.config.gpuTimingEnabled,
       gridStats: isStackView ? null : this.gridLayer?.getStats(),
       labelSetKind: this.config.labelSetKind,
@@ -1707,6 +2460,7 @@ class LumaStageController {
       lineStrategy: this.lineStrategy,
       planeCount: getPlaneCount(this.state),
       perf: this.frameTelemetry?.getSnapshot(),
+      renderBridgeLinkCount: countRenderedBridgeLinks(this.renderScene),
       scene: this.renderScene,
       stackCamera: this.state.session.stackCamera,
       stageMode: this.state.session.stageMode,
@@ -1727,8 +2481,9 @@ class LumaStageController {
         textStrategy: this.textStrategy,
       }),
     );
-    if (this.chrome.stats.textContent !== snapshot.statsText) {
-      this.chrome.stats.textContent = snapshot.statsText;
+    if (this.chrome.stats.dataset.signature !== snapshot.statsSignature) {
+      renderStatusRows(this.chrome.stats, snapshot.statsRows);
+      this.chrome.stats.dataset.signature = snapshot.statsSignature;
     }
   }
 
@@ -1767,6 +2522,30 @@ class LumaStageController {
         canReset: !isStackCameraAtDefault(stackCamera),
         canZoomIn: stackCamera.distanceScale > STACK_CAMERA_DISTANCE_SCALE_MIN + 0.0001,
         canZoomOut: stackCamera.distanceScale < STACK_CAMERA_DISTANCE_SCALE_MAX - 0.0001,
+      };
+    }
+
+    const editorCursor = this.getEditorCursor();
+    const focusedLabel = this.getFocusedEditorLabel();
+
+    if (this.config.labelSetKind === 'demo' && editorCursor) {
+      const snapshot = this.camera.getTargetSnapshot();
+
+      return {
+        canMoveDown: true,
+        canMoveLeft: true,
+        canMoveRight: true,
+        canMoveUp: true,
+        canReset:
+          Math.abs(snapshot.centerX) > 0.0001 ||
+          Math.abs(snapshot.centerY) > 0.0001 ||
+          Math.abs(snapshot.zoom) > 0.0001 ||
+          editorCursor.kind === 'ghost',
+        canZoomIn: true,
+        canZoomOut: focusedLabel
+          ? snapshot.zoom > focusedLabel.zoomLevel + 0.0001 ||
+            Boolean(getLabelFocusedCameraTarget(this.labelFocusedCamera, 'zoom-out'))
+          : true,
       };
     }
 
@@ -1868,8 +2647,42 @@ function isLayoutStrategy(value: string | null | undefined): value is LayoutStra
   return LAYOUT_STRATEGIES.includes(value as LayoutStrategy);
 }
 
-function isStrategyPanelMode(value: string | null | undefined): value is StrategyPanelMode {
-  return value === 'text' || value === 'line' || value === 'layout' || value === 'label-edit';
+function renderStatusRows(
+  container: HTMLElement,
+  rows: Array<{label: string; value: string}>,
+): void {
+  const fragment = document.createDocumentFragment();
+
+  for (const row of rows) {
+    const item = document.createElement('div');
+    item.className = 'status-live-row';
+
+    const label = document.createElement('span');
+    label.className = 'status-live-label';
+    label.textContent = row.label;
+
+    const value = document.createElement('span');
+    value.className = 'status-live-value';
+    value.textContent = row.value;
+
+    item.append(label, value);
+    fragment.append(item);
+  }
+
+  container.replaceChildren(fragment);
+}
+
+function isStageModeAction(value: string | null | undefined): value is StageModeAction {
+  return value === 'set-2d-mode' || value === 'set-3d-mode' || value === 'toggle-stage-mode';
+}
+
+function isWorkplaneAction(value: string | null | undefined): value is WorkplaneAction {
+  return (
+    value === 'delete-active-workplane' ||
+    value === 'select-next-workplane' ||
+    value === 'select-previous-workplane' ||
+    value === 'spawn-workplane'
+  );
 }
 
 function getKeyboardStageModeAction(event: KeyboardEvent): StageModeAction | null {
@@ -1885,12 +2698,36 @@ function getKeyboardWorkplaneAction(event: KeyboardEvent): WorkplaneAction | nul
     return 'select-next-workplane';
   }
 
-  if (event.key === 'Delete' || event.code === 'Minus') {
+  if (event.code === 'Minus') {
     return 'delete-active-workplane';
   }
 
   if (event.key === '+' || (event.key === '=' && event.shiftKey)) {
     return 'spawn-workplane';
+  }
+
+  return null;
+}
+
+function getKeyboardEditorShortcut(
+  event: KeyboardEvent,
+):
+  | 'clear-selection'
+  | 'link-selection'
+  | 'remove-label'
+  | 'remove-links'
+  | 'toggle-selection-or-create'
+  | null {
+  if (event.key === 'Enter') {
+    return event.shiftKey ? 'link-selection' : 'toggle-selection-or-create';
+  }
+
+  if (event.key === 'Escape') {
+    return 'clear-selection';
+  }
+
+  if (event.key === 'Delete') {
+    return event.shiftKey ? 'remove-links' : 'remove-label';
   }
 
   return null;
@@ -1932,11 +2769,115 @@ function isControlAction(value: string | null | undefined): value is ControlActi
   );
 }
 
+function isEditorAction(value: string | null | undefined): value is EditorAction {
+  return (
+    value === 'add-label' ||
+    value === 'clear-selection' ||
+    value === 'link-selection' ||
+    value === 'remove-label' ||
+    value === 'remove-links'
+  );
+}
+
+function isEditorShortcutAction(value: string | null | undefined): value is EditorShortcutAction {
+  return value === 'toggle-selection-or-create';
+}
+
+function isEditorActionEnabled(
+  action: string | null | undefined,
+  options: {
+    canAddLabel: boolean;
+    canClearSelection: boolean;
+    canLinkSelection: boolean;
+    canRemoveLabel: boolean;
+    canRemoveLinks: boolean;
+  },
+): boolean {
+  switch (action) {
+    case 'add-label':
+      return options.canAddLabel;
+    case 'clear-selection':
+      return options.canClearSelection;
+    case 'link-selection':
+      return options.canLinkSelection;
+    case 'remove-label':
+      return options.canRemoveLabel;
+    case 'remove-links':
+      return options.canRemoveLinks;
+    default:
+      return false;
+  }
+}
+
+function isEditorShortcutActionEnabled(
+  action: string | null | undefined,
+  options: {
+    canToggleSelectionOrCreate: boolean;
+  },
+): boolean {
+  switch (action) {
+    case 'toggle-selection-or-create':
+      return options.canToggleSelectionOrCreate;
+    default:
+      return false;
+  }
+}
+
+function getNextControlPadPage(currentPage: ControlPadPage): ControlPadPage {
+  switch (currentPage) {
+    case 'navigate':
+      return 'stage';
+    case 'stage':
+      return 'edit';
+    case 'edit':
+    default:
+      return 'navigate';
+  }
+}
+
+function toCursorFromLabelKey(
+  labelKey: string,
+) : Pick<StageEditorCursor, 'column' | 'key' | 'layer' | 'row' | 'workplaneId'> {
+  const parsed = parseLabelKey(labelKey);
+
+  return {
+    column: parsed.column,
+    key: labelKey,
+    layer: parsed.layer,
+    row: parsed.row,
+    workplaneId: parsed.workplaneId,
+  };
+}
+
 function reduceStageModeAction(
   state: StageSystemState,
   action: StageModeAction,
 ): StageSystemState {
   switch (action) {
+    case 'set-2d-mode':
+      if (state.session.stageMode === '2d-mode') {
+        return state;
+      }
+
+      return {
+        ...state,
+        session: {
+          ...state.session,
+          stageMode: '2d-mode',
+        },
+      };
+    case 'set-3d-mode':
+      if (state.session.stageMode === '3d-mode') {
+        return state;
+      }
+
+      return {
+        ...state,
+        session: {
+          ...state.session,
+          stageMode: '3d-mode',
+        },
+      };
     case 'toggle-stage-mode':
       return {
         ...state,
@@ -2012,4 +2953,8 @@ function createStageBootPayload(config: StageConfig): StageBootPayload {
       ?? hydratedBootState.strategyPanelMode
       ?? DEFAULT_STRATEGY_PANEL_MODE,
   };
+}
+
+function countRenderedBridgeLinks(scene: StageScene): number {
+  return scene.links.filter((link) => link.linkKey.startsWith('bridge:')).length;
 }

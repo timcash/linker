@@ -39,7 +39,11 @@ try {
 }
 
 async function runCommand(command: string[]): Promise<void> {
-  const [bin, ...args] = command;
+  const [rawBin, ...args] = command;
+  const [bin, spawnArgs] =
+    process.platform === 'win32' && rawBin === 'npm'
+      ? [process.env.ComSpec ?? 'cmd.exe', ['/d', '/s', '/c', 'npm', ...args]]
+      : [rawBin, args];
 
   if (!bin) {
     throw new Error('Missing command binary.');
@@ -49,7 +53,7 @@ async function runCommand(command: string[]): Promise<void> {
 
   await new Promise<void>((resolve, reject) => {
     let commandOutput = '';
-    const child = spawn(bin, args, {
+    const child = spawn(bin, spawnArgs, {
       cwd: process.cwd(),
       env: {
         ...process.env,

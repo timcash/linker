@@ -1,9 +1,11 @@
 import assert from 'node:assert/strict';
 
 import {
+  buildClassicDemoUrl,
   DEMO_LABEL_COUNT,
   DEMO_LABEL_SET_ID,
   FIRST_ROOT_LABEL,
+  captureInteractionScreenshot,
   type BrowserTestContext,
   type ReadyResult,
   assertDemoRootLayerVisible,
@@ -19,8 +21,9 @@ export async function runBootFlow(
   context: BrowserTestContext,
 ): Promise<ReadyResult | null> {
   const {page, pageErrors} = context;
+  const route = buildClassicDemoUrl(context.url);
 
-  await openRoute(page, context.url);
+  await openRoute(page, route);
 
   assert.deepEqual(
     pageErrors,
@@ -45,6 +48,14 @@ export async function runBootFlow(
 
   assert.equal(result.width, result.innerWidth, 'Canvas should fill the viewport width.');
   assert.equal(result.height, result.innerHeight, 'Canvas should fill the viewport height.');
+  assert.ok(
+    result.canvasWidth >= result.width,
+    'Canvas backing width should be at least as large as the visible width at boot.',
+  );
+  assert.ok(
+    result.canvasHeight >= result.height,
+    'Canvas backing height should be at least as large as the visible height at boot.',
+  );
   assert.ok(result.camera.lineCount > 0, 'Plane-focus view should render grid geometry.');
   assert.ok(
     result.camera.majorSpacing > result.camera.minorSpacing,
@@ -79,9 +90,10 @@ export async function runBootFlow(
     {stageMode: '2d-mode', workplaneId: 'wp-1'},
     'Default boot should mirror stage mode and workplane into the route.',
   );
+  await captureInteractionScreenshot(context, 'boot-ready');
 
   const initialSignature = await getCanvasPixelSignature(page);
-  await openRoute(page, context.url);
+  await openRoute(page, route);
   await waitForBrowserUpdate(page);
   assert.deepEqual(
     await getCanvasPixelSignature(page),

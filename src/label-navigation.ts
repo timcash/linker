@@ -1,4 +1,8 @@
 import type {LabelDefinition} from './text/types';
+import {
+  DEFAULT_LABEL_KEY_WORKPLANE_ID,
+  buildLabelKey,
+} from './label-key';
 
 export type LabelNavigationAction =
   | 'pan-up'
@@ -19,7 +23,12 @@ export type LabelNavigationIndex = {
   nodeByKey: Map<string, LabelNavigationNode>;
 };
 
-export const DEFAULT_CAMERA_LABEL_KEY = '1:1:1';
+export const DEFAULT_CAMERA_LABEL_KEY = buildLabelKey(
+  DEFAULT_LABEL_KEY_WORKPLANE_ID,
+  1,
+  1,
+  1,
+);
 
 export function createLabelNavigationIndex(labels: LabelDefinition[]): LabelNavigationIndex | null {
   const nodeByKey = new Map<string, LabelNavigationNode>();
@@ -36,7 +45,10 @@ export function createLabelNavigationIndex(labels: LabelDefinition[]): LabelNavi
     };
 
     nodeByKey.set(node.key, node);
-    nodeByCoordinate.set(getCoordinateKey(node.column, node.row, node.layer), node);
+    nodeByCoordinate.set(
+      getCoordinateKey(node.workplaneId, node.column, node.row, node.layer),
+      node,
+    );
   }
 
   if (nodeByKey.size === 0) {
@@ -90,17 +102,53 @@ export function getLabelNavigationTarget(
 
   switch (action) {
     case 'pan-left':
-      return getNodeByCoordinate(index, currentNode.column - 1, currentNode.row, currentNode.layer) ?? currentNode;
+      return getNodeByCoordinate(
+        index,
+        currentNode.workplaneId,
+        currentNode.column - 1,
+        currentNode.row,
+        currentNode.layer,
+      ) ?? currentNode;
     case 'pan-right':
-      return getNodeByCoordinate(index, currentNode.column + 1, currentNode.row, currentNode.layer) ?? currentNode;
+      return getNodeByCoordinate(
+        index,
+        currentNode.workplaneId,
+        currentNode.column + 1,
+        currentNode.row,
+        currentNode.layer,
+      ) ?? currentNode;
     case 'pan-up':
-      return getNodeByCoordinate(index, currentNode.column, currentNode.row - 1, currentNode.layer) ?? currentNode;
+      return getNodeByCoordinate(
+        index,
+        currentNode.workplaneId,
+        currentNode.column,
+        currentNode.row - 1,
+        currentNode.layer,
+      ) ?? currentNode;
     case 'pan-down':
-      return getNodeByCoordinate(index, currentNode.column, currentNode.row + 1, currentNode.layer) ?? currentNode;
+      return getNodeByCoordinate(
+        index,
+        currentNode.workplaneId,
+        currentNode.column,
+        currentNode.row + 1,
+        currentNode.layer,
+      ) ?? currentNode;
     case 'zoom-in':
-      return getNodeByCoordinate(index, currentNode.column, currentNode.row, currentNode.layer + 1) ?? currentNode;
+      return getNodeByCoordinate(
+        index,
+        currentNode.workplaneId,
+        currentNode.column,
+        currentNode.row,
+        currentNode.layer + 1,
+      ) ?? currentNode;
     case 'zoom-out':
-      return getNodeByCoordinate(index, currentNode.column, currentNode.row, currentNode.layer - 1) ?? currentNode;
+      return getNodeByCoordinate(
+        index,
+        currentNode.workplaneId,
+        currentNode.column,
+        currentNode.row,
+        currentNode.layer - 1,
+      ) ?? currentNode;
     case 'reset-camera':
       return getLabelNavigationNode(index, index.defaultKey) ?? currentNode;
     default:
@@ -121,13 +169,21 @@ export function hasLabelNavigationTarget(
 
 function getNodeByCoordinate(
   index: LabelNavigationIndex,
+  workplaneId: string,
   column: number,
   row: number,
   layer: number,
 ): LabelNavigationNode | null {
-  return index.nodeByCoordinate.get(getCoordinateKey(column, row, layer)) ?? null;
+  return index.nodeByCoordinate.get(
+    getCoordinateKey(workplaneId, column, row, layer),
+  ) ?? null;
 }
 
-function getCoordinateKey(column: number, row: number, layer: number): string {
-  return `${column}:${row}:${layer}`;
+function getCoordinateKey(
+  workplaneId: string,
+  column: number,
+  row: number,
+  layer: number,
+): string {
+  return `${workplaneId}:${layer}:${row}:${column}`;
 }

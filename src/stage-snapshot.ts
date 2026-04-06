@@ -12,6 +12,7 @@ import type {StackCameraState} from './stack-camera';
 import type {LabelSetKind} from './stage-config';
 import type {LabelNavigationNode} from './label-navigation';
 import type {TextLayerStats, TextStrategy} from './text/types';
+import type {StageEditorCursor} from './stage-editor';
 import {
   LAYOUT_STRATEGY_OPTIONS,
   type LayoutStrategy,
@@ -21,7 +22,8 @@ import {TEXT_STRATEGY_OPTIONS} from './text/types';
 
 export type StageSnapshot = {
   bodyDataset: Record<string, string>;
-  statsText: string;
+  statsRows: Array<{label: string; value: string}>;
+  statsSignature: string;
 };
 
 const layoutFingerprintCache = new WeakMap<StageScene['labels'], string>();
@@ -33,6 +35,12 @@ export function createStageSnapshot(input: {
   cameraAnimating: boolean;
   cameraAvailability: LabelFocusedCameraAvailability;
   cameraSnapshot: CameraSnapshot;
+  documentBridgeLinkCount: number;
+  documentLabelCount: number;
+  documentLinkCount: number;
+  editorCursor: StageEditorCursor | null;
+  editorSelectedLabelCount: number;
+  editorSelectedLabelKeys: string[];
   gpuTimingEnabled: boolean;
   gridStats: GridStats | null | undefined;
   labelSetKind: LabelSetKind;
@@ -42,6 +50,7 @@ export function createStageSnapshot(input: {
   lineStrategy: LineStrategy;
   planeCount: number;
   perf: FrameTelemetrySnapshot | null | undefined;
+  renderBridgeLinkCount: number;
   scene: StageScene;
   stackCamera: StackCameraState;
   stageMode: StageMode;
@@ -57,6 +66,12 @@ export function createStageSnapshot(input: {
     cameraAnimating,
     cameraAvailability,
     cameraSnapshot,
+    documentBridgeLinkCount,
+    documentLabelCount,
+    documentLinkCount,
+    editorCursor,
+    editorSelectedLabelCount,
+    editorSelectedLabelKeys,
     gpuTimingEnabled,
     gridStats,
     labelSetKind,
@@ -66,6 +81,7 @@ export function createStageSnapshot(input: {
     lineStrategy,
     planeCount,
     perf,
+    renderBridgeLinkCount,
     scene,
     stackCamera,
     stageMode,
@@ -101,6 +117,17 @@ export function createStageSnapshot(input: {
   const visibleLabels = textStats
     ? formatVisibleLabelSample(textStats.visibleLabels, textStats.visibleLabelCount)
     : '';
+  const statsRows = createStatusRows({
+    cameraSnapshot,
+    gpuTimingEnabled,
+    glyphCount,
+    planeCount,
+    perf,
+    renderBridgeLinkCount,
+    stageMode,
+    submittedTotalVertexCount,
+    visibleGlyphCount,
+  });
 
   return {
     bodyDataset: {
@@ -122,6 +149,16 @@ export function createStageSnapshot(input: {
       cameraRow: activeLabelNode ? String(activeLabelNode.row) : '',
       cameraScale: cameraSnapshot.pixelsPerWorldUnit.toFixed(4),
       cameraZoom: cameraSnapshot.zoom.toFixed(4),
+      documentBridgeLinkCount: String(documentBridgeLinkCount),
+      documentLabelCount: String(documentLabelCount),
+      documentLinkCount: String(documentLinkCount),
+      editorCursorColumn: editorCursor ? String(editorCursor.column) : '',
+      editorCursorKey: editorCursor?.key ?? '',
+      editorCursorKind: editorCursor?.kind ?? '',
+      editorCursorLayer: editorCursor ? String(editorCursor.layer) : '',
+      editorCursorRow: editorCursor ? String(editorCursor.row) : '',
+      editorSelectedLabelCount: String(editorSelectedLabelCount),
+      editorSelectedLabelKeys: editorSelectedLabelKeys.join('|'),
       gridLineCount: String(lineCount),
       gridMajorSpacing: majorSpacing,
       gridMinorSpacing: minorSpacing,
@@ -191,6 +228,7 @@ export function createStageSnapshot(input: {
       perfResourcesActive: String(perf?.resourcesActive ?? 0),
       perfTexturesActive: String(perf?.texturesActive ?? 0),
       perfTextureMemoryBytes: String(perf?.textureMemoryBytes ?? 0),
+      renderBridgeLinkCount: String(renderBridgeLinkCount),
       stageMode,
       stackCameraAzimuth: stackCamera.azimuthRadians.toFixed(4),
       stackCameraDistanceScale: stackCamera.distanceScale.toFixed(4),
@@ -209,23 +247,8 @@ export function createStageSnapshot(input: {
       textVisibleLabels: visibleLabels,
       workplaneCanDelete: String(workplaneCanDelete),
     },
-    statsText: [
-      stageMode,
-      `workplane ${activeWorkplaneIndex} of ${planeCount} (${activeWorkplaneId})`,
-      activeLabelNode ? `label ${activeLabelNode.key}` : null,
-      stageMode === '3d-mode'
-        ? `stack-camera azimuth ${formatDegrees(stackCamera.azimuthRadians)}`
-        : `center ${cameraSnapshot.centerX.toFixed(2)}, ${cameraSnapshot.centerY.toFixed(2)}`,
-      stageMode === '3d-mode'
-        ? `elevation ${formatDegrees(stackCamera.elevationRadians)} / distance ${stackCamera.distanceScale.toFixed(2)}`
-        : `zoom ${cameraSnapshot.zoom.toFixed(2)}`,
-      textStats
-        ? `glyphs ${visibleGlyphCount} visible / ${glyphCount} total`
-        : 'glyphs 0 visible / 0 total',
-      `vertices ${submittedTotalVertexCount}`,
-      perf ? formatMemorySummary(perf) : null,
-      perf ? formatPerfSummary(perf, gpuTimingEnabled) : 'cpu 0.00 ms / gpu pending',
-    ].filter(Boolean).join('  |  '),
+    statsRows,
+    statsSignature: statsRows.map(({label, value}) => `${label}:${value}`).join('|'),
   };
 }
 
@@ -237,25 +260,6 @@ export function writeStageSnapshot(snapshot: StageSnapshot): void {
   }
 }
 
-function formatPerfSummary(perf: FrameTelemetrySnapshot, gpuTimingEnabled: boolean): string {
-  const cpuFrame = formatMs(perf.cpuFrameAvgMs);
-  const cpuText = formatMs(perf.cpuTextAvgMs);
-  const gpuSummary =
-    !gpuTimingEnabled
-      ? 'gpu disabled'
-      : perf.gpuError
-      ? `gpu error ${perf.gpuError}`
-      : !perf.gpuSupported
-      ? 'gpu unsupported'
-      : perf.gpuFrameSamples === 0 || perf.gpuFrameAvgMs === null
-      ? 'gpu pending'
-      : perf.gpuTextAvgMs === null
-      ? `gpu ${formatMs(perf.gpuFrameAvgMs)} frame`
-      : `gpu ${formatMs(perf.gpuFrameAvgMs)} frame / ${formatMs(perf.gpuTextAvgMs)} text`;
-
-  return `cpu ${cpuFrame} frame / ${cpuText} text / ${gpuSummary}`;
-}
-
 function formatMemorySummary(perf: FrameTelemetrySnapshot): string {
   return [
     `mem ${formatBytes(perf.gpuMemoryBytes)} gpu`,
@@ -263,6 +267,82 @@ function formatMemorySummary(perf: FrameTelemetrySnapshot): string {
     `${formatBytes(perf.textureMemoryBytes)} tex`,
     `${perf.resourcesActive} res`,
   ].join(' / ');
+}
+
+function createStatusRows(input: {
+  cameraSnapshot: CameraSnapshot;
+  glyphCount: number;
+  gpuTimingEnabled: boolean;
+  planeCount: number;
+  perf: FrameTelemetrySnapshot | null | undefined;
+  renderBridgeLinkCount: number;
+  stageMode: StageMode;
+  submittedTotalVertexCount: number;
+  visibleGlyphCount: number;
+}): Array<{label: string; value: string}> {
+  const {
+    cameraSnapshot,
+    glyphCount,
+    gpuTimingEnabled,
+    planeCount,
+    perf,
+    renderBridgeLinkCount,
+    stageMode,
+    submittedTotalVertexCount,
+    visibleGlyphCount,
+  } = input;
+
+  return [
+    {
+      label: 'View',
+      value:
+        stageMode === '3d-mode'
+          ? `${planeCount} planes / ${renderBridgeLinkCount} bridges`
+          : `${cameraSnapshot.centerX.toFixed(2)}, ${cameraSnapshot.centerY.toFixed(2)} / zoom ${cameraSnapshot.zoom.toFixed(2)}`,
+    },
+    {
+      label: 'Glyphs',
+      value: `${visibleGlyphCount} / ${glyphCount} / ${submittedTotalVertexCount} vertices`,
+    },
+    {
+      label: 'CPU',
+      value: perf ? formatCpuSummary(perf) : '0.00 ms frame / 0.00 ms text',
+    },
+    {
+      label: 'GPU',
+      value: `${perf ? formatGpuSummary(perf, gpuTimingEnabled) : 'pending'} / ${
+        perf ? formatMemorySummary(perf) : '0 B gpu / 0 B buf / 0 B tex / 0 res'
+      }`,
+    },
+  ];
+}
+
+function formatCpuSummary(perf: FrameTelemetrySnapshot): string {
+  return `${formatMs(perf.cpuFrameAvgMs)} frame / ${formatMs(perf.cpuTextAvgMs)} text`;
+}
+
+function formatGpuSummary(perf: FrameTelemetrySnapshot, gpuTimingEnabled: boolean): string {
+  if (!gpuTimingEnabled) {
+    return 'disabled';
+  }
+
+  if (perf.gpuError) {
+    return `error ${perf.gpuError}`;
+  }
+
+  if (!perf.gpuSupported) {
+    return 'unsupported';
+  }
+
+  if (perf.gpuFrameSamples === 0 || perf.gpuFrameAvgMs === null) {
+    return 'pending';
+  }
+
+  if (perf.gpuTextAvgMs === null) {
+    return `${formatMs(perf.gpuFrameAvgMs)} frame`;
+  }
+
+  return `${formatMs(perf.gpuFrameAvgMs)} frame / ${formatMs(perf.gpuTextAvgMs)} text`;
 }
 
 function formatMs(value: number): string {
@@ -287,10 +367,6 @@ function formatSpacing(value: number): string {
   }
 
   return value.toPrecision(2);
-}
-
-function formatDegrees(value: number): string {
-  return `${((value * 180) / Math.PI).toFixed(1)}deg`;
 }
 
 function formatVisibleLabelSample(visibleLabels: string[], visibleLabelCount: number): string {

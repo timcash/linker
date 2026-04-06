@@ -27,6 +27,7 @@ export type LabelNavigation = {
   column: number;
   row: number;
   layer: number;
+  workplaneId: string;
 };
 
 export type LabelBounds = {

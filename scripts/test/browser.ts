@@ -1,3 +1,5 @@
+import path from 'node:path';
+
 import assert from 'node:assert/strict';
 
 import type {Page} from 'puppeteer';
@@ -9,16 +11,19 @@ import {
   DEFAULT_LAYOUT_STRATEGY,
   DEFAULT_TEXT_STRATEGY,
   DEMO_LABEL_SET_ID,
+  FIRST_CHILD_LABEL,
   FIRST_ROOT_LABEL,
   type BenchmarkState,
   type CameraQueryState,
   type CameraState,
   type CanvasPixelSignature,
+  type EditorState,
   type LineState,
   type LineStrategy,
   type NonReadyResult,
   type PerfSnapshot,
   type ReadyResult,
+  type BrowserTestContext,
   type StageState,
   type StageRouteState,
   type StrategyPanelMode,
@@ -40,6 +45,9 @@ export async function readAppResult(page: Page): Promise<ReadyResult | NonReadyR
       const rect = canvas.getBoundingClientRect();
 
       return {
+        canvasHeight: canvas.height,
+        canvasWidth: canvas.width,
+        devicePixelRatio: window.devicePixelRatio,
         state,
         width: Math.round(rect.width),
         height: Math.round(rect.height),
@@ -69,9 +77,23 @@ export async function readAppResult(page: Page): Promise<ReadyResult | NonReadyR
           stackCameraDistanceScale: Number(document.body.dataset.stackCameraDistanceScale ?? '0'),
           stackCameraElevation: Number(document.body.dataset.stackCameraElevation ?? '0'),
         },
+        editor: {
+          cursorColumn: Number(document.body.dataset.editorCursorColumn ?? '0'),
+          cursorKey: document.body.dataset.editorCursorKey ?? '',
+          cursorKind: document.body.dataset.editorCursorKind ?? '',
+          cursorLayer: Number(document.body.dataset.editorCursorLayer ?? '0'),
+          cursorRow: Number(document.body.dataset.editorCursorRow ?? '0'),
+          documentLabelCount: Number(document.body.dataset.documentLabelCount ?? '0'),
+          documentLinkCount: Number(document.body.dataset.documentLinkCount ?? '0'),
+          selectedLabelCount: Number(document.body.dataset.editorSelectedLabelCount ?? '0'),
+          selectedLabelKeys: document.body.dataset.editorSelectedLabelKeys ?? '',
+        },
         stage: {
           activeWorkplaneId: document.body.dataset.activeWorkplaneId ?? '',
+          controlPadPage: document.body.dataset.controlPadPage ?? '',
+          documentBridgeLinkCount: Number(document.body.dataset.documentBridgeLinkCount ?? '0'),
           planeCount: Number(document.body.dataset.planeCount ?? '0'),
+          renderBridgeLinkCount: Number(document.body.dataset.renderBridgeLinkCount ?? '0'),
           stageMode: document.body.dataset.stageMode ?? '',
           workplaneCanDelete: document.body.dataset.workplaneCanDelete === 'true',
         },
@@ -159,9 +181,26 @@ export async function getTextState(page: Page): Promise<TextState> {
 export async function getStageState(page: Page): Promise<StageState> {
   return page.evaluate(() => ({
     activeWorkplaneId: document.body.dataset.activeWorkplaneId ?? '',
+    controlPadPage: document.body.dataset.controlPadPage ?? '',
+    documentBridgeLinkCount: Number(document.body.dataset.documentBridgeLinkCount ?? '0'),
     planeCount: Number(document.body.dataset.planeCount ?? '0'),
+    renderBridgeLinkCount: Number(document.body.dataset.renderBridgeLinkCount ?? '0'),
     stageMode: document.body.dataset.stageMode ?? '',
     workplaneCanDelete: document.body.dataset.workplaneCanDelete === 'true',
+  }));
+}
+
+export async function getEditorState(page: Page): Promise<EditorState> {
+  return page.evaluate(() => ({
+    cursorColumn: Number(document.body.dataset.editorCursorColumn ?? '0'),
+    cursorKey: document.body.dataset.editorCursorKey ?? '',
+    cursorKind: document.body.dataset.editorCursorKind ?? '',
+    cursorLayer: Number(document.body.dataset.editorCursorLayer ?? '0'),
+    cursorRow: Number(document.body.dataset.editorCursorRow ?? '0'),
+    documentLabelCount: Number(document.body.dataset.documentLabelCount ?? '0'),
+    documentLinkCount: Number(document.body.dataset.documentLinkCount ?? '0'),
+    selectedLabelCount: Number(document.body.dataset.editorSelectedLabelCount ?? '0'),
+    selectedLabelKeys: document.body.dataset.editorSelectedLabelKeys ?? '',
   }));
 }
 
@@ -363,9 +402,69 @@ export async function waitForBenchmarkResult(
   return getBenchmarkState(page);
 }
 
+export function buildClassicDemoUrl(
+  baseUrl: string,
+  extraParams?: Record<string, string>,
+): string {
+  return buildStageUrl(baseUrl, {
+    demoLayers: '12',
+    demoPreset: 'classic',
+    labelSet: 'demo',
+    stageMode: '2d-mode',
+    workplane: 'wp-1',
+    ...extraParams,
+  });
+}
+
+export function buildEditorLabUrl(
+  baseUrl: string,
+  extraParams?: Record<string, string>,
+): string {
+  return buildStageUrl(baseUrl, {
+    demoPreset: 'editor-lab',
+    labelSet: 'demo',
+    stageMode: '2d-mode',
+    workplane: 'wp-3',
+    ...extraParams,
+  });
+}
+
+export function buildWorkplaneShowcaseUrl(
+  baseUrl: string,
+  extraParams?: Record<string, string>,
+): string {
+  return buildStageUrl(baseUrl, {
+    demoPreset: 'workplane-showcase',
+    labelSet: 'demo',
+    stageMode: '3d-mode',
+    workplane: 'wp-3',
+    ...extraParams,
+  });
+}
+
 export async function openRoute(page: Page, url: string): Promise<void> {
   await page.goto(url, {waitUntil: 'load'});
   await waitForAppDatasets(page);
+}
+
+export async function captureInteractionScreenshot(
+  context: BrowserTestContext,
+  name: string,
+): Promise<void> {
+  context.interactionScreenshotCounter += 1;
+  const safeName = name
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .slice(0, 64) || 'step';
+  const filename = `${String(context.interactionScreenshotCounter).padStart(2, '0')}-${safeName}.png`;
+  const screenshotPath = path.join(context.interactionScreenshotDir, filename);
+
+  await context.page.screenshot({
+    path: screenshotPath,
+  });
+  context.addBrowserLog('artifact.step', `Saved interaction screenshot to ${screenshotPath}`);
 }
 
 export async function openRouteWithBootState(
@@ -399,17 +498,41 @@ export async function clickButton(
   selector: string,
   missingMessage: string,
 ): Promise<void> {
-  await page.waitForSelector(selector);
-  const button = await page.$(selector);
+  await page.waitForFunction(
+    (buttonSelector) =>
+      Array.from(document.querySelectorAll(buttonSelector)).some((candidate) =>
+        candidate instanceof HTMLElement &&
+        !candidate.hidden &&
+        candidate.getClientRects().length > 0 &&
+        window.getComputedStyle(candidate).visibility !== 'hidden' &&
+        window.getComputedStyle(candidate).display !== 'none',
+      ),
+    {},
+    selector,
+  );
+  await page.evaluate(
+    ({buttonSelector, expectedMessage}) => {
+      const button = Array.from(document.querySelectorAll(buttonSelector)).find((candidate) =>
+        candidate instanceof HTMLElement &&
+        !candidate.hidden &&
+        candidate.getClientRects().length > 0 &&
+        window.getComputedStyle(candidate).visibility !== 'hidden' &&
+        window.getComputedStyle(candidate).display !== 'none',
+      );
 
-  if (!button) {
-    throw new Error(missingMessage);
-  }
+      if (!(button instanceof HTMLElement)) {
+        throw new Error(expectedMessage);
+      }
 
-  await button.click();
+      button.scrollIntoView({block: 'center', inline: 'center'});
+      button.click();
+    },
+    {buttonSelector: selector, expectedMessage: missingMessage},
+  );
 }
 
 export async function clickControl(page: Page, control: string): Promise<void> {
+  await showControlPadPage(page, 'navigate');
   const selector = `[data-control="${control}"]`;
   await clickButton(page, selector, `Missing control button ${selector}`);
 }
@@ -509,82 +632,6 @@ export async function selectToggleValue<TValue extends string>(
   await waitForBrowserUpdate(page);
 }
 
-export async function showStrategyPanelMode(
-  page: Page,
-  mode: StrategyPanelMode,
-): Promise<void> {
-  const currentMode = await page.evaluate(
-    () => (document.body.dataset.strategyPanelMode ?? 'text') as StrategyPanelMode,
-  );
-  const selector = `button[data-strategy-panel-mode="${mode}"]`;
-
-  await selectToggleValue(page, {
-    currentValue: currentMode,
-    datasetKey: 'strategyPanelMode',
-    expectedValue: mode,
-    missingMessage: `Missing strategy panel mode button ${selector}`,
-    selector,
-  });
-}
-
-export async function switchTextStrategy(
-  page: Page,
-  textStrategy: TextStrategy,
-): Promise<void> {
-  await showStrategyPanelMode(page, 'text');
-
-  const currentMode = await page.evaluate(
-    () => (document.body.dataset.textStrategy ?? DEFAULT_TEXT_STRATEGY) as TextStrategy,
-  );
-  const selector = `button[data-text-strategy="${textStrategy}"]`;
-
-  await selectToggleValue(page, {
-    currentValue: currentMode,
-    datasetKey: 'textStrategy',
-    expectedValue: textStrategy,
-    missingMessage: `Missing text strategy button ${selector}`,
-    selector,
-  });
-}
-
-export async function switchLineStrategy(
-  page: Page,
-  lineStrategy: LineStrategy,
-): Promise<void> {
-  await showStrategyPanelMode(page, 'line');
-
-  const currentMode = await page.evaluate(
-    () => (document.body.dataset.lineStrategy ?? DEFAULT_LINE_STRATEGY) as LineStrategy,
-  );
-  const selector = `button[data-line-strategy="${lineStrategy}"]`;
-
-  await selectToggleValue(page, {
-    currentValue: currentMode,
-    datasetKey: 'lineStrategy',
-    expectedValue: lineStrategy,
-    missingMessage: `Missing line strategy button ${selector}`,
-    selector,
-  });
-}
-
-export async function switchLayoutStrategy(
-  page: Page,
-  layoutStrategy: string,
-): Promise<void> {
-  await showStrategyPanelMode(page, 'layout');
-
-  const currentMode = await page.evaluate(() => document.body.dataset.layoutStrategy ?? '');
-  const selector = `button[data-layout-strategy="${layoutStrategy}"]`;
-
-  await selectToggleValue(page, {
-    currentValue: currentMode,
-    datasetKey: 'layoutStrategy',
-    expectedValue: layoutStrategy,
-    missingMessage: `Missing layout strategy button ${selector}`,
-    selector,
-  });
-}
-
 export async function submitFocusedLabelInput(
   page: Page,
   value: string,
@@ -592,7 +639,10 @@ export async function submitFocusedLabelInput(
   const inputSelector = '[data-testid="label-input-field"]';
   const submitSelector = '[data-testid="label-input-submit"]';
 
-  await showStrategyPanelMode(page, 'label-edit');
+  await page.waitForFunction(
+    () => (document.body.dataset.strategyPanelMode ?? 'label-edit') === 'label-edit',
+  );
+  await showControlPadPage(page, 'edit');
   await page.waitForSelector(inputSelector);
   await page.waitForSelector(submitSelector);
   await page.click(inputSelector, {clickCount: 3});
@@ -624,11 +674,57 @@ export async function submitFocusedLabelInput(
   await waitForBrowserUpdate(page);
 }
 
+export async function clickEditorAction(
+  page: Page,
+  action: 'add-label' | 'clear-selection' | 'link-selection' | 'remove-label' | 'remove-links',
+): Promise<void> {
+  await showControlPadPage(page, 'edit');
+  const selector = `button[data-editor-action="${action}"]`;
+  await clickButton(page, selector, `Missing editor action button ${selector}`);
+  await waitForBrowserUpdate(page);
+}
+
+export async function clickEditorShortcut(
+  page: Page,
+  action: 'toggle-selection-or-create',
+): Promise<void> {
+  await showControlPadPage(page, 'edit');
+  const selector = `button[data-editor-shortcut="${action}"]`;
+  await clickButton(page, selector, `Missing editor shortcut button ${selector}`);
+  await waitForBrowserUpdate(page);
+}
+
 export async function pressNavigationKey(
   page: Page,
   key: 'ArrowDown' | 'ArrowLeft' | 'ArrowRight' | 'ArrowUp',
   options?: {shift?: boolean},
 ): Promise<void> {
+  if (options?.shift) {
+    await page.keyboard.down('Shift');
+  }
+
+  try {
+    await page.keyboard.press(key);
+  } finally {
+    if (options?.shift) {
+      await page.keyboard.up('Shift');
+    }
+  }
+
+  await waitForBrowserUpdate(page);
+}
+
+export async function pressEditorKey(
+  page: Page,
+  key: 'Delete' | 'Enter' | 'Escape',
+  options?: {shift?: boolean},
+): Promise<void> {
+  await page.evaluate(() => {
+    if (document.activeElement instanceof HTMLElement) {
+      document.activeElement.blur();
+    }
+  });
+
   if (options?.shift) {
     await page.keyboard.down('Shift');
   }
@@ -690,6 +786,71 @@ export async function pressStageModeKey(page: Page): Promise<void> {
   });
   await page.keyboard.press('Slash');
   await waitForBrowserUpdate(page);
+}
+
+export async function clickStageModeButton(
+  page: Page,
+  stageMode: '2d-mode' | '3d-mode',
+): Promise<void> {
+  await showControlPadPage(page, 'stage');
+  const selector =
+    stageMode === '2d-mode'
+      ? 'button[data-stage-mode-action="set-2d-mode"]'
+      : 'button[data-stage-mode-action="set-3d-mode"]';
+  const currentMode = await page.evaluate(
+    () => (document.body.dataset.stageMode ?? '2d-mode') as '2d-mode' | '3d-mode',
+  );
+
+  await selectToggleValue(page, {
+    currentValue: currentMode,
+    datasetKey: 'stageMode',
+    expectedValue: stageMode,
+    missingMessage: `Missing stage mode button ${selector}`,
+    selector,
+  });
+}
+
+export async function clickWorkplaneButton(
+  page: Page,
+  action:
+    | 'delete-active-workplane'
+    | 'select-next-workplane'
+    | 'select-previous-workplane'
+    | 'spawn-workplane',
+): Promise<void> {
+  await showControlPadPage(page, 'stage');
+  const selector = `button[data-workplane-action="${action}"]`;
+  await clickButton(page, selector, `Missing workplane button ${selector}`);
+  await waitForBrowserUpdate(page);
+}
+
+export async function clickControlPadToggle(page: Page): Promise<void> {
+  const selector = 'button[data-control-pad-action="toggle-page"]';
+  await clickButton(page, selector, `Missing control pad toggle button ${selector}`);
+  await waitForBrowserUpdate(page);
+}
+
+export async function showControlPadPage(
+  page: Page,
+  controlPadPage: 'edit' | 'navigate' | 'stage',
+): Promise<void> {
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    const currentPage = await page.evaluate(
+      () => (document.body.dataset.controlPadPage ?? 'navigate') as 'edit' | 'navigate' | 'stage',
+    );
+
+    if (currentPage === controlPadPage) {
+      return;
+    }
+
+    await clickControlPadToggle(page);
+  }
+
+  await page.waitForFunction(
+    (expectedPage) => document.body.dataset.controlPadPage === expectedPage,
+    {},
+    controlPadPage,
+  );
 }
 
 export async function dragStackCameraOrbit(
@@ -801,7 +962,7 @@ export async function verifyDemoTextStrategyVisibility(
   );
 
   await clickControl(page, 'zoom-in');
-  await waitForCameraLabel(page, '1:1:2');
+  await waitForCameraLabel(page, FIRST_CHILD_LABEL);
 
   const afterZoomIn = await getTextState(page);
   assertDemoChildLayerVisible(afterZoomIn, `${textStrategy} mode after zooming into the child band`);
@@ -838,6 +999,19 @@ async function sleep(durationMs: number): Promise<void> {
   });
 }
 
+function buildStageUrl(
+  baseUrl: string,
+  params: Record<string, string>,
+): string {
+  const url = new URL(baseUrl);
+
+  for (const [key, value] of Object.entries(params)) {
+    url.searchParams.set(key, value);
+  }
+
+  return url.toString();
+}
+
 export async function waitForCameraSettled(page: Page): Promise<void> {
   await page.waitForFunction(
     () => (document.body.dataset.cameraAnimating ?? 'false') === 'false',
@@ -846,30 +1020,43 @@ export async function waitForCameraSettled(page: Page): Promise<void> {
 }
 
 export async function waitForAppDatasets(page: Page): Promise<void> {
-  await page.waitForFunction(() => {
-    const state = document.body.dataset.appState;
-    return state === 'ready' || state === 'unsupported' || state === 'error';
-  });
+  try {
+    await page.waitForFunction(() => {
+      const state = document.body.dataset.appState;
+      return state === 'ready' || state === 'unsupported' || state === 'error';
+    });
 
-  await page.waitForFunction(() => {
-    if (document.body.dataset.appState !== 'ready') {
-      return true;
-    }
+    await page.waitForFunction(() => {
+      if (document.body.dataset.appState !== 'ready') {
+        return true;
+      }
 
-    return Boolean(
-      document.body.dataset.activeWorkplaneId &&
-        document.body.dataset.planeCount &&
-        document.body.dataset.gridLineCount &&
-        document.body.dataset.stageMode &&
-        document.body.dataset.textStrategy &&
-        document.body.dataset.textLabelCount &&
-        document.body.dataset.textGlyphCount &&
-        document.body.dataset.textVisibleLabelCount &&
-        document.body.dataset.perfCpuFrameAvgMs &&
-        document.body.dataset.perfCpuTextAvgMs &&
-        document.body.dataset.workplaneCanDelete,
+      return Boolean(
+        document.body.dataset.activeWorkplaneId &&
+          document.body.dataset.planeCount &&
+          document.body.dataset.gridLineCount &&
+          document.body.dataset.stageMode &&
+          document.body.dataset.textStrategy &&
+          document.body.dataset.textLabelCount &&
+          document.body.dataset.textGlyphCount &&
+          document.body.dataset.textVisibleLabelCount &&
+          document.body.dataset.perfCpuFrameAvgMs &&
+          document.body.dataset.perfCpuTextAvgMs &&
+          document.body.dataset.workplaneCanDelete,
+      );
+    });
+  } catch (error) {
+    const diagnostics = await page.evaluate(() => ({
+      appState: document.body.dataset.appState ?? '',
+      dataset: {...document.body.dataset},
+    }));
+    throw new Error(
+      `Timed out waiting for app datasets. Diagnostics: ${JSON.stringify(diagnostics)}. Cause: ${
+        error instanceof Error ? error.message : String(error)
+      }`,
+      {cause: error},
     );
-  });
+  }
 }
 
 export async function waitForCondition(
