@@ -1,6 +1,6 @@
-import {luma, type Device} from '@luma.gl/core';
+import {type Device, type DeviceProps} from '@luma.gl/core';
 import {Geometry, Model} from '@luma.gl/engine';
-import {webgpuAdapter} from '@luma.gl/webgpu';
+import {WebGPUDevice} from '@luma.gl/webgpu';
 
 import {
   buildBenchmarkCameraTrace,
@@ -225,6 +225,17 @@ type StackCameraDragState = {
   pointerId: number;
 };
 
+type BootPhase =
+  | 'awaiting-webgpu'
+  | 'creating-device'
+  | 'device-created'
+  | 'creating-layers'
+  | 'awaiting-texture-ready'
+  | 'binding-ui'
+  | 'ready'
+  | 'unsupported'
+  | 'error';
+
 export type AppHandle = {
   destroy: () => void;
 };
@@ -347,6 +358,7 @@ class LumaStageController {
 
   async start(): Promise<void> {
     this.setState('loading');
+    this.setBootPhase('awaiting-webgpu');
     document.body.dataset.benchmarkState = this.config.benchmarkEnabled ? 'pending' : 'disabled';
 
     if (!('gpu' in navigator) || !navigator.gpu) {
@@ -357,10 +369,9 @@ class LumaStageController {
     }
 
     try {
-      this.device = await luma.createDevice({
+      this.setBootPhase('creating-device');
+      this.device = await createWebGpuDevice({
         id: 'linker-luma-stage',
-        type: 'webgpu',
-        adapters: [webgpuAdapter],
         createCanvasContext: {
           canvas: this.chrome.canvas,
           alphaMode: 'opaque',
@@ -374,6 +385,7 @@ class LumaStageController {
         return;
       }
 
+      this.setBootPhase('device-created');
       this.frameTelemetry = new FrameTelemetry(this.device, {
         enableGpuTimestamps: this.config.gpuTimingEnabled,
       });
@@ -403,8 +415,11 @@ class LumaStageController {
       this.gridLayer = new GridLayer(this.device);
       this.stackBackplateLayer = new StackBackplateLayer(this.device);
       this.lineLayer = new LineLayer(this.device, this.renderScene.links, this.lineStrategy);
+      this.setBootPhase('creating-layers');
       this.textLayer = new TextLayer(this.device, this.renderScene.labels, this.textStrategy);
+      this.setBootPhase('awaiting-texture-ready');
       await this.textLayer.ready;
+      this.setBootPhase('binding-ui');
       this.installInteractionHandlers();
       this.updateStrategyPanels();
       this.updateCameraPanel();
@@ -415,6 +430,7 @@ class LumaStageController {
       this.chrome.canvas.hidden = false;
       this.syncCanvasDrawingBufferSize();
       this.setState('ready');
+      this.setBootPhase('ready');
       this.syncCurrentRouteQueryParams();
       this.updateStatus();
       this.requestRender();
@@ -2405,10 +2421,15 @@ class LumaStageController {
     document.body.dataset.appState = state;
   }
 
+  private setBootPhase(phase: BootPhase): void {
+    document.body.dataset.bootPhase = phase;
+  }
+
   private showError(error: unknown): void {
     const message = error instanceof Error ? error.message : 'Unknown startup error';
 
     this.setState('error');
+    this.setBootPhase('error');
     this.chrome.canvas.hidden = true;
     this.chrome.launchBanner.hidden = false;
     this.chrome.launchBanner.innerHTML = `
@@ -2419,6 +2440,7 @@ class LumaStageController {
 
   private showUnsupported(message: string): void {
     this.setState('unsupported');
+    this.setBootPhase('unsupported');
     this.chrome.canvas.hidden = true;
     this.chrome.launchBanner.hidden = false;
     this.chrome.launchBanner.innerHTML = `
@@ -2645,6 +2667,63 @@ function isLineStrategy(value: string | null | undefined): value is LineStrategy
 
 function isLayoutStrategy(value: string | null | undefined): value is LayoutStrategy {
   return LAYOUT_STRATEGIES.includes(value as LayoutStrategy);
+}
+
+async function createWebGpuDevice(props: DeviceProps): Promise<Device> {
+  const gpuNavigator = navigator as Navigator & {
+    gpu?: {
+      requestAdapter: (options?: {powerPreference?: string}) => Promise<{
+        features: Iterable<unknown>;
+        info?: unknown;
+        limits: Record<string, unknown>;
+        requestAdapterInfo?: () => Promise<unknown>;
+        requestDevice: (options: {
+          requiredFeatures: unknown[];
+          requiredLimits: Record<string, number>;
+        }) => Promise<unknown>;
+      } | null>;
+    };
+  };
+
+  if (!gpuNavigator.gpu) {
+    throw new Error('WebGPU not available. Recent Chrome browsers should work.');
+  }
+
+  const adapter = await gpuNavigator.gpu.requestAdapter({
+  });
+
+  if (!adapter) {
+    throw new Error('Failed to request WebGPU adapter');
+  }
+
+  const adapterInfo =
+    adapter.info ||
+    (await adapter.requestAdapterInfo?.());
+  const requiredFeatures: unknown[] = [];
+  const requiredLimits: Record<string, number> = {};
+
+  if (props._requestMaxLimits ?? true) {
+    requiredFeatures.push(...Array.from(adapter.features));
+
+    for (const key of Object.keys(adapter.limits)) {
+      if (key === 'minSubgroupSize' || key === 'maxSubgroupSize') {
+        continue;
+      }
+
+      const value = adapter.limits[key];
+
+      if (typeof value === 'number') {
+        requiredLimits[key] = value;
+      }
+    }
+  }
+
+  const gpuDevice = await adapter.requestDevice({
+    requiredFeatures,
+    requiredLimits,
+  });
+
+  return new WebGPUDevice(props, gpuDevice as never, adapter as never, adapterInfo as never);
 }
 
 function renderStatusRows(

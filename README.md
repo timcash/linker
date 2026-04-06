@@ -52,6 +52,9 @@ npm run build
 npm run build:pages
 npm run preview -- --host 127.0.0.1
 npm run test:browser
+npm run test:preview
+npm run test:live -- --url https://timcash.github.io/linker/
+npm run test:live -- --url https://timcash.github.io/linker/ --allow-unsupported
 npm test
 LINKER_EXTENDED_TEST_MATRIX=1 npm test
 
@@ -72,6 +75,9 @@ What they do:
 - `npm run build:pages`: builds the GitHub Pages bundle with `/linker/` as the public base path.
 - `npm run preview -- --host 127.0.0.1`: serves the production bundle locally.
 - `npm run test:browser`: runs the headed browser harness only.
+- `npm run test:preview`: builds the production bundle, serves it locally, and smoke-tests the bundled app.
+- `npm run test:live -- --url ...`: smoke-tests the deployed site and fails on loading hangs, console errors, failed requests, or page errors.
+- `npm run test:live -- --url ... --allow-unsupported`: accepts a clean `unsupported` result when the browser does not expose WebGPU, which is useful in CI.
 - `npm test`: runs `eslint` and then the browser suite.
 - `LINKER_EXTENDED_TEST_MATRIX=1 npm test`: adds the extended demo sweep and benchmark matrix.
 - `npm run perf:trace -- ...`: records a control-by-control performance trace and prints a JSON

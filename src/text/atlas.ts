@@ -37,7 +37,7 @@ export function buildGlyphAtlas(
 ): GlyphAtlas {
   const mode = options.mode ?? 'bitmap';
   const scratchCanvas = document.createElement('canvas');
-  const scratchContext = scratchCanvas.getContext('2d');
+  const scratchContext = scratchCanvas.getContext('2d', {willReadFrequently: true});
 
   if (!scratchContext) {
     throw new Error('Canvas 2D context is unavailable for glyph atlas generation.');
@@ -107,7 +107,7 @@ function buildBitmapGlyphAtlas(layout: GlyphAtlasLayout): GlyphAtlas {
   atlasCanvas.width = ATLAS_WIDTH;
   atlasCanvas.height = layout.atlasHeight;
 
-  const atlasContext = atlasCanvas.getContext('2d');
+  const atlasContext = atlasCanvas.getContext('2d', {willReadFrequently: true});
 
   if (!atlasContext) {
     throw new Error('Canvas 2D context is unavailable for glyph atlas drawing.');
@@ -148,9 +148,9 @@ function buildSdfGlyphAtlas(layout: GlyphAtlasLayout): GlyphAtlas {
   atlasCanvas.width = ATLAS_WIDTH;
   atlasCanvas.height = layout.atlasHeight;
 
-  const atlasContext = atlasCanvas.getContext('2d');
+  const atlasContext = atlasCanvas.getContext('2d', {willReadFrequently: true});
   const glyphCanvas = document.createElement('canvas');
-  const glyphContext = glyphCanvas.getContext('2d');
+  const glyphContext = glyphCanvas.getContext('2d', {willReadFrequently: true});
 
   if (!atlasContext || !glyphContext) {
     throw new Error('Canvas 2D context is unavailable for glyph atlas drawing.');

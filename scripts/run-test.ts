@@ -16,6 +16,7 @@ let testFailed = false;
 try {
   await runCommand(['npm', 'run', 'lint']);
   await runCommand(['npm', 'run', 'test:browser']);
+  await runCommand(['npm', 'run', 'test:preview']);
 
   if (await hasUnexpectedErrorLogEntries()) {
     testFailed = true;
