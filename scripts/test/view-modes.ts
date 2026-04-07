@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 
 import {buildLabelKey} from '../../src/label-key';
 import {
+  assertOverlayShellPinned,
   captureInteractionScreenshot,
   clickStageModeButton,
   clickWorkplaneButton,
@@ -72,6 +73,10 @@ export async function runViewModesFlow(
     },
     'The stage panel should reflect a focused 2D view on the first workplane.',
   );
+  await assertOverlayShellPinned(context.page, {
+    expectedPage: 'navigate',
+    label: 'view modes initial',
+  });
   await captureInteractionScreenshot(context, 'view-modes-2d-initial');
 
   await clickStageModeButton(context.page, '3d-mode');
@@ -119,6 +124,10 @@ export async function runViewModesFlow(
     true,
     'The stage panel should show 3D mode as the active mode.',
   );
+  await assertOverlayShellPinned(context.page, {
+    expectedPage: 'stage',
+    label: 'view modes 3d',
+  });
   await captureInteractionScreenshot(context, 'view-modes-3d-stack');
 
   await clickWorkplaneButton(context.page, 'select-next-workplane');
@@ -150,6 +159,10 @@ export async function runViewModesFlow(
     true,
     'The stage panel should disable moving forward when the last workplane is active.',
   );
+  await assertOverlayShellPinned(context.page, {
+    expectedPage: 'stage',
+    label: 'view modes next workplane',
+  });
   await captureInteractionScreenshot(context, 'view-modes-next-workplane');
 
   await clickWorkplaneButton(context.page, 'select-previous-workplane');
@@ -175,6 +188,10 @@ export async function runViewModesFlow(
     true,
     'The stage panel should disable moving backward when the first workplane is active again.',
   );
+  await assertOverlayShellPinned(context.page, {
+    expectedPage: 'stage',
+    label: 'view modes previous workplane',
+  });
   await captureInteractionScreenshot(context, 'view-modes-return-first-workplane');
 
   await clickStageModeButton(context.page, '2d-mode');
@@ -211,6 +228,10 @@ export async function runViewModesFlow(
     'Alpha replay',
     'Editing the focused label should update the label-edit input.',
   );
+  await assertOverlayShellPinned(context.page, {
+    expectedPage: 'edit',
+    label: 'view modes back to 2d',
+  });
   await captureInteractionScreenshot(context, 'view-modes-back-to-2d');
 }
 

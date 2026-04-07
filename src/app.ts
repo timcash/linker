@@ -1810,7 +1810,6 @@ class LumaStageController {
   }
 
   private updateCameraPanel(): void {
-    this.chrome.cameraPanelHint.textContent = this.getControlPadSummary();
     syncStageCameraPanel({
       buttons: this.actionButtons,
       cameraAvailability: this.getEffectiveCameraAvailability(),
@@ -2078,10 +2077,6 @@ class LumaStageController {
     }
 
     return `Label ${focusedLabel.navigation?.key ?? editorCursor.key}`;
-  }
-
-  private getControlPadSummary(): string {
-    return '';
   }
 
   private findSceneLabelByKey(labelKey: string): StageScene['labels'][number] | null {

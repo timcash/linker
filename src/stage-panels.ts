@@ -67,8 +67,6 @@ export function syncStageStrategyPanels(input: {
     }
   }
 
-  const controlPadLabel =
-    strategyModePanel.querySelector<HTMLElement>('[data-testid="control-pad-label"]');
   const navigateModeChip =
     strategyModePanel.querySelector<HTMLButtonElement>('[data-testid="navigate-mode-chip"]');
   const stageModeChip =
@@ -76,10 +74,6 @@ export function syncStageStrategyPanels(input: {
   const stageWorkplaneChip =
     strategyModePanel.querySelector<HTMLButtonElement>('[data-testid="stage-workplane-chip"]');
   const labelEditPanel = renderPanel.querySelector<HTMLElement>('[data-testid="label-edit-panel"]');
-
-  if (controlPadLabel) {
-    controlPadLabel.textContent = getControlPadLabel(controlPadPage);
-  }
 
   if (navigateModeChip) {
     navigateModeChip.textContent = stageMode === '3d-mode' ? 'Orbit' : 'Grid';
@@ -128,18 +122,6 @@ export function syncStageCameraPanel(input: {
 function setButtonPressed(button: HTMLButtonElement, isActive: boolean): void {
   button.dataset.active = String(isActive);
   button.setAttribute('aria-pressed', String(isActive));
-}
-
-function getControlPadLabel(page: ControlPadPage): string {
-  switch (page) {
-    case 'edit':
-      return 'Edit';
-    case 'stage':
-      return 'Stage';
-    case 'navigate':
-    default:
-      return 'Navigate';
-  }
 }
 
 function isCameraActionBlocked(

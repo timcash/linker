@@ -19,6 +19,7 @@ import {
   type CanvasPixelSignature,
   type EditorState,
   type LineState,
+  type LayoutShellState,
   type LineStrategy,
   type NonReadyResult,
   type PerfSnapshot,
@@ -34,6 +35,11 @@ import {
   assertDemoChildLayerVisible,
   assertDemoRootLayerVisible,
 } from './assertions';
+
+const TEST_MOBILE_VIEWPORT = {
+  height: 852,
+  width: 393,
+} as const;
 
 export async function readAppResult(page: Page): Promise<ReadyResult | NonReadyResult> {
   return page.evaluate((): ReadyResult | NonReadyResult => {
@@ -451,6 +457,8 @@ export async function captureInteractionScreenshot(
   context: BrowserTestContext,
   name: string,
 ): Promise<void> {
+  await waitForOverlayShell(context.page);
+  await assertMobileViewportStable(context.page, name);
   context.interactionScreenshotCounter += 1;
   const safeName = name
     .trim()
@@ -465,6 +473,144 @@ export async function captureInteractionScreenshot(
     path: screenshotPath,
   });
   context.addBrowserLog('artifact.step', `Saved interaction screenshot to ${screenshotPath}`);
+}
+
+export async function getLayoutShellState(page: Page): Promise<LayoutShellState> {
+  return page.evaluate(() => {
+    const statusElement = document.querySelector<HTMLElement>('[data-testid="status-panel"]');
+    const controlElement = document.querySelector<HTMLElement>('[data-testid="strategy-mode-panel"]');
+    const statusRect = statusElement?.getBoundingClientRect();
+    const controlRect = controlElement?.getBoundingClientRect();
+    const statusStyle = statusElement ? window.getComputedStyle(statusElement) : null;
+    const controlStyle = controlElement ? window.getComputedStyle(controlElement) : null;
+    const statusVisible =
+      statusElement instanceof HTMLElement &&
+      !statusElement.hidden &&
+      !!statusRect &&
+      statusRect.width > 0 &&
+      statusRect.height > 0 &&
+      statusStyle?.display !== 'none' &&
+      statusStyle?.visibility !== 'hidden';
+    const controlVisible =
+      controlElement instanceof HTMLElement &&
+      !controlElement.hidden &&
+      !!controlRect &&
+      controlRect.width > 0 &&
+      controlRect.height > 0 &&
+      controlStyle?.display !== 'none' &&
+      controlStyle?.visibility !== 'hidden';
+
+    const visibleControlPadPage =
+      Array.from(document.querySelectorAll<HTMLElement>('[data-control-pad-page]')).find(
+        (pageElement) =>
+          !pageElement.hidden &&
+          pageElement.getClientRects().length > 0 &&
+          window.getComputedStyle(pageElement).display !== 'none' &&
+          window.getComputedStyle(pageElement).visibility !== 'hidden',
+      )?.dataset.controlPadPage ?? '';
+
+    return {
+      controlPad: {
+        bottom: Math.round(controlRect?.bottom ?? 0),
+        centerX: Math.round((controlRect?.left ?? 0) + (controlRect?.width ?? 0) / 2),
+        height: Math.round(controlRect?.height ?? 0),
+        left: Math.round(controlRect?.left ?? 0),
+        right: Math.round(controlRect?.right ?? 0),
+        top: Math.round(controlRect?.top ?? 0),
+        visible: controlVisible,
+        width: Math.round(controlRect?.width ?? 0),
+      },
+      statusPanel: {
+        bottom: Math.round(statusRect?.bottom ?? 0),
+        centerX: Math.round((statusRect?.left ?? 0) + (statusRect?.width ?? 0) / 2),
+        height: Math.round(statusRect?.height ?? 0),
+        left: Math.round(statusRect?.left ?? 0),
+        right: Math.round(statusRect?.right ?? 0),
+        top: Math.round(statusRect?.top ?? 0),
+        visible: statusVisible,
+        width: Math.round(statusRect?.width ?? 0),
+      },
+      viewportHeight: window.innerHeight,
+      viewportWidth: window.innerWidth,
+      visibleControlPadPage,
+    };
+  });
+}
+
+export async function assertOverlayShellPinned(
+  page: Page,
+  options?: {
+    expectedPage?: 'edit' | 'navigate' | 'stage';
+    label?: string;
+  },
+): Promise<void> {
+  const layout = await getLayoutShellState(page);
+  const labelPrefix = options?.label ? `${options.label}: ` : '';
+
+  assert.equal(
+    layout.statusPanel.visible,
+    true,
+    `${labelPrefix}status panel should remain visible.`,
+  );
+  assert.equal(
+    layout.controlPad.visible,
+    true,
+    `${labelPrefix}control pad should remain visible.`,
+  );
+  assert.ok(
+    layout.statusPanel.top <= 16,
+    `${labelPrefix}status panel should stay pinned near the top edge. layout=${JSON.stringify(layout)}`,
+  );
+  assert.ok(
+    layout.viewportHeight - layout.controlPad.bottom <= 20,
+    `${labelPrefix}control pad should stay pinned near the bottom edge. layout=${JSON.stringify(layout)}`,
+  );
+  assert.ok(
+    Math.abs(layout.controlPad.centerX - layout.viewportWidth / 2) <= 6,
+    `${labelPrefix}control pad should stay horizontally centered. layout=${JSON.stringify(layout)}`,
+  );
+
+  if (options?.expectedPage) {
+    assert.equal(
+      layout.visibleControlPadPage,
+      options.expectedPage,
+      `${labelPrefix}expected the ${options.expectedPage} control container to be visible. layout=${JSON.stringify(layout)}`,
+    );
+  }
+}
+
+export async function assertMobileViewportStable(
+  page: Page,
+  label?: string,
+): Promise<void> {
+  const viewport = await page.evaluate(() => ({
+    innerHeight: window.innerHeight,
+    innerWidth: window.innerWidth,
+    visualViewportHeight: Math.round(window.visualViewport?.height ?? window.innerHeight),
+    visualViewportWidth: Math.round(window.visualViewport?.width ?? window.innerWidth),
+  }));
+  const labelPrefix = label ? `${label}: ` : '';
+
+  assert.equal(
+    viewport.innerWidth,
+    TEST_MOBILE_VIEWPORT.width,
+    `${labelPrefix}innerWidth should stay on the shared mobile viewport.`,
+  );
+  assert.equal(
+    viewport.innerHeight,
+    TEST_MOBILE_VIEWPORT.height,
+    `${labelPrefix}innerHeight should stay on the shared mobile viewport.`,
+  );
+  assert.equal(
+    viewport.visualViewportWidth,
+    TEST_MOBILE_VIEWPORT.width,
+    `${labelPrefix}visualViewport width should stay on the shared mobile viewport.`,
+  );
+  assert.equal(
+    viewport.visualViewportHeight,
+    TEST_MOBILE_VIEWPORT.height,
+    `${labelPrefix}visualViewport height should stay on the shared mobile viewport.`,
+  );
 }
 
 export async function openRouteWithBootState(
@@ -524,7 +670,6 @@ export async function clickButton(
         throw new Error(expectedMessage);
       }
 
-      button.scrollIntoView({block: 'center', inline: 'center'});
       button.click();
     },
     {buttonSelector: selector, expectedMessage: missingMessage},
@@ -1055,6 +1200,31 @@ export async function waitForAppDatasets(page: Page): Promise<void> {
         error instanceof Error ? error.message : String(error)
       }`,
       {cause: error},
+    );
+  }
+}
+
+async function waitForOverlayShell(page: Page): Promise<void> {
+  await page.evaluate(
+    () =>
+      new Promise<void>((resolve) => {
+        requestAnimationFrame(() => {
+          requestAnimationFrame(() => resolve());
+        });
+      }),
+  );
+  const layout = await getLayoutShellState(page);
+
+  if (!layout.statusPanel.visible || !layout.controlPad.visible) {
+    const diagnostics = await page.evaluate(() => ({
+      appState: document.body.dataset.appState ?? '',
+      stageHtml: document.querySelector('.luma-stage')?.outerHTML.slice(0, 1500) ?? '',
+    }));
+    throw new Error(
+      `Overlay shell is not visible after waiting: ${JSON.stringify({
+        diagnostics,
+        layout,
+      })}`,
     );
   }
 }

@@ -1,6 +1,5 @@
 export type StageChromeElements = {
   cameraPanel: HTMLElement;
-  cameraPanelHint: HTMLParagraphElement;
   canvas: HTMLCanvasElement;
   editorGhostLayer: HTMLDivElement;
   editorSelectionLayer: HTMLDivElement;
@@ -65,10 +64,6 @@ export function createStageChrome(root: HTMLElement): StageChromeElements {
   strategyModePanel.dataset.testid = 'strategy-mode-panel';
   strategyModePanel.setAttribute('aria-label', 'Control pad');
   strategyModePanel.innerHTML = `
-    <div class="control-pad-header">
-      <div class="panel-label" data-testid="control-pad-label">Navigate</div>
-      <p class="panel-hint" data-testid="control-pad-summary" hidden></p>
-    </div>
     <div class="control-page-grid" data-control-pad-page="navigate" data-testid="control-pad-page-navigate">
       <button type="button" class="control-button control-button--tile" data-control="zoom-in">Zoom +</button>
       <button type="button" class="control-button control-button--tile" data-control="pan-up">Up</button>
@@ -179,8 +174,6 @@ export function createStageChrome(root: HTMLElement): StageChromeElements {
     strategyModePanel.querySelector<HTMLParagraphElement>('[data-testid="editor-selection-summary"]');
   const labelInputSubmitButton =
     strategyModePanel.querySelector<HTMLButtonElement>('[data-testid="label-input-submit"]');
-  const cameraPanelHint =
-    strategyModePanel.querySelector<HTMLParagraphElement>('[data-testid="control-pad-summary"]');
 
   if (
     !renderPanel ||
@@ -189,7 +182,6 @@ export function createStageChrome(root: HTMLElement): StageChromeElements {
     !labelInputHint ||
     !editorSelectionSummary ||
     !labelInputSubmitButton ||
-    !cameraPanelHint ||
     !stats
   ) {
     throw new Error('Failed to build the stage chrome controls.');
@@ -199,20 +191,22 @@ export function createStageChrome(root: HTMLElement): StageChromeElements {
   controlDock.className = 'control-dock';
   controlDock.append(strategyModePanel);
 
+  const uiShell = document.createElement('div');
+  uiShell.className = 'stage-ui-shell';
+  uiShell.append(statusPanel, controlDock);
+
   stage.append(
     canvas,
     editorSelectionLayer,
     editorGhostLayer,
     selectionBox,
-    statusPanel,
-    controlDock,
+    uiShell,
     launchBanner,
   );
   root.replaceChildren(stage);
 
   return {
     cameraPanel: strategyModePanel,
-    cameraPanelHint,
     canvas,
     editorGhostLayer,
     editorSelectionLayer,

@@ -137,28 +137,6 @@ function buildGeneratedReadmeBlock(
   ]);
   const liveLinks = [
     `- Live root: [timcash.github.io/linker](${buildLiveUrl()})`,
-    `- Live classic 12x12x12: [Classic grid](${buildLiveUrl({
-      cameraLabel: 'wp-1:1:1:1',
-      demoLayers: '12',
-      demoPreset: 'classic',
-      labelSet: 'demo',
-      stageMode: '2d-mode',
-      workplane: 'wp-1',
-    })})`,
-    `- Live editor lab: [Editor lab](${buildLiveUrl({
-      cameraLabel: 'wp-3:1:6:6',
-      demoPreset: 'editor-lab',
-      labelSet: 'demo',
-      stageMode: '2d-mode',
-      workplane: 'wp-3',
-    })})`,
-    `- Live stack view: [Five-workplane showcase](${buildLiveUrl({
-      cameraLabel: 'wp-3:1:6:6',
-      demoPreset: 'workplane-showcase',
-      labelSet: 'demo',
-      stageMode: '3d-mode',
-      workplane: 'wp-3',
-    })})`,
     '- GitHub repository: [github.com/timcash/linker](https://github.com/timcash/linker)',
   ];
 
@@ -171,7 +149,7 @@ function buildGeneratedReadmeBlock(
     '',
     ...liveLinks,
     '',
-    'The browser test suite refreshes this gallery from the mobile interaction screenshots and keeps the links pointed at the live GitHub Pages routes.',
+    'Each screenshot opens a live route with a preset `demoPreset` and `cameraLabel`.',
     README_SHOWCASE_END,
   ].join(newline);
 }

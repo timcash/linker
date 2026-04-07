@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 
 import {buildLabelKey} from '../../src/label-key';
 import {
+  assertOverlayShellPinned,
   assertDemoChildLayerVisible,
   assertDemoRootLayerVisible,
   buildClassicDemoUrl,
@@ -18,6 +19,10 @@ export async function runPlaneFocusControlsFlow(
   context: BrowserTestContext,
 ): Promise<void> {
   await openRoute(context.page, buildClassicDemoUrl(context.url));
+  await assertOverlayShellPinned(context.page, {
+    expectedPage: 'navigate',
+    label: 'plane-focus initial',
+  });
   await captureInteractionScreenshot(context, 'plane-focus-initial');
 
   await clickControl(context.page, 'zoom-in');
@@ -28,6 +33,10 @@ export async function runPlaneFocusControlsFlow(
     zoomedInText,
     'Plane-focus controls should reveal the child layer after zoom-in.',
   );
+  await assertOverlayShellPinned(context.page, {
+    expectedPage: 'navigate',
+    label: 'plane-focus zoom-in',
+  });
   await captureInteractionScreenshot(context, 'plane-focus-zoom-in');
 
   await clickControl(context.page, 'zoom-out');
@@ -38,6 +47,10 @@ export async function runPlaneFocusControlsFlow(
     zoomedOutText,
     'Plane-focus controls should restore the root layer after zoom-out.',
   );
+  await assertOverlayShellPinned(context.page, {
+    expectedPage: 'navigate',
+    label: 'plane-focus zoom-out',
+  });
   await captureInteractionScreenshot(context, 'plane-focus-zoom-out');
 
   await clickControl(context.page, 'pan-right');

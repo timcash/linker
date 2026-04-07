@@ -2,11 +2,13 @@ import assert from 'node:assert/strict';
 
 import {buildLabelKey} from '../../src/label-key';
 import {
+  assertOverlayShellPinned,
   captureInteractionScreenshot,
   clickWorkplaneButton,
   getCameraState,
   getStageState,
   openRouteWithBootState,
+  showControlPadPage,
   waitForStageWorkplane,
   type BrowserTestContext,
 } from './shared';
@@ -32,6 +34,7 @@ export async function runWorkplaneLifecycleFlow(
     initialState: createPreparedSingleWorkplaneState(),
     strategyPanelMode: 'label-edit',
   });
+  await showControlPadPage(context.page, 'stage');
 
   const initialStage = await getStageState(context.page);
   assert.equal(initialStage.stageMode, '2d-mode', 'Workplane lifecycle should begin in plane-focus view.');
@@ -47,6 +50,10 @@ export async function runWorkplaneLifecycleFlow(
     },
     'The workplane panel should reflect a single active workplane at startup.',
   );
+  await assertOverlayShellPinned(context.page, {
+    expectedPage: 'stage',
+    label: 'workplane lifecycle initial',
+  });
   await captureInteractionScreenshot(context, 'workplane-lifecycle-initial');
 
   await clickWorkplaneButton(context.page, 'spawn-workplane');
@@ -77,6 +84,10 @@ export async function runWorkplaneLifecycleFlow(
     },
     'The workplane panel should advance focus and update button states after spawning.',
   );
+  await assertOverlayShellPinned(context.page, {
+    expectedPage: 'stage',
+    label: 'workplane lifecycle spawned',
+  });
   await captureInteractionScreenshot(context, 'workplane-lifecycle-spawned');
 
   await clickWorkplaneButton(context.page, 'delete-active-workplane');
@@ -101,6 +112,10 @@ export async function runWorkplaneLifecycleFlow(
     },
     'Deleting the extra plane should restore the single-workplane control state.',
   );
+  await assertOverlayShellPinned(context.page, {
+    expectedPage: 'stage',
+    label: 'workplane lifecycle deleted',
+  });
   await captureInteractionScreenshot(context, 'workplane-lifecycle-deleted');
 }
 

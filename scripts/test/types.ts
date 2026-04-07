@@ -206,6 +206,25 @@ export type CanvasPixelSignature = {
   width: number;
 };
 
+export type LayoutPanelBox = {
+  bottom: number;
+  centerX: number;
+  height: number;
+  left: number;
+  right: number;
+  top: number;
+  visible: boolean;
+  width: number;
+};
+
+export type LayoutShellState = {
+  controlPad: LayoutPanelBox;
+  statusPanel: LayoutPanelBox;
+  viewportHeight: number;
+  viewportWidth: number;
+  visibleControlPadPage: string;
+};
+
 export type CameraTraceStep = {
   control: string;
   name: string;
