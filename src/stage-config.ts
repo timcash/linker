@@ -16,7 +16,7 @@ import {
 } from './data/labels';
 import {DEFAULT_BENCHMARK_LABEL_COUNT} from './data/static-benchmark';
 import {DEFAULT_LINE_STRATEGY, LINE_STRATEGIES, type LineStrategy} from './line/types';
-import {DEFAULT_TEXT_STRATEGY, type TextStrategy} from './text/types';
+import {DEFAULT_TEXT_STRATEGY, TEXT_STRATEGIES, type TextStrategy} from './text/types';
 
 export type LabelSetKind = 'demo' | 'benchmark';
 export type DemoPreset = 'classic' | 'editor-lab' | 'workplane-showcase';
@@ -102,11 +102,17 @@ export function syncStageRouteQueryParams(input: {
   demoLayerCount: number;
   labelSetKind: LabelSetKind;
   labelTargetCount: number;
+  layoutStrategy: LayoutStrategy;
+  lineStrategy: LineStrategy;
   stageMode: StageMode;
+  textStrategy: TextStrategy;
   workplaneId: WorkplaneId;
 }): void {
   updateRouteSearchParams((searchParams) => {
     searchParams.set('labelSet', input.labelSetKind);
+    searchParams.set('layoutStrategy', input.layoutStrategy);
+    searchParams.set('lineStrategy', input.lineStrategy);
+    searchParams.set('textStrategy', input.textStrategy);
 
     if (input.labelSetKind === 'benchmark') {
       searchParams.delete('demoPreset');
@@ -141,8 +147,7 @@ export function syncStageRouteQueryParams(input: {
 }
 
 function parseTextStrategy(value: string | null): TextStrategy {
-  void value;
-  return DEFAULT_TEXT_STRATEGY;
+  return isTextStrategy(value) ? value : DEFAULT_TEXT_STRATEGY;
 }
 
 function parseDemoPreset(
@@ -199,6 +204,10 @@ function parseBoundedInteger(
 
 function isLineStrategy(value: string | null | undefined): value is LineStrategy {
   return LINE_STRATEGIES.includes(value as LineStrategy);
+}
+
+function isTextStrategy(value: string | null | undefined): value is TextStrategy {
+  return TEXT_STRATEGIES.includes(value as TextStrategy);
 }
 
 function isLayoutStrategy(value: string | null | undefined): value is LayoutStrategy {

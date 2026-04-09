@@ -1,4 +1,4 @@
-import {copyFile, mkdir, readFile, writeFile} from 'node:fs/promises';
+import {copyFile, mkdir, readFile, readdir, writeFile} from 'node:fs/promises';
 import path from 'node:path';
 
 import type {BrowserTestContext} from './types';
@@ -13,7 +13,7 @@ type ShowcaseImage = {
   alt: string;
   caption: string;
   liveUrl: string;
-  sourceFilename: string;
+  sourceFilenameSuffix: string;
   targetFilename: string;
 };
 
@@ -23,9 +23,14 @@ export async function publishReadmeShowcase(
   await mkdir(README_SCREENSHOT_DIR, {recursive: true});
 
   const showcaseImages = getShowcaseImages();
+  const interactionScreenshotFilenames = await readdir(context.interactionScreenshotDir);
 
   for (const image of showcaseImages) {
-    const sourcePath = path.join(context.interactionScreenshotDir, image.sourceFilename);
+    const sourceFilename = resolveInteractionScreenshotFilename(
+      interactionScreenshotFilenames,
+      image.sourceFilenameSuffix,
+    );
+    const sourcePath = path.join(context.interactionScreenshotDir, sourceFilename);
     const targetPath = path.join(README_SCREENSHOT_DIR, image.targetFilename);
     await copyFile(sourcePath, targetPath);
     context.addBrowserLog('artifact.readme', `Copied ${sourcePath} to ${targetPath}`);
@@ -48,7 +53,7 @@ function getShowcaseImages(): ShowcaseImage[] {
       alt: 'Linker boot-ready mobile view',
       caption: 'Boot',
       liveUrl: buildLiveUrl(),
-      sourceFilename: '01-boot-ready.png',
+      sourceFilenameSuffix: 'boot-ready.png',
       targetFilename: 'boot-ready.png',
     },
     {
@@ -62,7 +67,7 @@ function getShowcaseImages(): ShowcaseImage[] {
         stageMode: '2d-mode',
         workplane: 'wp-1',
       }),
-      sourceFilename: '03-plane-focus-zoom-in.png',
+      sourceFilenameSuffix: 'plane-focus-zoom-in.png',
       targetFilename: 'focus-zoom.png',
     },
     {
@@ -75,7 +80,7 @@ function getShowcaseImages(): ShowcaseImage[] {
         stageMode: '2d-mode',
         workplane: 'wp-3',
       }),
-      sourceFilename: '14-editor-linked-selection.png',
+      sourceFilenameSuffix: 'editor-linked-selection.png',
       targetFilename: 'editor-link.png',
     },
     {
@@ -88,7 +93,7 @@ function getShowcaseImages(): ShowcaseImage[] {
         stageMode: '2d-mode',
         workplane: 'wp-3',
       }),
-      sourceFilename: '19-workplane-lifecycle-spawned.png',
+      sourceFilenameSuffix: 'workplane-lifecycle-spawned.png',
       targetFilename: 'workplane-spawn.png',
     },
     {
@@ -101,7 +106,7 @@ function getShowcaseImages(): ShowcaseImage[] {
         stageMode: '3d-mode',
         workplane: 'wp-3',
       }),
-      sourceFilename: '22-view-modes-3d-stack.png',
+      sourceFilenameSuffix: 'view-modes-3d-stack.png',
       targetFilename: 'stack-view.png',
     },
     {
@@ -114,7 +119,7 @@ function getShowcaseImages(): ShowcaseImage[] {
         stageMode: '3d-mode',
         workplane: 'wp-3',
       }),
-      sourceFilename: '27-stack-orbit-after-full-orbit.png',
+      sourceFilenameSuffix: 'stack-orbit-after-full-orbit.png',
       targetFilename: 'stack-orbit.png',
     },
   ];
@@ -180,4 +185,17 @@ function buildLiveUrl(params?: Record<string, string>): string {
   }
 
   return url.toString();
+}
+
+function resolveInteractionScreenshotFilename(
+  filenames: string[],
+  suffix: string,
+): string {
+  const match = filenames.find((filename) => filename.endsWith(`-${suffix}`));
+
+  if (!match) {
+    throw new Error(`Missing interaction screenshot with suffix ${suffix}.`);
+  }
+
+  return match;
 }

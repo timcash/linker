@@ -4,6 +4,7 @@ import {
   DEFAULT_STACK_CAMERA_STATE,
   type StackCameraState,
 } from './stack-camera';
+import type {WorkplaneDagEdgeState, WorkplaneDagPosition} from './dag-document';
 import type {LinkDefinition} from './line/types';
 
 export const STAGE_MODES = ['2d-mode', '3d-mode'] as const;
@@ -38,7 +39,14 @@ export type WorkplaneBridgeLinkDefinition = Pick<
   outputWorkplaneId: WorkplaneId;
 };
 
+export type PlaneStackDagState = {
+  edges: WorkplaneDagEdgeState[];
+  positionsById: Record<WorkplaneId, WorkplaneDagPosition>;
+  rootWorkplaneId: WorkplaneId;
+};
+
 export type PlaneStackDocumentState = {
+  dag?: PlaneStackDagState | null;
   nextWorkplaneNumber: number;
   workplaneBridgeLinks: WorkplaneBridgeLinkDefinition[];
   workplaneOrder: WorkplaneId[];
@@ -84,6 +92,7 @@ export function createStageSystemState(
 
   return {
     document: {
+      dag: null,
       nextWorkplaneNumber: INITIAL_NEXT_WORKPLANE_NUMBER,
       workplaneBridgeLinks: [],
       workplaneOrder: [workplane.workplaneId],
@@ -129,6 +138,7 @@ export function cloneStageSystemState(
 
   return {
     document: {
+      dag: state.document.dag ? clonePlaneStackDagState(state.document.dag) : null,
       nextWorkplaneNumber: state.document.nextWorkplaneNumber,
       workplaneBridgeLinks: state.document.workplaneBridgeLinks.map(cloneWorkplaneBridgeLink),
       workplaneOrder: [...state.document.workplaneOrder],
@@ -407,6 +417,21 @@ function cloneWorkplaneBridgeLink(
   return {
     ...link,
     color: [...link.color],
+  };
+}
+
+function clonePlaneStackDagState(
+  dag: PlaneStackDagState,
+): PlaneStackDagState {
+  return {
+    edges: dag.edges.map((edge) => ({...edge})),
+    positionsById: Object.fromEntries(
+      Object.entries(dag.positionsById).map(([workplaneId, position]) => [
+        workplaneId,
+        {...position},
+      ]),
+    ) as Record<WorkplaneId, WorkplaneDagPosition>,
+    rootWorkplaneId: dag.rootWorkplaneId,
   };
 }
 

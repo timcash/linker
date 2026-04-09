@@ -1,0 +1,189 @@
+{
+  "focusDocs": [
+    "README.md",
+    "PLAN.md"
+  ],
+  "workerWorkspaceRelativePath": ".codex-loop/workspaces/worker",
+  "workerWorktreeRelativePath": ".codex-loop/worktrees/worker",
+  "workerWorktreeBranch": "codex/agent-loop-worker",
+  "runRootRelativePath": ".codex-loop/runs",
+  "codexBinaryCandidates": [
+    "C:\\nvm4w\\nodejs\\codex.cmd",
+    "%USERPROFILE%\\.codex\\.sandbox-bin\\codex.exe",
+    "/usr/local/bin/codex",
+    "codex"
+  ],
+  "copyIgnoreNames": [
+    ".git",
+    ".codex-loop",
+    ".codex-temp",
+    "artifacts",
+    "dist",
+    "node_modules"
+  ],
+  "copyIgnoreRelativePaths": [
+    "browser.png",
+    "error.log",
+    "test.log"
+  ],
+  "defaultSlice": 6,
+  "slices": [
+    {
+      "slice": 6,
+      "name": "LOD Bucketing",
+      "intent": "Add screen-space DAG LOD bucketing and prove it with the narrowest static and smoke coverage before any new screenshot work.",
+      "ownedFiles": [
+        "src/dag-view.ts",
+        "scripts/test/unit.ts",
+        "scripts/test/dag-view-smoke.ts"
+      ],
+      "conditionalOwnedFiles": [
+        "README.md",
+        "PLAN.md",
+        "src/app.ts",
+        "src/stage-snapshot.ts",
+        "scripts/test/browser.ts"
+      ],
+      "mustNotTouch": [
+        "AGENT_TEST_LOOP.md",
+        "scripts/test.ts",
+        "src/stage-chrome.ts",
+        "src/stage-panels.ts",
+        "readme/screenshots"
+      ],
+      "testsToWrite": [
+        "Add or tighten pure tests for resolveWorkplaneLod(projectedPlaneSpanPx).",
+        "Add or tighten pure tests for bucketVisibleDagNodes(...).",
+        "Extend scripts/test/dag-view-smoke.ts to prove close and zoomed-out DAG states using exported DAG datasets before any screenshot work."
+      ],
+      "taskQueue": [
+        {
+          "id": "export-dag-lod-dataset",
+          "title": "Export active DAG LOD buckets",
+          "role": "browser-contract-author",
+          "intent": "Export the active DAG LOD bucket ids or counts through the browser dataset contract so smoke tests can assert live state directly.",
+          "allowedFiles": [
+            "src/app.ts",
+            "src/stage-snapshot.ts",
+            "scripts/test/browser.ts",
+            "README.md",
+            "PLAN.md"
+          ],
+          "contextFiles": [
+            "README.md",
+            "PLAN.md",
+            "src/app.ts",
+            "src/stage-snapshot.ts",
+            "scripts/test/browser.ts",
+            "scripts/test/dag-view-smoke.ts"
+          ],
+          "verifyCommand": "npm run test:browser -- --flow dag-view-smoke",
+          "expectedResult": "pass",
+          "doneWhen": [
+            "The app exports live DAG LOD bucket ids or counts for the canonical DAG view through browser-readable dataset fields.",
+            "The smoke flow no longer needs to reconstruct those bucket ids from imported production helpers."
+          ],
+          "notes": [
+            "Keep the change inside the browser dataset contract first.",
+            "Do not broaden into screenshot work or control-pad coverage."
+          ]
+        },
+        {
+          "id": "assert-exported-root-selected-buckets",
+          "title": "Assert root and selected exported buckets",
+          "role": "browser-proof-author",
+          "intent": "Tighten dag-view-smoke so it asserts exported root-overview and selected-workplane LOD buckets directly from browser data.",
+          "allowedFiles": [
+            "scripts/test/dag-view-smoke.ts",
+            "README.md",
+            "PLAN.md"
+          ],
+          "contextFiles": [
+            "README.md",
+            "PLAN.md",
+            "scripts/test/dag-view-smoke.ts",
+            "scripts/test/browser.ts",
+            "src/stage-snapshot.ts"
+          ],
+          "verifyCommand": "npm run test:browser -- --flow dag-view-smoke",
+          "expectedResult": "pass",
+          "doneWhen": [
+            "The smoke flow reads exported bucket fields instead of recomputing buckets in test code.",
+            "The browser proof covers a root graph-point state and a selected title-only state."
+          ],
+          "notes": [
+            "Use the smallest browser assertions that prove the exported fields are correct.",
+            "Keep static tests unchanged unless a tiny guard is clearly necessary."
+          ]
+        },
+        {
+          "id": "prove-mid-near-lod-states",
+          "title": "Prove label-point and full-workplane states",
+          "role": "lod-proof-author",
+          "intent": "Extend static and focused smoke coverage to prove the remaining label-points and full-workplane states for the canonical DAG.",
+          "allowedFiles": [
+            "src/dag-view.ts",
+            "scripts/test/unit.ts",
+            "scripts/test/dag-view-smoke.ts",
+            "README.md",
+            "PLAN.md"
+          ],
+          "contextFiles": [
+            "README.md",
+            "PLAN.md",
+            "src/dag-view.ts",
+            "scripts/test/unit.ts",
+            "scripts/test/dag-view-smoke.ts",
+            "src/stage-snapshot.ts",
+            "scripts/test/browser.ts"
+          ],
+          "verifyCommand": "npm run test:browser -- --flow dag-view-smoke",
+          "expectedResult": "pass",
+          "doneWhen": [
+            "Static and smoke coverage prove label-points and full-workplane states in addition to graph-point and title-only.",
+            "README.md and PLAN.md record the broadened Slice 6 proof without claiming screenshot readiness."
+          ],
+          "notes": [
+            "Only broaden after the exported bucket contract is already in place.",
+            "Keep the canonical DAG flow as the source of truth."
+          ]
+        }
+      ],
+      "commands": [
+        {
+          "id": "dag-static",
+          "command": "npm run test:dag:static",
+          "kind": "static"
+        },
+        {
+          "id": "lint",
+          "command": "npm run lint",
+          "kind": "lint"
+        },
+        {
+          "id": "dag-view-smoke",
+          "command": "npm run test:browser -- --flow dag-view-smoke",
+          "kind": "browser"
+        },
+        {
+          "id": "live-site",
+          "command": "npm run test:live -- --url https://timcash.github.io/linker/",
+          "kind": "live"
+        }
+      ],
+      "datasets": [
+        "README.md is the workflow source of truth.",
+        "PLAN.md is the slice and test ladder source of truth.",
+        "The canonical five-workplane network DAG fixture is already available and should be reused."
+      ],
+      "artifactsExpected": false,
+      "monitorFocus": [
+        "Did the worker read README.md and PLAN.md first?",
+        "Did the worker add or tighten the smallest relevant test before broadening implementation?",
+        "Did the worker keep the diff inside the owned files?",
+        "Do the check results actually prove the claimed new invariant?",
+        "Does the live GitHub Pages smoke result stay visible in the run artifacts?"
+      ]
+    }
+  ]
+}

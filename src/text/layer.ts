@@ -86,7 +86,10 @@ fn vertexMain(inputs: VertexInputs) -> FragmentInputs {
 fn fragmentMain(inputs: FragmentInputs) -> @location(0) vec4<f32> {
   let distance = textureSample(glyphAtlas, glyphAtlasSampler, inputs.uv).a;
   let edgeWidth = max(sdf.smoothing, fwidth(distance));
-  let alpha = smoothstep(sdf.cutoff - edgeWidth, sdf.cutoff + edgeWidth, distance) * inputs.color.a;
+  let alpha =
+    smoothstep(sdf.cutoff - edgeWidth, sdf.cutoff + edgeWidth, distance) *
+    inputs.color.a *
+    sdf.padding.x;
 
   if (alpha < 0.01) {
     discard;
@@ -255,7 +258,10 @@ fn vertexMain(inputs: VertexInputs) -> FragmentInputs {
 fn fragmentMain(inputs: FragmentInputs) -> @location(0) vec4<f32> {
   let distance = textureSample(glyphAtlas, glyphAtlasSampler, inputs.uv).a;
   let edgeWidth = max(sdf.smoothing, fwidth(distance));
-  let alpha = smoothstep(sdf.cutoff - edgeWidth, sdf.cutoff + edgeWidth, distance) * inputs.color.a;
+  let alpha =
+    smoothstep(sdf.cutoff - edgeWidth, sdf.cutoff + edgeWidth, distance) *
+    inputs.color.a *
+    sdf.padding.x;
 
   if (alpha < 0.01) {
     discard;
@@ -349,13 +355,14 @@ type TextLayerStrategy = {
 export class TextLayer {
   private resources: PreparedTextResources;
   private strategy: TextLayerStrategy;
+  private mode: TextStrategy;
 
   constructor(
     private readonly device: Device,
     labels: LabelDefinition[],
     mode: TextStrategy = DEFAULT_TEXT_STRATEGY,
   ) {
-    void mode;
+    this.mode = mode;
     const characterSet = getCharacterSetFromLabels(labels);
 
     this.resources = createPreparedTextResources(
@@ -363,7 +370,7 @@ export class TextLayer {
       labels,
       buildGlyphAtlas(characterSet, {mode: 'sdf'}),
     );
-    this.strategy = this.createStrategy();
+    this.strategy = this.createStrategy(mode);
   }
 
   get ready(): Promise<void> {
@@ -384,13 +391,19 @@ export class TextLayer {
   }
 
   setMode(mode: TextStrategy): void {
-    void mode;
+    if (mode === this.mode) {
+      return;
+    }
+
+    this.mode = mode;
+    this.strategy.destroy();
+    this.strategy = this.createStrategy(mode);
   }
 
   setLayoutLabels(labels: LabelDefinition[]): void {
     this.strategy.destroy();
     this.resources = relayoutPreparedTextResources(this.resources, labels);
-    this.strategy = this.createStrategy();
+    this.strategy = this.createStrategy(this.mode);
   }
 
   update(projector: StageProjector, viewport: ViewportSize, activeLabelKey: string | null = null): void {
@@ -424,8 +437,8 @@ export class TextLayer {
     };
   }
 
-  private createStrategy(): TextLayerStrategy {
-    return new HybridTextStrategy(this.device, this.resources, 'sdf-instanced');
+  private createStrategy(mode: TextStrategy): TextLayerStrategy {
+    return new HybridTextStrategy(this.device, this.resources, mode);
   }
 }
 
@@ -506,7 +519,7 @@ class InstancedTextStrategy implements TextLayerStrategy {
       usage: Buffer.UNIFORM | Buffer.COPY_DST,
       byteLength: SDF_UNIFORM_BYTES,
     });
-    this.sdfUniformData = buildSdfUniformData(this.resources.atlas);
+    this.sdfUniformData = buildSdfUniformData(this.resources.atlas, this.mode);
     this.originBuffer = device.createBuffer({
       id: `text-${mode}-origins`,
       usage: Buffer.VERTEX | Buffer.COPY_DST,
@@ -787,7 +800,7 @@ class StackTextStrategy implements TextLayerStrategy {
       usage: Buffer.UNIFORM | Buffer.COPY_DST,
       byteLength: SDF_UNIFORM_BYTES,
     });
-    this.sdfUniformData = buildSdfUniformData(this.resources.atlas);
+    this.sdfUniformData = buildSdfUniformData(this.resources.atlas, this.mode);
     this.zoomBandBuffer = createStaticVertexBuffer(
       device,
       `text-${mode}-stack-zoom-bands`,
@@ -1071,11 +1084,23 @@ function createStaticVertexBuffer(
   });
 }
 
-function buildSdfUniformData(atlas: GlyphAtlas): Float32Array {
+function buildSdfUniformData(atlas: GlyphAtlas, textStrategy: TextStrategy): Float32Array {
+  const cutoff = atlas.cutoff ?? 0.5;
+  const smoothing = atlas.smoothing ?? 0.08;
+
+  if (textStrategy === 'sdf-soft') {
+    return new Float32Array([
+      cutoff - 0.08,
+      smoothing * 2.6,
+      0.82,
+      0,
+    ]);
+  }
+
   return new Float32Array([
-    atlas.cutoff ?? 0.5,
-    atlas.smoothing ?? 0.08,
-    0,
+    cutoff,
+    smoothing,
+    1,
     0,
   ]);
 }

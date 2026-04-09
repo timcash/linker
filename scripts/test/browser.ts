@@ -97,6 +97,15 @@ export async function readAppResult(page: Page): Promise<ReadyResult | NonReadyR
         stage: {
           activeWorkplaneId: document.body.dataset.activeWorkplaneId ?? '',
           controlPadPage: document.body.dataset.controlPadPage ?? '',
+          dagActiveWorkplaneColumn: Number(document.body.dataset.dagActiveWorkplaneColumn ?? '0'),
+          dagActiveWorkplaneLayer: Number(document.body.dataset.dagActiveWorkplaneLayer ?? '0'),
+          dagActiveWorkplaneRow: Number(document.body.dataset.dagActiveWorkplaneRow ?? '0'),
+          dagEdgeCount: Number(document.body.dataset.dagEdgeCount ?? '0'),
+          dagLayoutFingerprint: document.body.dataset.dagLayoutFingerprint ?? '',
+          dagNodeCount: Number(document.body.dataset.dagNodeCount ?? '0'),
+          dagRootWorkplaneId: document.body.dataset.dagRootWorkplaneId ?? '',
+          dagVisibleEdgeCount: Number(document.body.dataset.dagVisibleEdgeCount ?? '0'),
+          dagVisibleWorkplaneCount: Number(document.body.dataset.dagVisibleWorkplaneCount ?? '0'),
           documentBridgeLinkCount: Number(document.body.dataset.documentBridgeLinkCount ?? '0'),
           planeCount: Number(document.body.dataset.planeCount ?? '0'),
           renderBridgeLinkCount: Number(document.body.dataset.renderBridgeLinkCount ?? '0'),
@@ -188,6 +197,15 @@ export async function getStageState(page: Page): Promise<StageState> {
   return page.evaluate(() => ({
     activeWorkplaneId: document.body.dataset.activeWorkplaneId ?? '',
     controlPadPage: document.body.dataset.controlPadPage ?? '',
+    dagActiveWorkplaneColumn: Number(document.body.dataset.dagActiveWorkplaneColumn ?? '0'),
+    dagActiveWorkplaneLayer: Number(document.body.dataset.dagActiveWorkplaneLayer ?? '0'),
+    dagActiveWorkplaneRow: Number(document.body.dataset.dagActiveWorkplaneRow ?? '0'),
+    dagEdgeCount: Number(document.body.dataset.dagEdgeCount ?? '0'),
+    dagLayoutFingerprint: document.body.dataset.dagLayoutFingerprint ?? '',
+    dagNodeCount: Number(document.body.dataset.dagNodeCount ?? '0'),
+    dagRootWorkplaneId: document.body.dataset.dagRootWorkplaneId ?? '',
+    dagVisibleEdgeCount: Number(document.body.dataset.dagVisibleEdgeCount ?? '0'),
+    dagVisibleWorkplaneCount: Number(document.body.dataset.dagVisibleWorkplaneCount ?? '0'),
     documentBridgeLinkCount: Number(document.body.dataset.documentBridgeLinkCount ?? '0'),
     planeCount: Number(document.body.dataset.planeCount ?? '0'),
     renderBridgeLinkCount: Number(document.body.dataset.renderBridgeLinkCount ?? '0'),
@@ -969,6 +987,87 @@ export async function clickWorkplaneButton(
   await waitForBrowserUpdate(page);
 }
 
+export async function clickTextStrategyButton(
+  page: Page,
+  textStrategy: TextStrategy,
+): Promise<void> {
+  await showControlPadPage(page, 'edit');
+  const selector = `button[data-text-strategy="${textStrategy}"]`;
+  const currentStrategy = await page.evaluate(
+    () => (document.body.dataset.textStrategy ?? DEFAULT_TEXT_STRATEGY) as TextStrategy,
+  );
+
+  await selectToggleValue(page, {
+    currentValue: currentStrategy,
+    datasetKey: 'textStrategy',
+    expectedValue: textStrategy,
+    missingMessage: `Missing text strategy button ${selector}`,
+    selector,
+  });
+}
+
+export async function clickLineStrategyButton(
+  page: Page,
+  lineStrategy: LineStrategy,
+): Promise<void> {
+  await showControlPadPage(page, 'edit');
+  const selector = `button[data-line-strategy="${lineStrategy}"]`;
+  const currentStrategy = await page.evaluate(
+    () => (document.body.dataset.lineStrategy ?? DEFAULT_LINE_STRATEGY) as LineStrategy,
+  );
+
+  await selectToggleValue(page, {
+    currentValue: currentStrategy,
+    datasetKey: 'lineStrategy',
+    expectedValue: lineStrategy,
+    missingMessage: `Missing line strategy button ${selector}`,
+    selector,
+  });
+}
+
+export async function pressStrategyKey(
+  page: Page,
+  strategyType: 'line' | 'text',
+): Promise<void> {
+  await page.evaluate(() => {
+    if (document.activeElement instanceof HTMLElement) {
+      document.activeElement.blur();
+    }
+  });
+
+  const datasetKey = strategyType === 'line' ? 'lineStrategy' : 'textStrategy';
+  const nextValue =
+    strategyType === 'line'
+      ? getNextCyclingStrategyValue<LineStrategy>(
+          ['rounded-step-links', 'arc-links', 'orbit-links'],
+          (await getLineState(page)).lineStrategy,
+          DEFAULT_LINE_STRATEGY,
+        )
+      : getNextCyclingStrategyValue<TextStrategy>(
+          ['sdf-instanced', 'sdf-soft'],
+          (await getTextState(page)).textStrategy,
+          DEFAULT_TEXT_STRATEGY,
+        );
+
+  await page.keyboard.down('Shift');
+
+  try {
+    await page.keyboard.press(strategyType === 'line' ? 'KeyL' : 'KeyT');
+  } finally {
+    await page.keyboard.up('Shift');
+  }
+
+  await page.waitForFunction(
+    ({datasetKey, expectedValue}) => document.body.dataset[datasetKey] === expectedValue,
+    {},
+    {
+      datasetKey,
+      expectedValue: nextValue,
+    },
+  );
+  await waitForBrowserUpdate(page);
+}
+
 export async function clickControlPadToggle(page: Page): Promise<void> {
   const selector = 'button[data-control-pad-action="toggle-page"]';
   await clickButton(page, selector, `Missing control pad toggle button ${selector}`);
@@ -996,6 +1095,17 @@ export async function showControlPadPage(
     {},
     controlPadPage,
   );
+}
+
+function getNextCyclingStrategyValue<TValue extends string>(
+  strategies: readonly TValue[],
+  currentValue: TValue,
+  fallbackValue: TValue,
+): TValue {
+  const resolvedCurrentValue = strategies.includes(currentValue) ? currentValue : fallbackValue;
+  const currentIndex = strategies.indexOf(resolvedCurrentValue);
+  const nextIndex = currentIndex < 0 ? 0 : (currentIndex + 1) % strategies.length;
+  return strategies[nextIndex] ?? fallbackValue;
 }
 
 export async function dragStackCameraOrbit(

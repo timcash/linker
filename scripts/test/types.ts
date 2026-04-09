@@ -79,6 +79,15 @@ export type CameraQueryState = {
 export type StageState = {
   activeWorkplaneId: string;
   controlPadPage: string;
+  dagActiveWorkplaneColumn: number;
+  dagActiveWorkplaneLayer: number;
+  dagActiveWorkplaneRow: number;
+  dagEdgeCount: number;
+  dagLayoutFingerprint: string;
+  dagNodeCount: number;
+  dagRootWorkplaneId: string;
+  dagVisibleEdgeCount: number;
+  dagVisibleWorkplaneCount: number;
   documentBridgeLinkCount: number;
   planeCount: number;
   renderBridgeLinkCount: number;

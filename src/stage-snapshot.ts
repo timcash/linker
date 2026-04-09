@@ -35,6 +35,17 @@ export function createStageSnapshot(input: {
   cameraAnimating: boolean;
   cameraAvailability: LabelFocusedCameraAvailability;
   cameraSnapshot: CameraSnapshot;
+  dag:
+    | {
+        activePosition: {column: number; layer: number; row: number} | null;
+        edgeCount: number;
+        layoutFingerprint: string;
+        nodeCount: number;
+        rootWorkplaneId: string;
+        visibleEdgeCount: number;
+        visibleWorkplaneCount: number;
+      }
+    | null;
   documentBridgeLinkCount: number;
   documentLabelCount: number;
   documentLinkCount: number;
@@ -66,6 +77,7 @@ export function createStageSnapshot(input: {
     cameraAnimating,
     cameraAvailability,
     cameraSnapshot,
+    dag,
     documentBridgeLinkCount,
     documentLabelCount,
     documentLinkCount,
@@ -149,6 +161,15 @@ export function createStageSnapshot(input: {
       cameraRow: activeLabelNode ? String(activeLabelNode.row) : '',
       cameraScale: cameraSnapshot.pixelsPerWorldUnit.toFixed(4),
       cameraZoom: cameraSnapshot.zoom.toFixed(4),
+      dagActiveWorkplaneColumn: dag?.activePosition ? String(dag.activePosition.column) : '',
+      dagActiveWorkplaneLayer: dag?.activePosition ? String(dag.activePosition.layer) : '',
+      dagActiveWorkplaneRow: dag?.activePosition ? String(dag.activePosition.row) : '',
+      dagEdgeCount: String(dag?.edgeCount ?? 0),
+      dagLayoutFingerprint: dag?.layoutFingerprint ?? '',
+      dagNodeCount: String(dag?.nodeCount ?? 0),
+      dagRootWorkplaneId: dag?.rootWorkplaneId ?? '',
+      dagVisibleEdgeCount: String(dag?.visibleEdgeCount ?? 0),
+      dagVisibleWorkplaneCount: String(dag?.visibleWorkplaneCount ?? 0),
       documentBridgeLinkCount: String(documentBridgeLinkCount),
       documentLabelCount: String(documentLabelCount),
       documentLinkCount: String(documentLinkCount),

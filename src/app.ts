@@ -202,6 +202,7 @@ type EditorAction =
   | 'remove-links';
 type EditorShortcutAction = 'toggle-selection-or-create';
 type StageModeAction = 'set-2d-mode' | 'set-3d-mode' | 'toggle-stage-mode';
+type StrategyHotkeyAction = 'cycle-line-strategy' | 'cycle-text-strategy';
 type WorkplaneAction =
   | 'delete-active-workplane'
   | 'select-next-workplane'
@@ -1019,7 +1020,10 @@ class LumaStageController {
       demoLayerCount: this.config.demoLayerCount,
       labelSetKind: this.config.labelSetKind,
       labelTargetCount: this.config.labelTargetCount,
+      layoutStrategy: this.layoutStrategy,
+      lineStrategy: this.lineStrategy,
       stageMode: this.state.session.stageMode,
+      textStrategy: this.textStrategy,
       workplaneId: this.state.session.activeWorkplaneId,
     });
   }
@@ -1473,6 +1477,14 @@ class LumaStageController {
       return;
     }
 
+    const strategyHotkeyAction = getKeyboardStrategyHotkeyAction(event);
+
+    if (strategyHotkeyAction) {
+      event.preventDefault();
+      this.applyStrategyHotkeyAction(strategyHotkeyAction);
+      return;
+    }
+
     const editorShortcut = getKeyboardEditorShortcut(event);
 
     if (editorShortcut) {
@@ -1736,6 +1748,7 @@ class LumaStageController {
     document.body.dataset.benchmarkState = this.config.benchmarkEnabled ? 'pending' : 'disabled';
     this.updateStrategyPanels();
     this.syncLabelInputPanel();
+    this.syncCurrentRouteQueryParams();
     this.updateStatus();
     this.requestRender();
   }
@@ -1758,6 +1771,7 @@ class LumaStageController {
     document.body.dataset.benchmarkState = this.config.benchmarkEnabled ? 'pending' : 'disabled';
     this.updateStrategyPanels();
     this.syncLabelInputPanel();
+    this.syncCurrentRouteQueryParams();
     this.updateStatus();
     this.requestRender();
   }
@@ -1786,6 +1800,7 @@ class LumaStageController {
     document.body.dataset.benchmarkState = this.config.benchmarkEnabled ? 'pending' : 'disabled';
     this.updateStrategyPanels();
     this.syncLabelInputPanel({forceValue: true});
+    this.syncCurrentRouteQueryParams();
     this.updateStatus();
     this.requestRender();
   }
@@ -1799,14 +1814,27 @@ class LumaStageController {
       canSpawnWorkplane: canSpawnWorkplane(this.state),
       controlPadPage: this.controlPadPage,
       labelSetKind: this.config.labelSetKind,
+      lineStrategy: this.lineStrategy,
       planeCount: getPlaneCount(this.state),
       renderPanel: this.chrome.renderPanel,
       stageMode: this.state.session.stageMode,
       strategyModePanel: this.chrome.strategyModePanel,
       strategyPanelMode: this.strategyPanelMode,
+      textStrategy: this.textStrategy,
     });
     this.syncEditorPanel();
     this.syncLabelInputPanel();
+  }
+
+  private applyStrategyHotkeyAction(action: StrategyHotkeyAction): void {
+    switch (action) {
+      case 'cycle-line-strategy':
+        this.setLineStrategy(getNextStrategyValue(LINE_STRATEGIES, this.lineStrategy));
+        break;
+      case 'cycle-text-strategy':
+        this.setTextStrategy(getNextStrategyValue(TEXT_STRATEGIES, this.textStrategy));
+        break;
+    }
   }
 
   private updateCameraPanel(): void {
@@ -2454,6 +2482,7 @@ class LumaStageController {
       cameraAnimating: this.camera.isAnimating,
       cameraAvailability: this.getEffectiveCameraAvailability(),
       cameraSnapshot: this.camera.getSnapshot(),
+      dag: this.getDagSnapshotState(isStackView),
       documentBridgeLinkCount: this.state.document.workplaneBridgeLinks.length,
       documentLabelCount: this.state.document.workplaneOrder.reduce(
         (total, workplaneId) =>
@@ -2502,6 +2531,34 @@ class LumaStageController {
       renderStatusRows(this.chrome.stats, snapshot.statsRows);
       this.chrome.stats.dataset.signature = snapshot.statsSignature;
     }
+  }
+
+  private getDagSnapshotState(
+    isStackView: boolean,
+  ): {
+    activePosition: {column: number; layer: number; row: number} | null;
+    edgeCount: number;
+    layoutFingerprint: string;
+    nodeCount: number;
+    rootWorkplaneId: string;
+    visibleEdgeCount: number;
+    visibleWorkplaneCount: number;
+  } | null {
+    const dag = this.state.document.dag;
+
+    if (!dag) {
+      return null;
+    }
+
+    return {
+      activePosition: dag.positionsById[this.state.session.activeWorkplaneId] ?? null,
+      edgeCount: dag.edges.length,
+      layoutFingerprint: getDagLayoutFingerprint(dag.positionsById),
+      nodeCount: Object.keys(dag.positionsById).length,
+      rootWorkplaneId: dag.rootWorkplaneId,
+      visibleEdgeCount: isStackView ? countRenderedBridgeLinks(this.renderScene) : 0,
+      visibleWorkplaneCount: isStackView ? this.stackBackplates.length : 0,
+    };
   }
 
   private syncHistorySnapshot(): void {
@@ -2783,6 +2840,18 @@ function getKeyboardWorkplaneAction(event: KeyboardEvent): WorkplaneAction | nul
   return null;
 }
 
+function getKeyboardStrategyHotkeyAction(event: KeyboardEvent): StrategyHotkeyAction | null {
+  if (event.shiftKey && event.code === 'KeyL') {
+    return 'cycle-line-strategy';
+  }
+
+  if (event.shiftKey && event.code === 'KeyT') {
+    return 'cycle-text-strategy';
+  }
+
+  return null;
+}
+
 function getKeyboardEditorShortcut(
   event: KeyboardEvent,
 ):
@@ -2820,6 +2889,16 @@ function getKeyboardControlAction(event: KeyboardEvent): ControlAction | null {
     default:
       return null;
   }
+}
+
+function getNextStrategyValue<TValue extends string>(
+  strategies: readonly TValue[],
+  currentValue: TValue,
+): TValue {
+  const fallbackValue = strategies[0] ?? currentValue;
+  const currentIndex = strategies.indexOf(currentValue);
+  const nextIndex = currentIndex < 0 ? 0 : (currentIndex + 1) % strategies.length;
+  return strategies[nextIndex] ?? fallbackValue;
 }
 
 function isEditableKeyboardTarget(target: EventTarget | null): boolean {
@@ -3031,4 +3110,17 @@ function createStageBootPayload(config: StageConfig): StageBootPayload {
 
 function countRenderedBridgeLinks(scene: StageScene): number {
   return scene.links.filter((link) => link.linkKey.startsWith('bridge:')).length;
+}
+
+function getDagLayoutFingerprint(
+  positionsById: Record<string, {column: number; row: number; layer: number}>,
+): string {
+  return Object.entries(positionsById)
+    .sort(([leftWorkplaneId], [rightWorkplaneId]) =>
+      leftWorkplaneId.localeCompare(rightWorkplaneId, undefined, {numeric: true}),
+    )
+    .map(([workplaneId, position]) => {
+      return `${workplaneId}:${position.column}:${position.row}:${position.layer}`;
+    })
+    .join('|');
 }

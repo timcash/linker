@@ -9,14 +9,20 @@ export const LINK_POINTS = [
 
 export type LinkPoint = (typeof LINK_POINTS)[number];
 
-export const LINE_STRATEGIES = ['rounded-step-links'] as const;
+export const LINE_STRATEGIES = [
+  'rounded-step-links',
+  'arc-links',
+  'orbit-links',
+] as const;
 
 export type LineStrategy = (typeof LINE_STRATEGIES)[number];
 
 export const DEFAULT_LINE_STRATEGY: LineStrategy = 'rounded-step-links';
 
 export const LINE_STRATEGY_OPTIONS = [
-  {mode: 'rounded-step-links', label: 'Rounded Step Links'},
+  {mode: 'rounded-step-links', label: 'Step'},
+  {mode: 'arc-links', label: 'Arc'},
+  {mode: 'orbit-links', label: 'Orbit'},
 ] as const satisfies ReadonlyArray<{mode: LineStrategy; label: string}>;
 
 export type LinkDefinition = {

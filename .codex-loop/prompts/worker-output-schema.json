@@ -1,0 +1,82 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "status",
+    "summary",
+    "docsReviewed",
+    "changedFiles",
+    "commandsRun",
+    "testsTouched",
+    "implementationFilesUsedByTests",
+    "logsReviewed",
+    "screenshotsReviewed",
+    "newInvariant",
+    "openRisks"
+  ],
+  "properties": {
+    "status": {
+      "type": "string",
+      "enum": [
+        "done",
+        "blocked",
+        "needs-clarification"
+      ]
+    },
+    "summary": {
+      "type": "string"
+    },
+    "docsReviewed": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "changedFiles": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "commandsRun": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "testsTouched": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "implementationFilesUsedByTests": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "logsReviewed": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "screenshotsReviewed": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "newInvariant": {
+      "type": "string"
+    },
+    "openRisks": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    }
+  }
+}

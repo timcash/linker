@@ -5,3 +5,17 @@ node_modules
 vite.dev.log
 artifacts
 .codex-temp
+.codex-loop/current-slice.json
+.codex-loop/current-slice.md
+.codex-loop/current-task.json
+.codex-loop/current-task.md
+.codex-loop/dev-server.pid
+.codex-loop/dev-server.stderr.log
+.codex-loop/dev-server.stdout.log
+.codex-loop/inbox/
+.codex-loop/next-task-ideas.md
+.codex-loop/runs/
+.codex-loop/state.json
+.codex-loop/worktrees/
+.codex-loop/workspaces/
+.codex-temp-codex-last.txt

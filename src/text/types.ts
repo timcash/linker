@@ -1,15 +1,19 @@
 export type RgbaColor = [number, number, number, number];
 
-export type TextStrategy = 'sdf-instanced';
+export type TextStrategy =
+  | 'sdf-instanced'
+  | 'sdf-soft';
 
 export const TEXT_STRATEGIES = [
   'sdf-instanced',
+  'sdf-soft',
 ] as const satisfies ReadonlyArray<TextStrategy>;
 
 export const DEFAULT_TEXT_STRATEGY: TextStrategy = 'sdf-instanced';
 
 export const TEXT_STRATEGY_OPTIONS = [
-  {mode: 'sdf-instanced', label: 'SDF Instanced'},
+  {mode: 'sdf-instanced', label: 'Sharp'},
+  {mode: 'sdf-soft', label: 'Soft'},
 ] as const satisfies ReadonlyArray<{mode: TextStrategy; label: string}>;
 
 export type AtlasMode = 'bitmap' | 'sdf';

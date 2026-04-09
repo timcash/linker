@@ -1,4 +1,4 @@
-import {appendFile, mkdir, rm, writeFile} from 'node:fs/promises';
+import {mkdir, rm, writeFile} from 'node:fs/promises';
 import path from 'node:path';
 
 import puppeteer, {
@@ -8,6 +8,13 @@ import puppeteer, {
 } from 'puppeteer';
 import {createServer} from 'vite';
 
+import {
+  appendLogEvent,
+  appendRawLogLines,
+  createUnifiedViteLogger,
+  initializeUnifiedLog,
+  resolveUnifiedLogPath,
+} from '../logging';
 import {runStaticUnitTests} from './unit';
 import {
   ERROR_PING_TOKEN,
@@ -15,8 +22,6 @@ import {
   type BrowserTestContext,
 } from './types';
 
-const logPath = path.resolve(process.cwd(), 'test.log');
-const errorLogPath = path.resolve(process.cwd(), 'error.log');
 const screenshotPath = path.resolve(process.cwd(), 'browser.png');
 const interactionScreenshotDir = path.resolve(process.cwd(), 'artifacts', 'test-screenshots');
 const MOBILE_VIEWPORT = {
@@ -28,31 +33,23 @@ const MOBILE_VIEWPORT = {
 export {runStaticUnitTests};
 
 export async function createBrowserTestContext(): Promise<BrowserTestContext> {
-  if (process.env.LINKER_APPEND_TEST_LOG !== '1') {
-    await writeFile(logPath, '', 'utf8');
-  }
-  if (process.env.LINKER_APPEND_ERROR_LOG !== '1') {
-    await writeFile(errorLogPath, '', 'utf8');
-  }
+  const logPath = await initializeUnifiedLog({
+    append: process.env.LINKER_APPEND_TEST_LOG === '1',
+    cwd: process.cwd(),
+    sessionLabel: 'Starting browser test context.',
+  });
   await rm(interactionScreenshotDir, {force: true, recursive: true});
   await mkdir(interactionScreenshotDir, {recursive: true});
 
   const browserLogLines: string[] = [];
   let flushedLineCount = 0;
-  let errorLogWriteQueue = Promise.resolve();
   const addBrowserLog = (kind: string, message: string): void => {
     const timestamp = new Date().toISOString();
-    browserLogLines.push(`[${timestamp}] [${kind}] ${message}`);
+    const resolvedKind = kind.startsWith('browser.') ? kind : `browser.${kind}`;
+    browserLogLines.push(`[${timestamp}] [${resolvedKind}] ${message}`);
   };
   const addErrorLog = (kind: string, message: string): void => {
-    const timestamp = new Date().toISOString();
-    errorLogWriteQueue = errorLogWriteQueue.then(() =>
-      appendFile(
-        errorLogPath,
-        `[${timestamp}] [${kind}] ${formatErrorLogMessage(message)}\n`,
-        'utf8',
-      ),
-    );
+    addBrowserLog(kind, formatErrorLogMessage(message));
   };
   const flushBrowserLog = async (): Promise<void> => {
     const pendingLines = browserLogLines.slice(flushedLineCount);
@@ -61,15 +58,16 @@ export async function createBrowserTestContext(): Promise<BrowserTestContext> {
       return;
     }
 
-    await appendFile(logPath, `${pendingLines.join('\n')}\n`, 'utf8');
+    await appendRawLogLines(pendingLines.join('\n'), {logPath});
     flushedLineCount = browserLogLines.length;
   };
   const flushErrorLog = async (): Promise<void> => {
-    await errorLogWriteQueue;
+    await flushBrowserLog();
   };
 
   const server = await createServer({
-    logLevel: 'error',
+    customLogger: createUnifiedViteLogger('dev-server'),
+    logLevel: 'info',
     server: {
       host: '127.0.0.1',
       port: 4173,
@@ -80,6 +78,7 @@ export async function createBrowserTestContext(): Promise<BrowserTestContext> {
   await server.listen();
   const url = server.resolvedUrls?.local[0] ?? 'http://127.0.0.1:4173/';
 
+  await appendLogEvent('vite.dev-server.url', `Listening at ${url}`, {logPath: resolveUnifiedLogPath()});
   addBrowserLog('test', `Starting browser test for ${url}`);
 
   const browser = await puppeteer.launch({

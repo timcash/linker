@@ -1,15 +1,18 @@
-import {appendFile, readFile, writeFile} from 'node:fs/promises';
-import path from 'node:path';
 import {spawn} from 'node:child_process';
-import {INTENTIONAL_ERROR_MARKER} from './test/types';
+import {
+  appendLogChunk,
+  appendLogEvent,
+  getUnexpectedStructuredErrorLines,
+  initializeUnifiedLog,
+  readUnifiedLog,
+  resolveUnifiedLogPath,
+} from './logging';
 
-const logPath = path.resolve(process.cwd(), 'test.log');
-const errorLogPath = path.resolve(process.cwd(), 'error.log');
-let logWriteQueue = Promise.resolve();
-let errorWriteQueue = Promise.resolve();
-
-await writeFile(logPath, '', 'utf8');
-await writeFile(errorLogPath, '', 'utf8');
+await initializeUnifiedLog({
+  append: false,
+  cwd: process.cwd(),
+  sessionLabel: 'Starting full repo test runner.',
+});
 
 let testFailed = false;
 
@@ -20,23 +23,22 @@ try {
 
   if (await hasUnexpectedErrorLogEntries()) {
     testFailed = true;
-    const message = 'error.log contains unexpected entries. See error.log for details.';
-    await appendLogLine(`[runner.error] ${message}`);
+    const message = `test.log contains unexpected structured error entries. See ${resolveUnifiedLogPath()} for details.`;
+    await appendLogEvent('runner.error', message);
     process.exitCode = 1;
   }
 } catch (error) {
   testFailed = true;
   const message = error instanceof Error ? error.message : String(error);
-  await appendLogLine(`[runner.error] ${message}`);
-  await appendErrorLine(`[runner.error] ${message}`);
+  await appendLogEvent('runner.error', message);
   process.exitCode = 1;
 } finally {
   const summaryLine = testFailed
-    ? 'Tests failed. See test.log and error.log for more details.'
+    ? `Tests failed. See ${resolveUnifiedLogPath()} for more details.`
     : 'Tests passed. See test.log for more details.';
 
   console.log(summaryLine);
-  await appendLogLine(summaryLine);
+  await appendLogEvent('runner.summary', summaryLine);
 }
 
 async function runCommand(command: string[]): Promise<void> {
@@ -50,7 +52,7 @@ async function runCommand(command: string[]): Promise<void> {
     throw new Error('Missing command binary.');
   }
 
-  await appendLogLine(`[runner] ${command.join(' ')}`);
+  await appendLogEvent('runner.command', command.join(' '));
 
   await new Promise<void>((resolve, reject) => {
     let commandOutput = '';
@@ -58,8 +60,8 @@ async function runCommand(command: string[]): Promise<void> {
       cwd: process.cwd(),
       env: {
         ...process.env,
-        LINKER_APPEND_ERROR_LOG: '1',
         LINKER_APPEND_TEST_LOG: '1',
+        LINKER_APPEND_UNIFIED_LOG: '1',
       },
       stdio: ['ignore', 'pipe', 'pipe'],
     });
@@ -68,76 +70,40 @@ async function runCommand(command: string[]): Promise<void> {
       const text = chunk.toString();
       commandOutput += text;
       process.stdout.write(text);
-      enqueueLogWrite(text);
+      void appendLogChunk('runner.stdout', text);
     });
 
     child.stderr.on('data', (chunk: Buffer | string) => {
       const text = chunk.toString();
       commandOutput += text;
       process.stderr.write(text);
-      enqueueLogWrite(text);
+      void appendLogChunk('runner.stderr', text);
     });
 
     child.on('error', (error) => {
-      enqueueErrorWrite(
-        `${formatErrorLogLine(`[runner.error] Failed to start ${command.join(' ')}: ${error.message}`)}\n`,
+      void appendLogEvent(
+        'runner.error',
+        `Failed to start ${command.join(' ')}: ${error.message}`,
       );
       reject(error);
     });
 
     child.on('close', (code) => {
-      void logWriteQueue.then(() => {
-        if (code === 0) {
-          resolve();
-          return;
-        }
+      if (code === 0) {
+        resolve();
+        return;
+      }
 
-        enqueueErrorWrite(`${formatErrorLogLine(
-          `[command.error] ${command.join(' ')} exited with code ${code}\n${commandOutput}`,
-        )}\n`);
-        reject(new Error(`Command failed with exit code ${code}: ${command.join(' ')}`));
-      }, reject);
+      void appendLogEvent(
+        'command.error',
+        `${command.join(' ')} exited with code ${code}\n${commandOutput}`,
+      );
+      reject(new Error(`Command failed with exit code ${code}: ${command.join(' ')}`));
     });
   });
 }
 
-async function appendLogLine(line: string): Promise<void> {
-  enqueueLogWrite(`${line}\n`);
-  await logWriteQueue;
-}
-
-async function appendErrorLine(line: string): Promise<void> {
-  enqueueErrorWrite(`${formatErrorLogLine(line)}\n`);
-  await errorWriteQueue;
-}
-
-function enqueueLogWrite(text: string): void {
-  logWriteQueue = logWriteQueue.then(() => appendFile(logPath, text, 'utf8'));
-}
-
-function enqueueErrorWrite(text: string): void {
-  errorWriteQueue = errorWriteQueue.then(() => appendFile(errorLogPath, text, 'utf8'));
-}
-
 async function hasUnexpectedErrorLogEntries(): Promise<boolean> {
-  await errorWriteQueue;
-
-  try {
-    const contents = await readFile(errorLogPath, 'utf8');
-    return getUnexpectedErrorLogLines(contents).length > 0;
-  } catch {
-    return false;
-  }
-}
-
-function getUnexpectedErrorLogLines(contents: string): string[] {
-  return contents
-    .split('\n')
-    .map((line) => line.trim())
-    .filter((line) => line.length > 0)
-    .filter((line) => !line.includes(INTENTIONAL_ERROR_MARKER));
-}
-
-function formatErrorLogLine(message: string): string {
-  return message.replace(/\r?\n/g, '\\n');
+  const contents = await readUnifiedLog(resolveUnifiedLogPath());
+  return getUnexpectedStructuredErrorLines(contents).length > 0;
 }

@@ -2,8 +2,25 @@ import assert from 'node:assert/strict';
 
 import {Camera2D, type ScreenPoint, type ViewportSize} from '../../src/camera';
 import {
+  assertAcyclicDag,
+  assertColumnsIncreaseAlongEdges,
+  assertIntegerWorkplanePositions,
+  assertNoDanglingEdgeReferences,
+  assertReachableFromRoot,
+  assertSingleRoot,
+  validateDagDocument,
+  type DagDocumentState,
+  type WorkplaneDagEdgeState,
+  type WorkplaneDagPosition,
+} from '../../src/dag-document';
+import {layoutDagNode, resolveDagEdgeCurve} from '../../src/dag-layout';
+import {
   createDefaultEditorLabState,
 } from '../../src/data/editor-lab';
+import {
+  CANONICAL_FIVE_WORKPLANE_NETWORK,
+  createCanonicalFiveWorkplaneNetworkDagDocument,
+} from '../../src/data/network-dag';
 import {
   layoutDemoEntries,
   type DemoLayoutEntry,
@@ -38,13 +55,18 @@ import {
   selectPreviousWorkplane,
   spawnWorkplaneAfterActive,
   type StageSystemState,
+  type WorkplaneId,
 } from '../../src/plane-stack';
 import {
   PlaneFocusProjector,
   StackCameraProjector,
   type StageProjector,
 } from '../../src/projector';
-import {cloneStageScene, createStageScene} from '../../src/scene-model';
+import {
+  cloneStageScene,
+  createEmptyStageScene,
+  createStageScene,
+} from '../../src/scene-model';
 import {readStageConfig} from '../../src/stage-config';
 import {
   addLabelAtStageEditorCursor,
@@ -60,6 +82,13 @@ import {
   scaleStackCameraDistance,
 } from '../../src/stack-camera';
 import {createStackViewState} from '../../src/stack-view';
+import {
+  bucketVisibleDagNodes,
+  createDagEdgeCurves,
+  createDagNodeLayouts,
+  createProjectedDagVisibleNodes,
+  resolveWorkplaneLod,
+} from '../../src/dag-view';
 import {projectGlyphQuadToScreen} from '../../src/text/projection';
 import type {GlyphPlacement, LabelDefinition} from '../../src/text/types';
 import {
@@ -72,6 +101,10 @@ import {
   isZoomVisible,
 } from '../../src/text/zoom';
 import {
+  createCanonicalNetworkDagDocument,
+  createCanonicalNetworkDagStageState,
+} from './fixtures';
+import {
   DEMO_CHILD_LABEL_SIZE,
   DEMO_LABEL_COUNT,
   DEMO_ROOT_LABEL_SIZE,
@@ -83,11 +116,427 @@ import {
 
 export function runStaticUnitTests(): void {
   runRouteAndSessionTests();
+  runDagDocumentTests();
+  runDagLayoutTests();
+  runDagViewTests();
+  runDagFixtureTests();
   runPlaneStackStateTests();
   runCameraAndProjectionTests();
   runLayoutAndLinkTests();
   runNavigationAndZoomTests();
   runDemoPresetGeometryTests();
+}
+
+function runDagDocumentTests(): void {
+  const validDocument = createDagTestDocument({
+    edges: [
+      {edgeKey: 'edge-1', fromWorkplaneId: 'wp-1', toWorkplaneId: 'wp-2'},
+      {edgeKey: 'edge-2', fromWorkplaneId: 'wp-1', toWorkplaneId: 'wp-3'},
+      {edgeKey: 'edge-3', fromWorkplaneId: 'wp-2', toWorkplaneId: 'wp-4'},
+      {edgeKey: 'edge-4', fromWorkplaneId: 'wp-3', toWorkplaneId: 'wp-4'},
+    ],
+    nodes: [
+      {workplaneId: 'wp-1', position: {column: 0, row: 0, layer: 0}},
+      {workplaneId: 'wp-2', position: {column: 1, row: 0, layer: 0}},
+      {workplaneId: 'wp-3', position: {column: 1, row: 1, layer: 1}},
+      {workplaneId: 'wp-4', position: {column: 2, row: 0, layer: 0}},
+    ],
+    rootWorkplaneId: 'wp-1',
+  });
+
+  assert.doesNotThrow(() => {
+    assertNoDanglingEdgeReferences(validDocument);
+    assertSingleRoot(validDocument);
+    assertColumnsIncreaseAlongEdges(validDocument);
+    assertIntegerWorkplanePositions(validDocument);
+    assertReachableFromRoot(validDocument);
+    assertAcyclicDag(validDocument);
+  }, 'A valid DAG document should satisfy every core invariant.');
+
+  const validResult = validateDagDocument(validDocument);
+  assert.equal(validResult.valid, true, 'Valid DAG documents should report a passing validation result.');
+  assert.deepEqual(
+    validResult.topologicalOrder,
+    ['wp-1', 'wp-2', 'wp-3', 'wp-4'],
+    'Valid DAG documents should expose a deterministic topological order.',
+  );
+
+  const wrongRootDocument = createDagTestDocument({
+    edges: [{edgeKey: 'edge-1', fromWorkplaneId: 'wp-1', toWorkplaneId: 'wp-2'}],
+    nodes: [
+      {workplaneId: 'wp-1', position: {column: 0, row: 0, layer: 0}},
+      {workplaneId: 'wp-2', position: {column: 1, row: 0, layer: 0}},
+    ],
+    rootWorkplaneId: 'wp-2',
+  });
+  assert.throws(
+    () => assertSingleRoot(wrongRootDocument),
+    /root workplane/i,
+    'The declared root should match the only zero-incoming workplane.',
+  );
+
+  const nonIntegerPositionDocument = createDagTestDocument({
+    edges: [{edgeKey: 'edge-1', fromWorkplaneId: 'wp-1', toWorkplaneId: 'wp-2'}],
+    nodes: [
+      {workplaneId: 'wp-1', position: {column: 0, row: 0, layer: 0}},
+      {workplaneId: 'wp-2', position: {column: 1.5, row: 0, layer: 0}},
+    ],
+    rootWorkplaneId: 'wp-1',
+  });
+  assert.throws(
+    () => assertIntegerWorkplanePositions(nonIntegerPositionDocument),
+    /integer/i,
+    'Workplane DAG positions should stay on integer rails.',
+  );
+
+  const backwardEdgeDocument = createDagTestDocument({
+    edges: [{edgeKey: 'edge-1', fromWorkplaneId: 'wp-1', toWorkplaneId: 'wp-2'}],
+    nodes: [
+      {workplaneId: 'wp-1', position: {column: 0, row: 0, layer: 0}},
+      {workplaneId: 'wp-2', position: {column: 0, row: 1, layer: 0}},
+    ],
+    rootWorkplaneId: 'wp-1',
+  });
+  assert.throws(
+    () => assertColumnsIncreaseAlongEdges(backwardEdgeDocument),
+    /column/i,
+    'Dependencies should always point into a later column.',
+  );
+
+  const danglingEdgeDocument = createDagTestDocument({
+    edges: [{edgeKey: 'edge-1', fromWorkplaneId: 'wp-1', toWorkplaneId: 'wp-3'}],
+    nodes: [
+      {workplaneId: 'wp-1', position: {column: 0, row: 0, layer: 0}},
+      {workplaneId: 'wp-2', position: {column: 1, row: 0, layer: 0}},
+    ],
+    rootWorkplaneId: 'wp-1',
+  });
+  assert.throws(
+    () => assertNoDanglingEdgeReferences(danglingEdgeDocument),
+    /missing/i,
+    'Edges should only reference existing workplanes.',
+  );
+
+  const unreachableDocument = createDagTestDocument({
+    edges: [{edgeKey: 'edge-1', fromWorkplaneId: 'wp-1', toWorkplaneId: 'wp-2'}],
+    nodes: [
+      {workplaneId: 'wp-1', position: {column: 0, row: 0, layer: 0}},
+      {workplaneId: 'wp-2', position: {column: 1, row: 0, layer: 0}},
+      {workplaneId: 'wp-3', position: {column: 2, row: 0, layer: 0}},
+    ],
+    rootWorkplaneId: 'wp-1',
+  });
+  assert.throws(
+    () => assertReachableFromRoot(unreachableDocument),
+    /reachable/i,
+    'Every node should remain reachable from the root workplane.',
+  );
+
+  const cyclicDocument = createDagTestDocument({
+    edges: [
+      {edgeKey: 'edge-1', fromWorkplaneId: 'wp-1', toWorkplaneId: 'wp-2'},
+      {edgeKey: 'edge-2', fromWorkplaneId: 'wp-2', toWorkplaneId: 'wp-3'},
+      {edgeKey: 'edge-3', fromWorkplaneId: 'wp-3', toWorkplaneId: 'wp-2'},
+    ],
+    nodes: [
+      {workplaneId: 'wp-1', position: {column: 0, row: 0, layer: 0}},
+      {workplaneId: 'wp-2', position: {column: 1, row: 0, layer: 0}},
+      {workplaneId: 'wp-3', position: {column: 1, row: 1, layer: 0}},
+    ],
+    rootWorkplaneId: 'wp-1',
+  });
+  assert.throws(
+    () => assertAcyclicDag(cyclicDocument),
+    /cycle/i,
+    'Validation should reject cycles even before render code consumes the graph.',
+  );
+  assert.equal(
+    validateDagDocument(cyclicDocument).issues.some((issue) => issue.code === 'cycle'),
+    true,
+    'Cycle validation results should surface a dedicated cycle issue.',
+  );
+}
+
+function runDagLayoutTests(): void {
+  const rootLayout = layoutDagNode('wp-1', {column: 0, row: 0, layer: 0});
+
+  assert.deepEqual(
+    rootLayout,
+    {
+      origin: {x: 0, y: 0, z: 0},
+      planeBounds: {
+        maxX: 12,
+        maxY: 12,
+        minX: -12,
+        minY: -12,
+        z: 0,
+      },
+      titleAnchor: {x: 0, y: 16, z: 0},
+      workplaneId: 'wp-1',
+    },
+    'A root DAG node should map to the canonical world origin and deterministic bounds.',
+  );
+
+  const downstreamLayout = layoutDagNode('wp-4', {column: 2, row: 3, layer: 1});
+
+  assert.deepEqual(
+    downstreamLayout.origin,
+    {x: 96, y: -102, z: -18},
+    'Later columns, rows, and layers should move right, down, and deeper in world space.',
+  );
+  assert.deepEqual(
+    downstreamLayout.titleAnchor,
+    {x: 96, y: -86, z: -18},
+    'Title anchors should sit a fixed distance above the workplane origin.',
+  );
+  assert.deepEqual(
+    downstreamLayout.planeBounds,
+    {
+      maxX: 108,
+      maxY: -90,
+      minX: 84,
+      minY: -114,
+      z: -18,
+    },
+    'Plane bounds should stay deterministic for every integer DAG position.',
+  );
+}
+
+function runDagViewTests(): void {
+  const document = createDagTestDocument({
+    edges: [
+      {edgeKey: 'edge-1', fromWorkplaneId: 'wp-1', toWorkplaneId: 'wp-2'},
+      {edgeKey: 'edge-2', fromWorkplaneId: 'wp-1', toWorkplaneId: 'wp-3'},
+      {edgeKey: 'edge-3', fromWorkplaneId: 'wp-1', toWorkplaneId: 'wp-9'},
+    ],
+    nodes: [
+      {workplaneId: 'wp-1', position: {column: 0, row: 0, layer: 0}},
+      {workplaneId: 'wp-2', position: {column: 2, row: 0, layer: 0}},
+      {workplaneId: 'wp-3', position: {column: 2, row: 1, layer: 1}},
+    ],
+    rootWorkplaneId: 'wp-1',
+  });
+  const nodeLayoutsById = new Map(
+    Object.values(document.nodesById).map((node) => [
+      node.workplaneId,
+      layoutDagNode(node.workplaneId, node.position),
+    ]),
+  );
+  const canonicalLodBuckets = bucketVisibleDagNodes(
+    createDagNodeLayouts(createCanonicalNetworkDagDocument()).map((layout, index) => ({
+      layout,
+      projectedPlaneSpanPx: [240, 120, 40, 10, 180][index] ?? 0,
+    })),
+  );
+
+  assert.deepEqual(
+    [
+      resolveWorkplaneLod(180),
+      resolveWorkplaneLod(179.999),
+      resolveWorkplaneLod(72),
+      resolveWorkplaneLod(22),
+      resolveWorkplaneLod(Number.NaN),
+      resolveWorkplaneLod(21.99),
+    ],
+    [
+      'full-workplane',
+      'label-points',
+      'label-points',
+      'title-only',
+      'graph-point',
+      'graph-point',
+    ],
+    'Projected workplane span should classify threshold boundaries and non-finite inputs into stable LOD states.',
+  );
+  assert.deepEqual(
+    {
+      fullWorkplanes: canonicalLodBuckets.fullWorkplanes.map((layout) => layout.workplaneId),
+      graphPointWorkplanes: canonicalLodBuckets.graphPointWorkplanes.map(
+        (layout) => layout.workplaneId,
+      ),
+      labelPointWorkplanes: canonicalLodBuckets.labelPointWorkplanes.map(
+        (layout) => layout.workplaneId,
+      ),
+      titleOnlyWorkplanes: canonicalLodBuckets.titleOnlyWorkplanes.map(
+        (layout) => layout.workplaneId,
+      ),
+    },
+    {
+      fullWorkplanes: ['wp-1', 'wp-5'],
+      graphPointWorkplanes: ['wp-4'],
+      labelPointWorkplanes: ['wp-2'],
+      titleOnlyWorkplanes: ['wp-3'],
+    },
+    'Visible DAG nodes should land in the expected LOD buckets while preserving bucket order.',
+  );
+
+  const viewport = {width: 393, height: 852};
+  const zoomedOutBuckets = bucketVisibleDagNodes(
+    createProjectedDagVisibleNodes(
+      {
+        ...createCanonicalNetworkDagStageState(),
+        session: {
+          ...createCanonicalNetworkDagStageState().session,
+          stageMode: '3d-mode',
+        },
+      },
+      viewport,
+    ),
+  );
+  const closeBuckets = bucketVisibleDagNodes(
+    createProjectedDagVisibleNodes(
+      {
+        ...createCanonicalNetworkDagStageState(),
+        session: {
+          ...createCanonicalNetworkDagStageState().session,
+          activeWorkplaneId: 'wp-2',
+          stageMode: '3d-mode',
+        },
+      },
+      viewport,
+    ),
+  );
+  assert.deepEqual(
+    {
+      graphPointWorkplanes: zoomedOutBuckets.graphPointWorkplanes.map((layout) => layout.workplaneId),
+      titleOnlyWorkplanes: zoomedOutBuckets.titleOnlyWorkplanes.map((layout) => layout.workplaneId),
+    },
+    {
+      graphPointWorkplanes: ['wp-1', 'wp-2', 'wp-3', 'wp-4', 'wp-5'],
+      titleOnlyWorkplanes: [],
+    },
+    'The canonical DAG root overview should keep every visible workplane in the zoomed-out graph-point bucket.',
+  );
+  assert.deepEqual(
+    {
+      graphPointWorkplanes: closeBuckets.graphPointWorkplanes.map((layout) => layout.workplaneId),
+      titleOnlyWorkplanes: closeBuckets.titleOnlyWorkplanes.map((layout) => layout.workplaneId),
+    },
+    {
+      graphPointWorkplanes: [],
+      titleOnlyWorkplanes: ['wp-1', 'wp-2', 'wp-3', 'wp-4', 'wp-5'],
+    },
+    'Focusing the middle DAG workplane should move the canonical network into the closer title-only bucket without changing workplane order.',
+  );
+
+  assert.deepEqual(
+    resolveDagEdgeCurve(document.edges[0], nodeLayoutsById),
+    {
+      edgeKey: 'edge-1',
+      fromWorkplaneId: 'wp-1',
+      input: {x: 84, y: 0, z: 0},
+      output: {x: 12, y: 0, z: 0},
+      toWorkplaneId: 'wp-2',
+    },
+    'Straight DAG edges should resolve from source right edge to target left edge.',
+  );
+
+  const crossRowAndLayerEdge = resolveDagEdgeCurve(document.edges[1], nodeLayoutsById);
+  assert.deepEqual(
+    crossRowAndLayerEdge,
+    {
+      edgeKey: 'edge-2',
+      fromWorkplaneId: 'wp-1',
+      input: {x: 84, y: -34, z: -18},
+      output: {x: 12, y: 0, z: 0},
+      toWorkplaneId: 'wp-3',
+    },
+    'Cross-row and cross-layer DAG edges should still resolve left to right.',
+  );
+  assert.ok(
+    (crossRowAndLayerEdge?.output.x ?? 0) < (crossRowAndLayerEdge?.input.x ?? 0),
+    'Resolved DAG edge geometry should always keep the source left of the target.',
+  );
+
+  assert.equal(
+    resolveDagEdgeCurve(document.edges[2], nodeLayoutsById),
+    null,
+    'Invalid DAG edge references should be skipped safely.',
+  );
+
+  const resolvedEdges = createDagEdgeCurves(document);
+  assert.deepEqual(
+    resolvedEdges.map((edge) => edge.edgeKey),
+    ['edge-1', 'edge-2'],
+    'Dag view helpers should preserve valid edge order while filtering invalid references.',
+  );
+}
+
+function runDagFixtureTests(): void {
+  const sourceFixture = createCanonicalFiveWorkplaneNetworkDagDocument();
+  const helperFixture = createCanonicalNetworkDagDocument();
+
+  assert.equal(
+    helperFixture.rootWorkplaneId,
+    'wp-1',
+    'The canonical network fixture should keep wp-1 as the root workplane.',
+  );
+  assert.equal(
+    Object.keys(helperFixture.nodesById).length,
+    5,
+    'The canonical network fixture should create exactly five workplanes.',
+  );
+  assert.equal(
+    helperFixture.edges.length,
+    6,
+    'The canonical network fixture should create the expected six dependencies.',
+  );
+  assert.equal(
+    validateDagDocument(helperFixture).valid,
+    true,
+    'The canonical network fixture should already satisfy the core DAG invariants.',
+  );
+  assert.deepEqual(
+    helperFixture,
+    sourceFixture,
+    'The test fixture helper should proxy the reusable canonical network DAG data.',
+  );
+  assert.deepEqual(
+    CANONICAL_FIVE_WORKPLANE_NETWORK.map((node) => ({
+      dependsOn: [...node.dependsOn],
+      position: {...node.position},
+      role: node.role,
+      workplaneId: node.workplaneId,
+    })),
+    [
+      {
+        dependsOn: [],
+        position: {column: 0, row: 0, layer: 0},
+        role: 'Internet Edge Router',
+        workplaneId: 'wp-1',
+      },
+      {
+        dependsOn: ['wp-1'],
+        position: {column: 1, row: 0, layer: 0},
+        role: 'Core Router',
+        workplaneId: 'wp-2',
+      },
+      {
+        dependsOn: ['wp-1'],
+        position: {column: 1, row: 1, layer: 1},
+        role: 'DMZ Network Space',
+        workplaneId: 'wp-3',
+      },
+      {
+        dependsOn: ['wp-2', 'wp-3'],
+        position: {column: 2, row: 0, layer: 0},
+        role: 'Compute Cluster',
+        workplaneId: 'wp-4',
+      },
+      {
+        dependsOn: ['wp-2', 'wp-3'],
+        position: {column: 2, row: 1, layer: 1},
+        role: 'Storage Network Space',
+        workplaneId: 'wp-5',
+      },
+    ],
+    'The canonical network fixture should preserve the exact roles, positions, and dependencies from PLAN.md.',
+  );
+  assert.deepEqual(
+    helperFixture.edges.map((edge) => `${edge.fromWorkplaneId}->${edge.toWorkplaneId}`),
+    ['wp-1->wp-2', 'wp-1->wp-3', 'wp-2->wp-4', 'wp-3->wp-4', 'wp-2->wp-5', 'wp-3->wp-5'],
+    'The canonical network fixture should preserve the expected dependency graph.',
+  );
 }
 
 function runRouteAndSessionTests(): void {
@@ -1253,3 +1702,29 @@ type ViewportBoundsLike = {
   minX: number;
   minY: number;
 };
+
+function createDagTestDocument(options: {
+  edges: WorkplaneDagEdgeState[];
+  nodes: Array<{
+    position: WorkplaneDagPosition;
+    workplaneId: WorkplaneId;
+  }>;
+  rootWorkplaneId: WorkplaneId;
+}): DagDocumentState {
+  return {
+    edges: options.edges.map((edge) => ({...edge})),
+    nextWorkplaneNumber: options.nodes.length + 1,
+    nodesById: Object.fromEntries(
+      options.nodes.map(({position, workplaneId}) => [
+        workplaneId,
+        {
+          labelTextOverrides: {},
+          position: {...position},
+          scene: createEmptyStageScene('dag-test', workplaneId),
+          workplaneId,
+        },
+      ]),
+    ) as DagDocumentState['nodesById'],
+    rootWorkplaneId: options.rootWorkplaneId,
+  };
+}

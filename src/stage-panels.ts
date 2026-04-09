@@ -4,6 +4,8 @@ import type {
 } from './label-focused-camera';
 import type {StageMode} from './plane-stack';
 import type {LabelSetKind} from './stage-config';
+import type {LineStrategy} from './line/types';
+import type {TextStrategy} from './text/types';
 
 export type StrategyPanelMode = 'text' | 'line' | 'layout' | 'label-edit';
 export type ControlPadPage = 'edit' | 'navigate' | 'stage';
@@ -14,21 +16,26 @@ export function syncStageStrategyPanels(input: {
   canSpawnWorkplane: boolean;
   controlPadPage: ControlPadPage;
   labelSetKind: LabelSetKind;
+  lineStrategy: LineStrategy;
   planeCount: number;
   renderPanel: HTMLElement;
   stageMode: StageMode;
   strategyModePanel: HTMLElement;
   strategyPanelMode: StrategyPanelMode;
+  textStrategy: TextStrategy;
 }): void {
   const {
     activeWorkplaneIndex,
     canDeleteWorkplane,
     canSpawnWorkplane,
     controlPadPage,
+    labelSetKind,
+    lineStrategy,
     planeCount,
     renderPanel,
     stageMode,
     strategyModePanel,
+    textStrategy,
   } = input;
 
   for (const page of strategyModePanel.querySelectorAll<HTMLElement>('[data-control-pad-page]')) {
@@ -65,6 +72,15 @@ export function syncStageStrategyPanels(input: {
       default:
         button.disabled = false;
     }
+  }
+
+  for (const button of renderPanel.querySelectorAll<HTMLButtonElement>('[data-text-strategy]')) {
+    setButtonPressed(button, button.dataset.textStrategy === textStrategy);
+  }
+
+  for (const button of renderPanel.querySelectorAll<HTMLButtonElement>('[data-line-strategy]')) {
+    setButtonPressed(button, button.dataset.lineStrategy === lineStrategy);
+    button.disabled = labelSetKind !== 'demo';
   }
 
   const navigateModeChip =

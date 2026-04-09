@@ -1,3 +1,6 @@
+import {LINE_STRATEGY_OPTIONS} from './line/types';
+import {TEXT_STRATEGY_OPTIONS} from './text/types';
+
 export type StageChromeElements = {
   cameraPanel: HTMLElement;
   canvas: HTMLCanvasElement;
@@ -162,6 +165,26 @@ export function createStageChrome(root: HTMLElement): StageChromeElements {
           Toggle
         </button>
       </form>
+      <div class="strategy-group-stack" data-testid="strategy-group-stack">
+        <section class="strategy-group" data-testid="text-strategy-group" aria-label="Text strategy">
+          <div class="strategy-group-meta">
+            <p class="panel-meta">Text</p>
+            <p class="panel-meta">Shift+T</p>
+          </div>
+          <div class="strategy-button-row" data-testid="text-strategy-row">
+            ${renderStrategyButtons(TEXT_STRATEGY_OPTIONS, 'textStrategy')}
+          </div>
+        </section>
+        <section class="strategy-group" data-testid="line-strategy-group" aria-label="Line strategy">
+          <div class="strategy-group-meta">
+            <p class="panel-meta">Links</p>
+            <p class="panel-meta">Shift+L</p>
+          </div>
+          <div class="strategy-button-row" data-testid="line-strategy-row">
+            ${renderStrategyButtons(LINE_STRATEGY_OPTIONS, 'lineStrategy')}
+          </div>
+        </section>
+      </div>
     </section>
   `;
 
@@ -223,4 +246,26 @@ export function createStageChrome(root: HTMLElement): StageChromeElements {
     stats,
     strategyModePanel,
   };
+}
+
+function renderStrategyButtons(
+  options: ReadonlyArray<{label: string; mode: string}>,
+  datasetKey: 'lineStrategy' | 'textStrategy',
+): string {
+  const attributeName = datasetKey === 'lineStrategy' ? 'line-strategy' : 'text-strategy';
+
+  return options
+    .map(
+      (option) => `
+        <button
+          type="button"
+          class="control-button control-button--wide"
+          data-${attributeName}="${option.mode}"
+          aria-pressed="false"
+        >
+          ${option.label}
+        </button>
+      `,
+    )
+    .join('');
 }

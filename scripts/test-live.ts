@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 
+import {appendLogEvent, initializeUnifiedLog} from './logging';
 import {launchSmokeBrowser, runSmokeTest} from './test/smoke';
 
 const args = new Map<string, string | boolean>();
@@ -34,6 +35,12 @@ const liveUrl =
   process.env.LINKER_LIVE_URL ||
   'https://timcash.github.io/linker/';
 const allowUnsupported = args.has('allow-unsupported') || process.env.LINKER_ALLOW_UNSUPPORTED === '1';
+
+await initializeUnifiedLog({
+  append: process.env.LINKER_APPEND_TEST_LOG === '1',
+  cwd: process.cwd(),
+  sessionLabel: `Starting live smoke test for ${liveUrl}.`,
+});
 const browser = await launchSmokeBrowser({
   headless: process.env.LINKER_LIVE_TEST_HEADED === '1' ? false : true,
 });
@@ -53,6 +60,11 @@ try {
       `Live page should report at least one workplane after booting ${liveUrl}.`,
     );
   }
+  await appendLogEvent('test.live.pass', `Live smoke test passed for ${liveUrl}.`);
+} catch (error) {
+  const message = error instanceof Error ? error.stack ?? error.message : String(error);
+  await appendLogEvent('test.live.failure', message);
+  throw error;
 } finally {
   await browser.close();
 }

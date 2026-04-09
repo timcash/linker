@@ -1,0 +1,37 @@
+# Current Slice Rubric
+
+- Slice: 6
+- Name: LOD Bucketing
+- Intent: Add screen-space DAG LOD bucketing and prove it with the narrowest static and smoke coverage before any new screenshot work.
+- README Rule:
+  - review `README.md` first so the repo workflow stays visible and current
+  - update `README.md` in every worker cycle so workflow notes stay in sync with the latest loop behavior
+- PLAN Rule:
+  - review `PLAN.md` first and stay inside the current slice ladder
+  - update `PLAN.md` in every worker cycle so the current slice status and next test ladder stay current
+- Owned Files:
+  - `src/dag-view.ts`
+  - `scripts/test/unit.ts`
+  - `scripts/test/dag-view-smoke.ts`
+- Conditionally Owned Files:
+  - `src/stage-snapshot.ts`
+  - `scripts/test/browser.ts`
+- Must Prove:
+  - `resolveWorkplaneLod(projectedPlaneSpanPx)` classifies close, mid, far, and universe views
+  - `bucketVisibleDagNodes(...)` places workplanes into the correct LOD buckets
+  - the DAG view smoke flow can prove a close state and a zoomed-out state from exported DAG datasets
+- Must Not Change:
+  - `AGENT_TEST_LOOP.md`
+  - `scripts/test.ts`
+  - control-pad files
+  - screenshot publishing
+- Required Commands:
+  - `npm run test:dag:static`
+  - `npm run lint`
+  - `npm run test:browser -- --flow dag-view-smoke`
+  - `npm run test:live -- --url https://timcash.github.io/linker/`
+- Required Report:
+  - changed files
+  - exact commands run
+  - new invariant guaranteed
+  - any open risk

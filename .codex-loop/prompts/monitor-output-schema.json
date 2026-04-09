@@ -1,0 +1,83 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "decision",
+    "summary",
+    "nextBrief",
+    "newInvariantAssessment",
+    "questions",
+    "steps"
+  ],
+  "properties": {
+    "decision": {
+      "type": "string",
+      "enum": [
+        "accept",
+        "revise",
+        "tighten-test",
+        "ask-user",
+        "stop"
+      ]
+    },
+    "summary": {
+      "type": "string"
+    },
+    "nextBrief": {
+      "type": "string"
+    },
+    "newInvariantAssessment": {
+      "type": "string"
+    },
+    "questions": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "steps": {
+      "type": "array",
+      "minItems": 8,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "title",
+          "status",
+          "evidence"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "enum": [
+              "readme-review",
+              "plan-review",
+              "test-written",
+              "code-used-in-test",
+              "commands-reviewed",
+              "logs-reviewed",
+              "scope-review",
+              "screenshot-review"
+            ]
+          },
+          "title": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "pass",
+              "fail",
+              "not-applicable"
+            ]
+          },
+          "evidence": {
+            "type": "string"
+          }
+        }
+      }
+    }
+  }
+}

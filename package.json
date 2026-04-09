@@ -12,15 +12,22 @@
     "perf:trace": "tsx scripts/perf/trace.ts",
     "preview": "vite preview",
     "test": "tsx scripts/run-test.ts",
+    "test:dag:static": "tsx scripts/test-dag-static.ts",
     "test:browser": "tsx scripts/test.ts",
+    "test:browser:readme": "tsx scripts/test.ts --flow readme-preview-smoke",
+    "test:browser:tasks": "tsx scripts/test.ts --flow tasks-dashboard-smoke",
+    "test:browser:zero-data": "tsx scripts/test.ts --flow empty-dataset-build",
     "test:live": "tsx scripts/test-live.ts",
     "test:preview": "tsx scripts/test-preview.ts"
   },
   "dependencies": {
+    "@fontsource/space-grotesk": "^5.2.10",
+    "@fontsource/space-mono": "^5.2.9",
     "@luma.gl/core": "9.3.0-alpha.10",
     "@luma.gl/engine": "9.3.0-alpha.10",
     "@luma.gl/shadertools": "9.3.0-alpha.10",
-    "@luma.gl/webgpu": "9.3.0-alpha.10"
+    "@luma.gl/webgpu": "9.3.0-alpha.10",
+    "marked": "^18.0.0"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",

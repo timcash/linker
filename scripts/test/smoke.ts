@@ -5,6 +5,8 @@ import assert from 'node:assert/strict';
 
 import puppeteer, {type Browser, type Page} from 'puppeteer';
 
+import {appendLogEvent, resolveUnifiedLogPath} from '../logging';
+
 type BrowserLaunchOptions = {
   headless?: boolean;
   preferSystemChrome?: boolean;
@@ -39,7 +41,7 @@ export async function launchSmokeBrowser(
 
   if (options.preferSystemChrome ?? true) {
     try {
-      return await puppeteer.launch({
+      const browser = await puppeteer.launch({
         headless,
         channel: 'chrome',
         defaultViewport: {
@@ -49,12 +51,19 @@ export async function launchSmokeBrowser(
         },
         args: launchArgs,
       });
+      await appendLogEvent('smoke.browser', 'Launched system Chrome for smoke coverage.', {
+        logPath: resolveUnifiedLogPath(),
+      });
+      return browser;
     } catch {
       // Fall back to Puppeteer's bundled browser below.
+      await appendLogEvent('smoke.browser', 'Falling back to the bundled Puppeteer browser.', {
+        logPath: resolveUnifiedLogPath(),
+      });
     }
   }
 
-  return puppeteer.launch({
+  const browser = await puppeteer.launch({
     headless,
     defaultViewport: {
       width: 393,
@@ -63,6 +72,10 @@ export async function launchSmokeBrowser(
     },
     args: launchArgs,
   });
+  await appendLogEvent('smoke.browser', 'Launched bundled Puppeteer browser.', {
+    logPath: resolveUnifiedLogPath(),
+  });
+  return browser;
 }
 
 export async function runSmokeTest(
@@ -76,24 +89,50 @@ export async function runSmokeTest(
 
   page.on('console', (message) => {
     if (message.type() === 'error') {
-      consoleErrors.push(String(message.text()));
+      const text = String(message.text());
+      consoleErrors.push(text);
+      void appendLogEvent('smoke.console.error', text, {
+        logPath: resolveUnifiedLogPath(),
+      });
+      return;
     }
+
+    void appendLogEvent(`smoke.console.${message.type()}`, String(message.text()), {
+      logPath: resolveUnifiedLogPath(),
+    });
   });
   page.on('pageerror', (error) => {
-    pageErrors.push(error instanceof Error ? (error.stack ?? error.message) : String(error));
+    const text = error instanceof Error ? (error.stack ?? error.message) : String(error);
+    pageErrors.push(text);
+    void appendLogEvent('smoke.pageerror', text, {
+      logPath: resolveUnifiedLogPath(),
+    });
+  });
+  page.on('error', (error) => {
+    const text = error.stack ?? error.message;
+    void appendLogEvent('smoke.error', text, {
+      logPath: resolveUnifiedLogPath(),
+    });
   });
   page.on('requestfailed', (request) => {
     const failure = request.failure();
-    requestFailures.push(
-      `${request.method()} ${request.url()}${failure ? ` :: ${failure.errorText}` : ''}`,
-    );
+    const text = `${request.method()} ${request.url()}${failure ? ` :: ${failure.errorText}` : ''}`;
+    requestFailures.push(text);
+    void appendLogEvent('smoke.requestfailed', text, {
+      logPath: resolveUnifiedLogPath(),
+    });
   });
   page.on('response', (response) => {
     if (response.status() >= 400) {
-      responseErrors.push(`${response.status()} ${response.url()}`);
+      const text = `${response.status()} ${response.url()}`;
+      responseErrors.push(text);
+      void appendLogEvent('smoke.response.error', text, {
+        logPath: resolveUnifiedLogPath(),
+      });
     }
   });
 
+  await appendLogEvent('smoke.goto', options.url, {logPath: resolveUnifiedLogPath()});
   await page.goto(options.url, {waitUntil: 'load'});
   try {
     await page.waitForFunction(
@@ -134,6 +173,11 @@ export async function runSmokeTest(
     path: path.join(screenshotDir, `${options.screenshotName}.png`),
     fullPage: true,
   });
+  await appendLogEvent(
+    'smoke.artifact',
+    `Saved smoke screenshot to ${path.join(screenshotDir, `${options.screenshotName}.png`)}`,
+    {logPath: resolveUnifiedLogPath()},
+  );
 
   assert.deepEqual(
     consoleErrors,

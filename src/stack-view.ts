@@ -4,6 +4,7 @@ import {
   type StageSystemState,
   type WorkplaneId,
 } from './plane-stack';
+import {createDagStackViewState} from './dag-view';
 import {
   includeScenePointInBounds,
   type SceneBounds3D,
@@ -39,6 +40,10 @@ export type StackViewState = {
 };
 
 export function createStackViewState(state: StageSystemState): StackViewState {
+  if (state.document.dag) {
+    return createDagStackViewState(state);
+  }
+
   const activeWorkplane = getActiveWorkplaneDocument(state);
   const sceneBoundsById = new Map<WorkplaneId, ScenePlaneBounds>();
   const projectedLabelsByWorkplaneId = new Map<WorkplaneId, Map<string, LabelDefinition>>();
