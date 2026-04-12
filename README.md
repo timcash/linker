@@ -36,6 +36,8 @@ npm run test:browser:tasks
 
 The repo also now has a `/readme` route that renders `README.md` in a live preview shell with the same typography direction used by `cad-pga`, so repo notes can be checked in-browser instead of only in GitHub markdown.
 
+The repo also now has an `/auth` route that mirrors the `cad-pga` Legion Cloudflare Access pattern: keep the page static, pick local or remote origin modes, trigger Cloudflare Access with an authorize button, and verify the session route from the browser.
+
 The current loop rule is stricter now: every worker iteration should also update `README.md` and `PLAN.md` so the docs stay in sync with the latest code, tests, monitor findings, and next-step guidance.
 
 ```bash
@@ -119,6 +121,7 @@ Local dev URL: `http://127.0.0.1:5173/`
 
 Docs routes:
 
+- `/auth/`
 - `/tasks/`
 - `/readme/`
 
@@ -147,6 +150,7 @@ npm run build:pages
 npm run preview -- --host 127.0.0.1
 
 npm run test:dag:static
+npm run test:browser:auth
 npm run test:browser -- --flow dag-view-smoke
 npm run test:browser:readme
 npm run test:browser:tasks
@@ -192,6 +196,7 @@ npm run perf:orbit-stutter -- --label-set benchmark --label-count 4096 --segment
 ## 5. Code Index
 
 - `src/main.ts`: app entry point
+- `src/auth-page.ts`: Cloudflare Access auth/status route modeled on the cad-pga Legion page
 - `src/readme-page.ts`: live markdown preview route for `README.md`
 - `src/app.ts`: WebGPU boot, plane-stack state, input handling, render loop, and dataset exports
 - `src/style.css`: static overlay grid for the status strip, fullscreen canvas, and bottom control pad

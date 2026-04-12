@@ -14,6 +14,7 @@
     "test": "tsx scripts/run-test.ts",
     "test:dag:static": "tsx scripts/test-dag-static.ts",
     "test:browser": "tsx scripts/test.ts",
+    "test:browser:auth": "tsx scripts/test.ts --flow auth-page-smoke",
     "test:browser:readme": "tsx scripts/test.ts --flow readme-preview-smoke",
     "test:browser:tasks": "tsx scripts/test.ts --flow tasks-dashboard-smoke",
     "test:browser:zero-data": "tsx scripts/test.ts --flow empty-dataset-build",

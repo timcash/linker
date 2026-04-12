@@ -11,6 +11,7 @@ import {
   resolveUnifiedLogPath,
 } from './logging';
 import {createTestPerformanceCollector} from './test/performance';
+import {runAuthPageSmokeFlow} from './test/auth-page-smoke';
 import {runBootFlow} from './test/boot';
 import {runDagViewSmokeFlow} from './test/dag-view-smoke';
 import {runEmptyDatasetBuildFlow} from './test/empty-dataset-build';
@@ -29,6 +30,7 @@ import {
 } from './test/shared';
 
 type BrowserFlowName =
+  | 'auth-page-smoke'
   | 'dag-view-smoke'
   | 'empty-dataset-build'
   | 'full'
@@ -148,6 +150,12 @@ async function runSelectedBrowserFlows(
     return;
   }
 
+  if (options.flow === 'auth-page-smoke') {
+    context.addBrowserLog('test', `Running focused browser flow ${options.flow}.`);
+    await runAuthPageSmokeFlow(context);
+    return;
+  }
+
   const bootResult = await runBootFlow(context);
 
   if (bootResult === null) {
@@ -162,6 +170,7 @@ async function runSelectedBrowserFlows(
   await runViewModesFlow(context);
   await runStackOrbitCoverageFlow(context, performanceCollector);
   await publishReadmeShowcase(context);
+  await runAuthPageSmokeFlow(context);
   await runTasksDashboardSmokeFlow(context);
   await runReadmePreviewSmokeFlow(context);
 }
@@ -179,6 +188,7 @@ function parseCliOptions(args: string[]): CliOptions {
         requestedFlow === 'dag-view-smoke' ||
         requestedFlow === 'empty-dataset-build' ||
         requestedFlow === 'full' ||
+        requestedFlow === 'auth-page-smoke' ||
         requestedFlow === 'readme-preview-smoke' ||
         requestedFlow === 'tasks-dashboard-smoke'
       ) {
@@ -188,7 +198,7 @@ function parseCliOptions(args: string[]): CliOptions {
       }
 
       throw new Error(
-        `Unsupported --flow value "${requestedFlow ?? ''}". Expected one of: full, empty-dataset-build, dag-view-smoke, tasks-dashboard-smoke, readme-preview-smoke.`,
+        `Unsupported --flow value "${requestedFlow ?? ''}". Expected one of: full, empty-dataset-build, dag-view-smoke, auth-page-smoke, tasks-dashboard-smoke, readme-preview-smoke.`,
       );
     }
 

@@ -1,0 +1,262 @@
+import path from 'node:path';
+
+import assert from 'node:assert/strict';
+
+import {openRoute, type BrowserTestContext} from './shared';
+
+type AuthTestHooks = {
+  fetchCalls: string[];
+  openCalls: string[];
+  sessionChecks: number;
+};
+
+export async function runAuthPageSmokeFlow(
+  context: BrowserTestContext,
+): Promise<void> {
+  const authUrl = new URL('auth/?mode=auth', context.url).toString();
+  const script = await context.page.evaluateOnNewDocument(() => {
+    const hooks: AuthTestHooks = {
+      fetchCalls: [],
+      openCalls: [],
+      sessionChecks: 0,
+    };
+    (window as Window & {__LINKER_AUTH_TEST_HOOKS__?: AuthTestHooks}).__LINKER_AUTH_TEST_HOOKS__ =
+      hooks;
+
+    const originalFetch = window.fetch.bind(window);
+    window.fetch = async (input: RequestInfo | URL, init?: RequestInit) => {
+      const requestUrl =
+        typeof input === 'string' ? input : input instanceof Request ? input.url : input.toString();
+      const resolvedUrl = new URL(requestUrl, window.location.origin);
+      hooks.fetchCalls.push(resolvedUrl.toString());
+
+      if (resolvedUrl.pathname === '/api/auth/public-config') {
+        return new Response(
+          JSON.stringify({
+            loginPath: '/cdn-cgi/access/login/linker',
+            logoutPath: '/api/auth/logout',
+            ok: true,
+            providerLabel: 'Cloudflare Access',
+            publicOrigin: resolvedUrl.origin,
+            sessionLabel: 'Cloudflare session route ready.',
+            sessionPath: '/api/auth/session',
+          }),
+          {
+            headers: {
+              'Content-Type': 'application/json',
+            },
+            status: 200,
+          },
+        );
+      }
+
+      if (resolvedUrl.pathname === '/api/auth/session') {
+        hooks.sessionChecks += 1;
+        return new Response(
+          JSON.stringify({
+            authenticated: true,
+            expiresAt: '2099-04-09T00:00:00Z',
+            ok: true,
+            sessionLabel: 'Cloudflare Access session active.',
+            subject: 'worker@example.com',
+          }),
+          {
+            headers: {
+              'Content-Type': 'application/json',
+            },
+            status: 200,
+          },
+        );
+      }
+
+      if (resolvedUrl.pathname === '/api/auth/logout') {
+        return new Response(JSON.stringify({ok: true}), {
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          status: 200,
+        });
+      }
+
+      return originalFetch(input, init);
+    };
+
+    window.open = ((url?: string | URL) => {
+      hooks.openCalls.push(String(url ?? ''));
+      return null;
+    }) as typeof window.open;
+  });
+
+  try {
+    context.addBrowserLog('test', `Opening auth route ${authUrl}.`);
+    await context.page.goto(authUrl, {waitUntil: 'load'});
+    await context.page.waitForFunction(() => document.body.classList.contains('auth-route'));
+    await context.page.waitForFunction(() => {
+      const heading = document.querySelector('h1');
+      return heading?.textContent?.includes('Static login and auth checks') ?? false;
+    });
+    await context.page.waitForFunction(() => {
+      const health = document.querySelector('[data-auth-health]');
+      return health?.textContent?.includes('Cloudflare') ?? false;
+    });
+
+    await context.page.click('[data-auth-authorize]');
+    await context.page.waitForFunction(
+      () =>
+        (
+          window as Window & {
+            __LINKER_AUTH_TEST_HOOKS__?: AuthTestHooks;
+          }
+        ).__LINKER_AUTH_TEST_HOOKS__?.openCalls.length === 1,
+    );
+
+    await context.page.click('[data-auth-check-session]');
+    await context.page.waitForFunction(() => {
+      const state = document.querySelector('[data-auth-status]');
+      return state?.textContent?.includes('Authorized.') ?? false;
+    });
+    const authorizedStateText = await context.page.$eval(
+      '[data-auth-status]',
+      (element) => element.textContent?.trim() ?? '',
+    );
+
+    await context.page.click('[data-auth-sign-out]');
+    await context.page.waitForFunction(
+      () =>
+        (
+          window as Window & {
+            __LINKER_AUTH_TEST_HOOKS__?: AuthTestHooks;
+          }
+        ).__LINKER_AUTH_TEST_HOOKS__?.openCalls.length === 2,
+    );
+
+    await context.page.click('[data-auth-mode-button="dev"]');
+    await context.page.waitForFunction(() => {
+      const origin = document.querySelector('[data-auth-origin]');
+      return origin?.textContent?.includes(window.location.origin) ?? false;
+    });
+    await context.page.waitForFunction(() => {
+      const button = document.querySelector<HTMLButtonElement>('[data-auth-authorize]');
+      return button?.hidden ?? false;
+    });
+
+    await context.page.click('[data-auth-mode-button="auth"]');
+    await context.page.waitForFunction(() => {
+      const origin = document.querySelector('[data-auth-origin]');
+      return origin?.textContent?.includes('https://linker.dialtone.earth') ?? false;
+    });
+    await context.page.waitForFunction(() => {
+      const health = document.querySelector('[data-auth-health]');
+      return health?.textContent?.includes('Cloudflare session route ready.') ?? false;
+    });
+    await context.page.waitForFunction(() => {
+      const button = document.querySelector<HTMLButtonElement>('[data-auth-authorize]');
+      return button instanceof HTMLButtonElement && !button.hidden;
+    });
+
+    const pageState = await context.page.evaluate(() => {
+      const hooks =
+        (
+          window as Window & {
+            __LINKER_AUTH_TEST_HOOKS__?: AuthTestHooks;
+          }
+        ).__LINKER_AUTH_TEST_HOOKS__ ?? {
+          fetchCalls: [],
+          openCalls: [],
+          sessionChecks: 0,
+        };
+      const logHost = document.querySelector<HTMLElement>('.auth-log');
+
+      return {
+        bodyFontFamily: window.getComputedStyle(document.body).fontFamily,
+        bodyText: document.body.innerText,
+        currentNavLabel:
+          document.querySelector('.site-nav a[aria-current="page"]')?.textContent?.trim() ?? '',
+        fetchCalls: hooks.fetchCalls,
+        healthText: document.querySelector('[data-auth-health]')?.textContent?.trim() ?? '',
+        logEntryCount: document.querySelectorAll('.auth-log-entry').length,
+        logFontFamily: logHost ? window.getComputedStyle(logHost).fontFamily : '',
+        openCalls: hooks.openCalls,
+        originText: document.querySelector('[data-auth-origin]')?.textContent?.trim() ?? '',
+        sessionChecks: hooks.sessionChecks,
+        title: document.title,
+      };
+    });
+
+    assert.equal(pageState.title, 'Linker Auth', 'The /auth route should set a dedicated page title.');
+    assert.equal(pageState.currentNavLabel, 'Auth', 'The docs nav should mark the auth route as active.');
+    assert.match(
+      pageState.bodyText,
+      /Cloudflare Access/u,
+      'The /auth route should explain the Cloudflare Access flow.',
+    );
+    assert.match(
+      pageState.bodyFontFamily,
+      /Space Grotesk/u,
+      'The auth route should use the shared cad-pga-inspired body font.',
+    );
+    assert.match(
+      pageState.logFontFamily,
+      /Space Mono/u,
+      'The auth log should use the shared mono font.',
+    );
+    assert.ok(pageState.logEntryCount >= 5, 'The auth route should record a visible auth event log.');
+    assert.ok(
+      pageState.fetchCalls.some((call) => call.includes('/api/auth/public-config')),
+      'The auth route should fetch the public config route.',
+    );
+    assert.ok(
+      pageState.fetchCalls.some((call) => call.includes('/api/auth/session')),
+      'The auth route should check the session route.',
+    );
+    assert.equal(pageState.sessionChecks, 1, 'The auth smoke test should perform one explicit session check.');
+    assert.match(
+      authorizedStateText,
+      /Authorized\..*worker@example\.com/u,
+      'The auth route should surface the Cloudflare session result.',
+    );
+    assert.match(
+      pageState.healthText,
+      /Cloudflare session route ready\./u,
+      'The auth route should report the mocked Cloudflare config health.',
+    );
+    assert.match(
+      pageState.originText,
+      /https:\/\/linker\.dialtone\.earth/u,
+      'The auth route should return to the remote Cloudflare origin in auth mode.',
+    );
+    assert.equal(pageState.openCalls.length, 2, 'The auth route should open both authorize and sign-out targets.');
+    assert.match(
+      pageState.openCalls[0] ?? '',
+      /https:\/\/linker\.dialtone\.earth\/cdn-cgi\/access\/login\/linker/u,
+      'Authorize should open the remote Cloudflare Access login target.',
+    );
+    assert.match(
+      pageState.openCalls[1] ?? '',
+      /https:\/\/linker\.dialtone\.earth\/api\/auth\/logout/u,
+      'Sign out should open the remote logout target.',
+    );
+
+    await saveAuthScreenshot(context, 'auth-page');
+    await openRoute(context.page, context.url);
+  } finally {
+    await context.page.removeScriptToEvaluateOnNewDocument(
+      (script as {identifier: string}).identifier,
+    );
+  }
+}
+
+async function saveAuthScreenshot(
+  context: BrowserTestContext,
+  name: string,
+): Promise<void> {
+  context.interactionScreenshotCounter += 1;
+  const filename = `${String(context.interactionScreenshotCounter).padStart(2, '0')}-${name}.png`;
+  const screenshotPath = path.join(context.interactionScreenshotDir, filename);
+
+  await context.page.screenshot({
+    fullPage: true,
+    path: screenshotPath,
+  });
+  context.addBrowserLog('artifact.step', `Saved interaction screenshot to ${screenshotPath}`);
+}

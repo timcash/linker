@@ -6,6 +6,7 @@ import '@fontsource/space-mono/700.css';
 
 import './style.css';
 import { startApp } from './app';
+import { startAuthPage } from './auth-page';
 import { startReadmePage } from './readme-page';
 import { startTasksPage } from './tasks-page';
 
@@ -15,7 +16,9 @@ document.body.append(root);
 
 const route = resolveRoute(window.location.pathname);
 const app =
-  route === 'tasks'
+  route === 'auth'
+    ? await startAuthPage(root)
+    : route === 'tasks'
     ? await startTasksPage(root)
     : route === 'readme'
       ? await startReadmePage(root)
@@ -27,9 +30,13 @@ if (import.meta.hot) {
   });
 }
 
-function resolveRoute(pathname: string): 'app' | 'readme' | 'tasks' {
+function resolveRoute(pathname: string): 'app' | 'auth' | 'readme' | 'tasks' {
   const segments = pathname.split('/').filter((segment) => segment.length > 0);
   const lastSegment = segments[segments.length - 1];
+
+  if (lastSegment === 'auth') {
+    return 'auth';
+  }
 
   if (lastSegment === 'tasks') {
     return 'tasks';

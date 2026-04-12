@@ -1,4 +1,4 @@
-export type DocsRoute = 'app' | 'readme' | 'tasks';
+export type DocsRoute = 'app' | 'auth' | 'readme' | 'tasks';
 
 const GITHUB_REPO_URL = 'https://github.com/timcash/linker';
 
@@ -8,6 +8,7 @@ export function createDocsNav(activeRoute: DocsRoute): HTMLElement {
 
   for (const entry of [
     {href: resolveSiteHref('./'), label: 'App', route: 'app' as const},
+    {href: resolveSiteHref('auth/'), label: 'Auth', route: 'auth' as const},
     {href: resolveSiteHref('tasks/'), label: 'Tasks', route: 'tasks' as const},
     {href: resolveSiteHref('readme/'), label: 'README', route: 'readme' as const},
     {href: GITHUB_REPO_URL, label: 'GitHub', route: null},
