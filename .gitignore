@@ -4,6 +4,7 @@ dist
 node_modules
 vite.dev.log
 artifacts
+.runtime/
 .env.local
 .env.codex.local
 .codex-temp
