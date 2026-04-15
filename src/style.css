@@ -449,6 +449,10 @@ code {
   gap: 8px;
 }
 
+.control-page-grid--menu {
+  align-items: stretch;
+}
+
 .panel-meta {
   min-width: 0;
 }
@@ -514,14 +518,14 @@ code {
   cursor: default;
 }
 
-.control-button--toggle {
+.control-button--menu {
   border-color: rgb(216 222 235 / 94%);
   background:
     linear-gradient(180deg, rgb(232 237 246 / 98%), rgb(196 204 220 / 98%));
   color: #050505;
 }
 
-.control-button--toggle:hover {
+.control-button--menu:hover {
   border-color: rgb(216 222 235 / 94%);
   background:
     linear-gradient(180deg, rgb(242 245 250 / 100%), rgb(208 214 226 / 100%));

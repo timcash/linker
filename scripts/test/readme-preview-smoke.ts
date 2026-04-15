@@ -14,7 +14,7 @@ export async function runReadmePreviewSmokeFlow(
   await context.page.waitForFunction(() => document.body.classList.contains('readme-route'));
   await context.page.waitForFunction(() => {
     const preview = document.querySelector('.markdown-preview');
-    return preview?.textContent?.includes('Target Workflow') ?? false;
+    return preview?.textContent?.includes('Live Onboarding') ?? false;
   });
 
   const previewState = await context.page.evaluate(() => {
@@ -36,8 +36,11 @@ export async function runReadmePreviewSmokeFlow(
 
   assert.equal(previewState.title, 'Linker README', 'The /readme route should set a dedicated page title.');
   assert.equal(previewState.currentNavLabel, 'README', 'The README preview nav should mark the active route.');
-  assert.match(previewState.previewText, /Target Workflow/u, 'The README preview should render the repo workflow section.');
-  assert.match(previewState.previewText, /Command Line Interface/u, 'The README preview should render markdown sections into HTML.');
+  assert.match(previewState.previewText, /Live Onboarding/u, 'The README preview should render the hosted onboarding section.');
+  assert.match(previewState.previewText, /CLI Workflow/u, 'The README preview should render markdown sections into HTML.');
+  assert.match(previewState.previewText, /Domain Language/u, 'The README preview should keep the domain language section visible.');
+  assert.match(previewState.previewText, /UI Panels/u, 'The README preview should keep the UI panels section visible.');
+  assert.match(previewState.previewText, /Code Index/u, 'The README preview should keep the code index section visible.');
   assert.ok(previewState.headingCount >= 4, 'The README preview should render multiple markdown headings.');
   assert.ok(previewState.imageCount >= 1, 'The README preview should render bundled README images.');
   assert.match(previewState.bodyFontFamily, /Space Grotesk/u, 'The docs shell should use the cad-pga body font.');

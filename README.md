@@ -1,18 +1,20 @@
 # Linker
 
-Linker is a `luma.gl` + WebGPU DAG workplane viewer and editor with aligned `12x12x12` label grids, `rank/lane/depth` 3D navigation, a compact mobile-style control pad, and a browser `/codex` terminal page that can talk to a locally hosted bridge through Cloudflare.
+Linker is a `luma.gl` + WebGPU DAG workplane viewer and editor with aligned `12x12x12` label grids, `rank/lane/depth` 3D navigation, a compact mobile-style menu-first control pad, and a browser `/codex` terminal page that can talk to a locally hosted bridge through Cloudflare.
 
 ## 1. Live Onboarding
 
-First-time GitHub Pages visits now boot from `demoPreset=dag-empty` and replace the top stats strip with an `onboard-panel`. The guided run uses the same visible control-pad buttons and label input that Linker exposes to the user:
+First-time GitHub Pages visits now boot from `demoPreset=dag-empty` and replace the top stats strip with an `onboard-panel`. The guided run starts on the bottom `Menu` pad and uses the same visible buttons and label input that Linker exposes to the user:
 
+- open `Map`, `Stage`, `DAG`, and `CRUD` from the menu-first 3x3 control hub
 - create and rename a local label stack on the root workplane
 - create, remove, and clear a local label selection and local link
 - demonstrate `child`, `parent`, and leaf `delete` DAG CRUD
 - build the full `1-4-4-3` twelve-workplane DAG from zero data
+- add real local labels and links onto multiple authored workplanes so the deep zoom bands reveal actual content
 - move a leaf across `rank`, `lane`, and `depth`, then settle it back onto the rails
-- enter `3d-mode`, orbit and zoom the graph, switch selected workplanes, and flip link/text styles
-- finish on the root-focused 3D DAG overview
+- enter `3d-mode`, travel through `graph-point`, `title-only`, `label-point`, and `plane-focus` detail levels, then return to the title-only DAG overview
+- finish on the root-focused 3D DAG overview with the `Menu` pad reopened for manual exploration
 
 Current proven invariant:
 
@@ -170,7 +172,10 @@ npm run perf:orbit-stutter -- --label-set benchmark --label-count 4096 --segment
 - `child fanout`: the set of direct child workplanes spread across the next rank slice
 - `autoplacement`: the deterministic rule that picks the next lane and depth slot for a newly created child within the downstream rank slice
 - `DAG rails`: the snapped integer `rank/lane/depth` placement grid used in `3d-mode`
-- `control pad section`: one named container inside the 3x3 bottom pad: `navigate`, `stage`, `dag`, or `edit`
+- `menu pad`: the bottom 3x3 hub that routes the user into the other control pads
+- `control pad section`: one named container inside the bottom pad: `menu`, `map`, `stage`, `dag`, or `crud`
+- `map controls`: the user-facing name for the camera and cursor movement pad; the internal page key remains `navigate`
+- `crud controls`: the user-facing name for the label typing and edit pad; the internal page key remains `edit`
 - `status strip`: the compact live table at the top of the screen
 - `onboard panel`: the guided walkthrough panel that temporarily replaces the status strip on first-run GitHub Pages visits
 
@@ -178,11 +183,12 @@ npm run perf:orbit-stutter -- --label-set benchmark --label-count 4096 --segment
 
 - `status strip`: the top telemetry table with the live stage stats
 - `onboard panel`: the temporary top panel used during the automated first-run walkthrough; it replaces the status strip until the intro completes or is dismissed
-- `navigate controls`: the default bottom 3x3 container for zoom and movement
+- `menu pad`: the default bottom 3x3 hub with one entry button for each main control pad: `Map`, `Stage`, `DAG`, and `CRUD`
+- `map controls`: the bottom 3x3 container for zoom, orbit, and 2D cursor movement
 - `stage controls`: the bottom 3x3 container for `2d-mode`, `3d-mode`, workplane switching, and root focus when a DAG is active
 - `dag controls`: the bottom 3x3 container for `child`, `parent`, and `rank/lane/depth` DAG placement moves
-- `edit controls`: the bottom 3x3 container with the label input, selection toggle, link, unlink, remove, and clear actions
-- `toggle button`: the bottom-right button that cycles `navigate -> stage -> edit` for linear docs and `navigate -> stage -> dag -> edit` when a DAG is active
+- `crud controls`: the bottom 3x3 container with the label input, selection toggle, link, unlink, remove, and clear actions
+- `menu button`: the bottom-right button on the active pads that returns the user to the `Menu` hub
 - `editor overlays`: the selection box, ranked-selection badges, and ghost-slot markers drawn over the canvas
 
 ## 6. Code Index
@@ -196,9 +202,9 @@ npm run perf:orbit-stutter -- --label-set benchmark --label-count 4096 --segment
 - `src/codex/CodexTerminalView.ts`: xterm.js-backed codex route DOM and terminal surface
 - `src/readme-page.ts`: live markdown preview route for `README.md`
 - `src/app.ts`: WebGPU boot, plane-stack state, input handling, render loop, and dataset exports
-- `src/style.css`: static overlay grid for the status strip, fullscreen canvas, and bottom control pad
-- `src/stage-chrome.ts`: DOM shell for the status strip, `onboard-panel`, and 3x3 control pad
-- `src/stage-panels.ts`: sync logic for the `navigate`, `stage`, `dag`, and `edit` control containers
+- `src/style.css`: static overlay grid for the status strip, fullscreen canvas, and bottom menu-first control pad
+- `src/stage-chrome.ts`: DOM shell for the status strip, `onboard-panel`, the `Menu` hub, and the 3x3 control pads
+- `src/stage-panels.ts`: sync logic for the `menu`, `map`, `stage`, `dag`, and `crud` control containers
 - `src/stage-config.ts`: query parsing for `demoPreset`, `cameraLabel`, and hosted onboarding
 - `src/stage-session.ts`: boot hydration and default dataset selection
 - `src/plane-stack.ts`: document/session helpers across workplanes

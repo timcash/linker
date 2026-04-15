@@ -112,6 +112,35 @@ export function createStageChrome(root: HTMLElement): StageChromeElements {
   strategyModePanel.dataset.testid = 'strategy-mode-panel';
   strategyModePanel.setAttribute('aria-label', 'Control pad');
   strategyModePanel.innerHTML = `
+    <div class="control-page-grid control-page-grid--menu" data-control-pad-page="menu" data-testid="control-pad-page-menu">
+      <button type="button" class="control-button control-button--tile" data-control-pad-target="navigate">
+        Map
+      </button>
+      <button type="button" class="control-button control-button--tile" data-control-pad-target="stage">
+        Stage
+      </button>
+      <button type="button" class="control-button control-button--tile" data-control-pad-target="dag">
+        DAG
+      </button>
+      <button type="button" class="control-button control-button--tile" data-control-pad-target="edit">
+        CRUD
+      </button>
+      <button type="button" class="control-button control-button--chip" disabled aria-disabled="true">
+        Pan + Zoom
+      </button>
+      <button type="button" class="control-button control-button--chip" disabled aria-disabled="true">
+        2D + 3D
+      </button>
+      <button type="button" class="control-button control-button--chip" disabled aria-disabled="true">
+        Rank + Lane
+      </button>
+      <button type="button" class="control-button control-button--chip" disabled aria-disabled="true">
+        Type + Link
+      </button>
+      <button type="button" class="control-button control-button--menu" disabled aria-disabled="true">
+        Choose Pad
+      </button>
+    </div>
     <div class="control-page-grid" data-control-pad-page="navigate" data-testid="control-pad-page-navigate">
       <button type="button" class="control-button control-button--tile" data-control="zoom-in">Zoom +</button>
       <button type="button" class="control-button control-button--tile" data-control="pan-up">Up</button>
@@ -129,8 +158,8 @@ export function createStageChrome(root: HTMLElement): StageChromeElements {
         Grid
       </button>
       <button type="button" class="control-button control-button--tile" data-control="pan-down">Down</button>
-      <button type="button" class="control-button control-button--toggle" data-control-pad-action="toggle-page">
-        Toggle
+      <button type="button" class="control-button control-button--menu" data-control-pad-action="open-menu">
+        Menu
       </button>
     </div>
     <div class="control-page-grid" data-control-pad-page="stage" data-testid="control-pad-page-stage" hidden>
@@ -170,8 +199,8 @@ export function createStageChrome(root: HTMLElement): StageChromeElements {
       <button type="button" class="control-button control-button--tile" data-workplane-action="delete-active-workplane">
         Delete
       </button>
-      <button type="button" class="control-button control-button--toggle" data-control-pad-action="toggle-page">
-        Toggle
+      <button type="button" class="control-button control-button--menu" data-control-pad-action="open-menu">
+        Menu
       </button>
     </div>
     <div class="control-page-grid" data-control-pad-page="dag" data-testid="control-pad-page-dag" hidden>
@@ -199,8 +228,8 @@ export function createStageChrome(root: HTMLElement): StageChromeElements {
       <button type="button" class="control-button control-button--tile" data-dag-action="insert-parent-workplane">
         Parent
       </button>
-      <button type="button" class="control-button control-button--toggle" data-control-pad-action="toggle-page">
-        Toggle
+      <button type="button" class="control-button control-button--menu" data-control-pad-action="open-menu">
+        Menu
       </button>
     </div>
     <section class="edit-page" data-control-pad-page="edit" data-testid="render-panel" hidden>
@@ -235,8 +264,8 @@ export function createStageChrome(root: HTMLElement): StageChromeElements {
         <button type="button" class="control-button control-button--tile" data-editor-action="clear-selection">
           Clear
         </button>
-        <button type="button" class="control-button control-button--toggle" data-control-pad-action="toggle-page">
-          Toggle
+        <button type="button" class="control-button control-button--menu" data-control-pad-action="open-menu">
+          Menu
         </button>
       </form>
       <div class="strategy-group-stack" data-testid="strategy-group-stack">

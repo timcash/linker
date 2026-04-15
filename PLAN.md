@@ -82,6 +82,12 @@ Research snapshot: 2026-04-15
   - added focused browser proof `scripts/test/onboarding-walkthrough.ts` plus live-smoke assertions in `scripts/test/smoke.ts` and `scripts/test-live.ts`
   - green commands: `npm run test:browser:onboarding`, `npm run test:browser:dag-network-build`, `npm run test:dag:static`, `npm run build:pages`, and `npm run test:browser`
   - invariant: a first-run GitHub Pages visit can now start from an empty root, replace the stats strip with the `onboard-panel`, author the full `1-4-4-3` DAG through visible controls, and finish on the root-focused 3D overview
+- `Slice 14` complete:
+  - replaced the old toggle-cycle control flow with a menu-first `Menu -> Map / Stage / DAG / CRUD` hub in `src/stage-chrome.ts`, `src/stage-panels.ts`, `src/style.css`, `src/app.ts`, and `scripts/test/browser.ts`
+  - expanded the hosted onboarding flow in `src/app.ts` so it authors richer local labels on multiple workplanes and walks through `graph-point`, `title-only`, `label-point`, and deep `plane-focus` detail before reopening the menu
+  - tightened the onboarding proof in `scripts/test/onboarding-walkthrough.ts` and aligned the README preview smoke in `scripts/test/readme-preview-smoke.ts`
+  - green commands: `npm run lint`, `npm run test:dag:static`, `npm run test:browser:onboarding`, and `npm run test:browser`
+  - invariant: the hosted first-run experience now begins on a real menu hub, demonstrates the named control pads and mixed DAG LOD bands, hands off from 3D graph context into 2D workplane detail, and returns to the root-focused 3D overview with the menu reopened
 
 Current limitation to keep explicit:
 
@@ -90,18 +96,23 @@ Current limitation to keep explicit:
 - the new `scripts/test/dag-rank-fanout.ts` flow proves the larger twelve-workplane `1-4-4-3` build, but it is still a shape-only authoring proof rather than the canonical named network scenario
 - the new `dag-network-build` flow now covers zero-data local-label CRUD, workplane add/delete, strategy switches, and 2D/3D mode transitions in one tab, but it still does not cover direct 3D picking or explicit DAG edge create/remove between already-existing workplanes
 - the hosted onboarding intro is now green locally and in the production Pages bundle, but every publish still needs the explicit live pass `npm run test:live -- --url https://timcash.github.io/linker/ --expect-onboarding`
+- the hosted onboarding intro now relies on the new menu-first pad vocabulary, so `README.md`, `/readme`, and browser flows must stay aligned on `Menu`, `Map`, `Stage`, `DAG`, and `CRUD`
 - the live `/codex/` page now fails gracefully while locked, but it is not yet interactive on GitHub Pages because this machine still lacks the real `.env.codex.local` tunnel and password configuration
 - GitHub Pages still needs a post-push verification pass on both `/` with onboarding and `/codex/` whenever the default DAG boot path or codex bridge client changes
 
 ## DAG Domain Language
 
 - `workplane node`: one workplane treated as a DAG node in global `3d-mode`
+- `menu pad`: the bottom control hub that routes the user into `Map`, `Stage`, `DAG`, or `CRUD`
+- `map controls`: the user-facing name for the camera and cursor pad; the internal page key remains `navigate`
+- `crud controls`: the user-facing name for the label typing and edit pad; the internal page key remains `edit`
 - `rank`: the left-to-right dependency stage for a workplane node; the UX term for global DAG `column`
 - `lane`: the top-to-bottom slot inside a rank; the UX term for global DAG `row`
 - `depth`: the front-to-back slot inside a rank; the UX term for global DAG `layer`
 - `rank slice`: the shared placement surface for all workplane nodes in one rank
 - `child fanout`: the set of direct child workplanes spread across the next rank slice
 - `autoplacement`: the deterministic rule that assigns the next lane and depth slot for a newly created child inside the downstream rank slice
+- use `Menu`, `Map`, `Stage`, `DAG`, and `CRUD` in UI copy and prompts even if internal helpers still use `navigate` and `edit`
 - use `rank/lane/depth` in UI copy, tests, and prompts even if internal helpers still use `column/row/layer`
 - avoid `workplane-layer` in UX because `layer` already means a local authored label layer inside one workplane
 
@@ -109,8 +120,10 @@ Current limitation to keep explicit:
 
 - `[x]` a first-run GitHub Pages visit boots from one empty root workplane instead of the authored DAG overview
 - `[x]` the `onboard-panel` replaces the top stats strip while the guided run is active
+- `[x]` the guided run begins from the bottom `Menu` hub instead of landing inside one control pad directly
 - `[x]` the guided run types into the label input and clicks the visible control-pad buttons instead of seeding a hidden document
 - `[x]` the guided run demonstrates local label CRUD, DAG CRUD, `rank/lane/depth`, stage mode changes, workplane navigation, and style changes
+- `[x]` the guided run shows the workplane progression through `graph-point`, `title-only`, `label-point`, and deep `plane-focus` detail
 - `[x]` the guided run finishes on the twelve-workplane `1-4-4-3` 3D DAG overview with the root reselected
 - `[x]` `onboarding=1` forces a replay and `onboarding=0` bypasses the intro
 
@@ -119,6 +132,7 @@ Current limitation to keep explicit:
 ### 2D Workplane View
 
 - `[x]` boot one empty root workplane from `demoPreset=dag-empty`
+- `[x]` open the `CRUD` pad from the `Menu` hub
 - `[x]` create a local label stack from a ghost slot with the visible `Select/Create` button
 - `[x]` create a local label stack from a ghost slot with the `Enter` hotkey
 - `[x]` rename the focused label by typing into the label input and saving
@@ -133,6 +147,7 @@ Current limitation to keep explicit:
 
 ### 3D DAG View
 
+- `[x]` open the `Map`, `Stage`, and `DAG` pads from the `Menu` hub
 - `[x]` create child workplanes from zero data with both button and hotkey paths
 - `[x]` delete a leaf DAG workplane safely and keep the DAG valid
 - `[x]` focus the root workplane again after moving through the graph
@@ -151,7 +166,7 @@ Current limitation to keep explicit:
 
 ## Immediate Next Slice
 
-- `Slice:` 14
+- `Slice:` 15
 - `Intent:` finish the remaining zero-data DAG interaction gaps by adding direct 3D picking and explicit DAG edge CRUD between existing workplanes
 - `Own Files:` `src/app.ts`, `src/stage-chrome.ts`, `src/stage-panels.ts`, `src/plane-stack.ts`, `scripts/test/dag-network-build.ts`, `scripts/test/browser.ts`, `README.md`, and `PLAN.md`
 - `First Focused Command:` `npm run test:browser -- --flow dag-network-build`
@@ -161,7 +176,7 @@ Current limitation to keep explicit:
 - `Datasets:` boot through `demoPreset=dag-empty`; do not seed the DAG structure with `openRouteWithBootState(...)`
 - `Artifacts:` keep using the step screenshots emitted by `dag-network-build` and `onboarding-walkthrough` while the interaction checklist closes
 
-Operational follow-up that stays separate from Slice 13:
+Operational follow-up that stays separate from Slice 14:
 
 - create the real `.env.codex.local`
 - start `npm run codex:daemon:start` or `npm run codex:tunnel`
@@ -208,7 +223,7 @@ Historical working notes:
   - the larger layout now exports one stable twelve-workplane `dagLayoutFingerprint`
   - the same flow can now be run with `--keep-open` to leave Chrome open on the final `3d-mode` overview for manual inspection
 
-Current task ladder for Slice 14:
+Current task ladder for Slice 15:
 
 1. `keep-onboarding-and-zero-data-green`
    - keep `npm run test:browser:onboarding`, `npm run test:browser:dag-network-build`, and `npm run test:live -- --url https://timcash.github.io/linker/ --expect-onboarding` green while the next DAG interaction slice lands
@@ -219,7 +234,7 @@ Current task ladder for Slice 14:
 4. `keep-codex-ops-separate`
    - continue treating real live `/codex/` interactivity as an ops follow-up after the product DAG slice stays stable
 
-Remaining milestones after Slice 13:
+Remaining milestones after Slice 14:
 
 1. `direct-3d-picking`
    - select workplanes directly inside the live DAG view with pointer input

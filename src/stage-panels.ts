@@ -8,7 +8,7 @@ import type {LineStrategy} from './line/types';
 import type {TextStrategy} from './text/types';
 
 export type StrategyPanelMode = 'text' | 'line' | 'layout' | 'label-edit';
-export type ControlPadPage = 'dag' | 'edit' | 'navigate' | 'stage';
+export type ControlPadPage = 'dag' | 'edit' | 'menu' | 'navigate' | 'stage';
 
 export function syncStageStrategyPanels(input: {
   activeWorkplaneIndex: number;
@@ -47,6 +47,19 @@ export function syncStageStrategyPanels(input: {
     page.hidden =
       pageKey !== controlPadPage ||
       (pageKey === 'dag' && !dagAvailable);
+  }
+
+  for (const button of strategyModePanel.querySelectorAll<HTMLButtonElement>('[data-control-pad-target]')) {
+    const target = button.dataset.controlPadTarget as ControlPadPage | undefined;
+
+    switch (target) {
+      case 'dag':
+        button.disabled = !dagAvailable;
+        break;
+      default:
+        button.disabled = false;
+        break;
+    }
   }
 
   const isSingleWorkplane = planeCount <= 1;

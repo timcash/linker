@@ -1175,28 +1175,46 @@ export async function pressStrategyKey(
   await waitForBrowserUpdate(page);
 }
 
-export async function clickControlPadToggle(page: Page): Promise<void> {
-  const selector = 'button[data-control-pad-action="toggle-page"]';
-  await clickButton(page, selector, `Missing control pad toggle button ${selector}`);
+export async function openControlPadMenu(page: Page): Promise<void> {
+  const currentPage = await page.evaluate(
+    () => (document.body.dataset.controlPadPage ?? 'menu') as 'dag' | 'edit' | 'menu' | 'navigate' | 'stage',
+  );
+
+  if (currentPage === 'menu') {
+    return;
+  }
+
+  const selector = 'button[data-control-pad-action="open-menu"]';
+  await clickButton(page, selector, `Missing control pad menu button ${selector}`);
   await waitForBrowserUpdate(page);
 }
 
 export async function showControlPadPage(
   page: Page,
-  controlPadPage: 'dag' | 'edit' | 'navigate' | 'stage',
+  controlPadPage: 'dag' | 'edit' | 'menu' | 'navigate' | 'stage',
 ): Promise<void> {
-  for (let attempt = 0; attempt < 4; attempt += 1) {
-    const currentPage = await page.evaluate(
-      () => (document.body.dataset.controlPadPage ?? 'navigate') as 'dag' | 'edit' | 'navigate' | 'stage',
-    );
+  const currentPage = await page.evaluate(
+    () => (document.body.dataset.controlPadPage ?? 'menu') as 'dag' | 'edit' | 'menu' | 'navigate' | 'stage',
+  );
 
-    if (currentPage === controlPadPage) {
-      return;
-    }
-
-    await clickControlPadToggle(page);
+  if (currentPage === controlPadPage) {
+    return;
   }
 
+  if (controlPadPage === 'menu') {
+    await openControlPadMenu(page);
+    await page.waitForFunction(
+      (expectedPage) => document.body.dataset.controlPadPage === expectedPage,
+      {},
+      controlPadPage,
+    );
+    return;
+  }
+
+  await openControlPadMenu(page);
+  const selector = `button[data-control-pad-target="${controlPadPage}"]`;
+  await clickButton(page, selector, `Missing control pad menu target ${selector}`);
+  await waitForBrowserUpdate(page);
   await page.waitForFunction(
     (expectedPage) => document.body.dataset.controlPadPage === expectedPage,
     {},
