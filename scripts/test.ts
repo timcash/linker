@@ -13,17 +13,13 @@ import {
 import {createTestPerformanceCollector} from './test/performance';
 import {runAuthPageSmokeFlow} from './test/auth-page-smoke';
 import {runBootFlow} from './test/boot';
+import {runCodexPageSmokeFlow} from './test/codex-page-smoke';
+import {runDagControlPadFlow} from './test/dag-control-pad';
+import {runDagRankFanoutFlow} from './test/dag-rank-fanout';
 import {runDagViewSmokeFlow} from './test/dag-view-smoke';
-import {runEmptyDatasetBuildFlow} from './test/empty-dataset-build';
-import {runEditorInteractionsFlow} from './test/editor-interactions';
-import {runPlaneFocusControlsFlow} from './test/plane-focus-controls';
-import {runPlaneFocusHighZoomPerformanceFlow} from './test/plane-focus-high-zoom-performance';
+import {runDagZoomJourneyFlow} from './test/dag-zoom-journey';
 import {runReadmePreviewSmokeFlow} from './test/readme-preview-smoke';
-import {publishReadmeShowcase} from './test/readme-showcase';
-import {runStackOrbitCoverageFlow} from './test/stack-orbit-coverage';
 import {runTasksDashboardSmokeFlow} from './test/tasks-dashboard-smoke';
-import {runViewModesFlow} from './test/view-modes';
-import {runWorkplaneLifecycleFlow} from './test/workplane-lifecycle';
 import {
   INTENTIONAL_ERROR_MARKER,
   type BrowserTestContext,
@@ -31,13 +27,18 @@ import {
 
 type BrowserFlowName =
   | 'auth-page-smoke'
+  | 'boot'
+  | 'codex-page-smoke'
+  | 'dag-control-pad'
+  | 'dag-rank-fanout'
   | 'dag-view-smoke'
-  | 'empty-dataset-build'
+  | 'dag-zoom-journey'
   | 'full'
   | 'readme-preview-smoke'
   | 'tasks-dashboard-smoke';
 type CliOptions = {
   flow: BrowserFlowName;
+  keepOpen: boolean;
 };
 
 const performanceCollector = createTestPerformanceCollector();
@@ -73,6 +74,14 @@ try {
 
   context.addBrowserLog('test', 'Browser test passed.');
   console.log('Browser test passed.');
+
+  if (cliOptions.keepOpen) {
+    await destroyBrowserTestContext(context, {close: false});
+    const keptOpenContext = context;
+    context = undefined;
+    console.log('Browser left open at the final DAG overview. Press Ctrl+C in this terminal to close it.');
+    await waitForKeepOpenShutdown(keptOpenContext);
+  }
 } catch (error) {
   testError = error instanceof Error ? error : new Error(String(error));
 
@@ -126,15 +135,39 @@ async function runSelectedBrowserFlows(
   context: BrowserTestContext,
   options: CliOptions,
 ): Promise<void> {
-  if (options.flow === 'empty-dataset-build') {
+  if (options.flow === 'boot') {
     context.addBrowserLog('test', `Running focused browser flow ${options.flow}.`);
-    await runEmptyDatasetBuildFlow(context);
+    await runBootFlow(context);
+    return;
+  }
+
+  if (options.flow === 'codex-page-smoke') {
+    context.addBrowserLog('test', `Running focused browser flow ${options.flow}.`);
+    await runCodexPageSmokeFlow(context);
     return;
   }
 
   if (options.flow === 'dag-view-smoke') {
     context.addBrowserLog('test', `Running focused browser flow ${options.flow}.`);
     await runDagViewSmokeFlow(context);
+    return;
+  }
+
+  if (options.flow === 'dag-control-pad') {
+    context.addBrowserLog('test', `Running focused browser flow ${options.flow}.`);
+    await runDagControlPadFlow(context);
+    return;
+  }
+
+  if (options.flow === 'dag-rank-fanout') {
+    context.addBrowserLog('test', `Running focused browser flow ${options.flow}.`);
+    await runDagRankFanoutFlow(context);
+    return;
+  }
+
+  if (options.flow === 'dag-zoom-journey') {
+    context.addBrowserLog('test', `Running focused browser flow ${options.flow}.`);
+    await runDagZoomJourneyFlow(context);
     return;
   }
 
@@ -162,14 +195,11 @@ async function runSelectedBrowserFlows(
     return;
   }
 
-  await runPlaneFocusControlsFlow(context);
-  await runPlaneFocusHighZoomPerformanceFlow(context, performanceCollector);
-  await runEditorInteractionsFlow(context);
-  await runEmptyDatasetBuildFlow(context);
-  await runWorkplaneLifecycleFlow(context);
-  await runViewModesFlow(context);
-  await runStackOrbitCoverageFlow(context, performanceCollector);
-  await publishReadmeShowcase(context);
+  await runDagViewSmokeFlow(context);
+  await runDagControlPadFlow(context);
+  await runDagRankFanoutFlow(context);
+  await runDagZoomJourneyFlow(context);
+  await runCodexPageSmokeFlow(context);
   await runAuthPageSmokeFlow(context);
   await runTasksDashboardSmokeFlow(context);
   await runReadmePreviewSmokeFlow(context);
@@ -177,16 +207,26 @@ async function runSelectedBrowserFlows(
 
 function parseCliOptions(args: string[]): CliOptions {
   let flow: BrowserFlowName = 'full';
+  let keepOpen = false;
 
   for (let index = 0; index < args.length; index += 1) {
     const argument = args[index];
+
+    if (argument === '--keep-open') {
+      keepOpen = true;
+      continue;
+    }
 
     if (argument === '--flow' || argument === '-f') {
       const requestedFlow = args[index + 1];
 
       if (
+        requestedFlow === 'boot' ||
+        requestedFlow === 'codex-page-smoke' ||
+        requestedFlow === 'dag-control-pad' ||
+        requestedFlow === 'dag-rank-fanout' ||
         requestedFlow === 'dag-view-smoke' ||
-        requestedFlow === 'empty-dataset-build' ||
+        requestedFlow === 'dag-zoom-journey' ||
         requestedFlow === 'full' ||
         requestedFlow === 'auth-page-smoke' ||
         requestedFlow === 'readme-preview-smoke' ||
@@ -198,12 +238,53 @@ function parseCliOptions(args: string[]): CliOptions {
       }
 
       throw new Error(
-        `Unsupported --flow value "${requestedFlow ?? ''}". Expected one of: full, empty-dataset-build, dag-view-smoke, auth-page-smoke, tasks-dashboard-smoke, readme-preview-smoke.`,
+        `Unsupported --flow value "${requestedFlow ?? ''}". Expected one of: full, boot, codex-page-smoke, dag-view-smoke, dag-control-pad, dag-rank-fanout, dag-zoom-journey, auth-page-smoke, tasks-dashboard-smoke, readme-preview-smoke.`,
       );
     }
 
     throw new Error(`Unsupported test argument "${argument}".`);
   }
 
-  return {flow};
+  return {flow, keepOpen};
+}
+
+async function waitForKeepOpenShutdown(
+  context: BrowserTestContext,
+): Promise<void> {
+  await new Promise<void>((resolve, reject) => {
+    let settled = false;
+
+    const finish = async (closeBrowser: boolean): Promise<void> => {
+      if (settled) {
+        return;
+      }
+
+      settled = true;
+      process.off('SIGINT', handleSignal);
+      process.off('SIGTERM', handleSignal);
+      context.browser.off('disconnected', handleDisconnect);
+
+      try {
+        if (closeBrowser) {
+          await context.browser.close().catch(() => undefined);
+        }
+
+        await context.server.close();
+        resolve();
+      } catch (error) {
+        reject(error instanceof Error ? error : new Error(String(error)));
+      }
+    };
+
+    const handleSignal = (): void => {
+      void finish(true);
+    };
+    const handleDisconnect = (): void => {
+      void finish(false);
+    };
+
+    process.on('SIGINT', handleSignal);
+    process.on('SIGTERM', handleSignal);
+    context.browser.on('disconnected', handleDisconnect);
+  });
 }

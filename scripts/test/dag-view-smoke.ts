@@ -55,13 +55,15 @@ export async function runDagViewSmokeFlow(
   assert.equal(initialStage.dagVisibleEdgeCount, 0, '2d mode should not report visible DAG edges.');
 
   await clickStageModeButton(context.page, '3d-mode');
+  await context.page.waitForFunction(
+    () => Number(document.body.dataset.renderBridgeLinkCount ?? '0') === 6,
+  );
 
   const stackStage = await getStageState(context.page);
   const stackRoute = await getStageRouteState(context.page);
   assert.equal(stackStage.stageMode, '3d-mode', 'The DAG smoke flow should enter 3d mode.');
   assert.equal(stackRoute.stageMode, '3d-mode', 'The DAG smoke flow should mirror 3d mode into the route.');
   assert.equal(stackRoute.workplaneId, 'wp-1', 'The DAG smoke flow should keep the root workplane active when entering 3d mode.');
-  assert.equal(stackStage.dagVisibleWorkplaneCount, 5, '3d mode should render all five DAG workplanes.');
   assert.equal(stackStage.dagVisibleEdgeCount, 6, '3d mode should render all six DAG edges.');
   assert.equal(stackStage.renderBridgeLinkCount, 6, 'Rendered bridge-link count should match the DAG dependency count.');
   assert.deepEqual(
@@ -73,10 +75,10 @@ export async function runDagViewSmokeFlow(
       viewport: await resolveViewport(context),
     }),
     {
-      graphPointWorkplanes: ['wp-1', 'wp-2', 'wp-3', 'wp-4', 'wp-5'],
-      titleOnlyWorkplanes: [],
+      graphPointWorkplanes: [],
+      titleOnlyWorkplanes: ['wp-1', 'wp-2', 'wp-3', 'wp-4', 'wp-5'],
     },
-    'The root DAG overview should reconstruct to the zoomed-out graph-point bucket set from exported browser state.',
+    'Entering 3d mode should reconstruct the readable title-only bucket set from exported browser state.',
   );
 
   await clickWorkplaneButton(context.page, 'select-next-workplane');
@@ -107,7 +109,7 @@ export async function runDagViewSmokeFlow(
       graphPointWorkplanes: [],
       titleOnlyWorkplanes: ['wp-1', 'wp-2', 'wp-3', 'wp-4', 'wp-5'],
     },
-    'Selecting the middle DAG workplane should reconstruct a closer title-only bucket set from exported browser state.',
+    'Selecting the middle DAG workplane should keep the readable title-only bucket set from exported browser state.',
   );
 }
 

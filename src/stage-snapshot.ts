@@ -26,6 +26,29 @@ export type StageSnapshot = {
   statsSignature: string;
 };
 
+export type DagSnapshotState = {
+  activePosition: {column: number; layer: number; row: number} | null;
+  canFocusRoot: boolean;
+  canInsertParent: boolean;
+  canMoveDepthIn: boolean;
+  canMoveDepthOut: boolean;
+  canMoveLaneDown: boolean;
+  canMoveLaneUp: boolean;
+  canMoveRankBackward: boolean;
+  canMoveRankForward: boolean;
+  canSpawnChild: boolean;
+  edgeCount: number;
+  fullWorkplaneCount: number;
+  graphPointWorkplaneCount: number;
+  labelPointWorkplaneCount: number;
+  layoutFingerprint: string;
+  nodeCount: number;
+  rootWorkplaneId: string;
+  titleOnlyWorkplaneCount: number;
+  visibleEdgeCount: number;
+  visibleWorkplaneCount: number;
+};
+
 const layoutFingerprintCache = new WeakMap<StageScene['labels'], string>();
 
 export function createStageSnapshot(input: {
@@ -35,17 +58,7 @@ export function createStageSnapshot(input: {
   cameraAnimating: boolean;
   cameraAvailability: LabelFocusedCameraAvailability;
   cameraSnapshot: CameraSnapshot;
-  dag:
-    | {
-        activePosition: {column: number; layer: number; row: number} | null;
-        edgeCount: number;
-        layoutFingerprint: string;
-        nodeCount: number;
-        rootWorkplaneId: string;
-        visibleEdgeCount: number;
-        visibleWorkplaneCount: number;
-      }
-    | null;
+  dag: DagSnapshotState | null;
   documentBridgeLinkCount: number;
   documentLabelCount: number;
   documentLinkCount: number;
@@ -164,10 +177,23 @@ export function createStageSnapshot(input: {
       dagActiveWorkplaneColumn: dag?.activePosition ? String(dag.activePosition.column) : '',
       dagActiveWorkplaneLayer: dag?.activePosition ? String(dag.activePosition.layer) : '',
       dagActiveWorkplaneRow: dag?.activePosition ? String(dag.activePosition.row) : '',
+      dagCanFocusRoot: String(dag?.canFocusRoot ?? false),
+      dagCanInsertParent: String(dag?.canInsertParent ?? false),
+      dagCanMoveDepthIn: String(dag?.canMoveDepthIn ?? false),
+      dagCanMoveDepthOut: String(dag?.canMoveDepthOut ?? false),
+      dagCanMoveLaneDown: String(dag?.canMoveLaneDown ?? false),
+      dagCanMoveLaneUp: String(dag?.canMoveLaneUp ?? false),
+      dagCanMoveRankBackward: String(dag?.canMoveRankBackward ?? false),
+      dagCanMoveRankForward: String(dag?.canMoveRankForward ?? false),
+      dagCanSpawnChild: String(dag?.canSpawnChild ?? false),
       dagEdgeCount: String(dag?.edgeCount ?? 0),
+      dagFullWorkplaneCount: String(dag?.fullWorkplaneCount ?? 0),
+      dagGraphPointWorkplaneCount: String(dag?.graphPointWorkplaneCount ?? 0),
+      dagLabelPointWorkplaneCount: String(dag?.labelPointWorkplaneCount ?? 0),
       dagLayoutFingerprint: dag?.layoutFingerprint ?? '',
       dagNodeCount: String(dag?.nodeCount ?? 0),
       dagRootWorkplaneId: dag?.rootWorkplaneId ?? '',
+      dagTitleOnlyWorkplaneCount: String(dag?.titleOnlyWorkplaneCount ?? 0),
       dagVisibleEdgeCount: String(dag?.visibleEdgeCount ?? 0),
       dagVisibleWorkplaneCount: String(dag?.visibleWorkplaneCount ?? 0),
       documentBridgeLinkCount: String(documentBridgeLinkCount),

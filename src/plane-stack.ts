@@ -4,7 +4,12 @@ import {
   DEFAULT_STACK_CAMERA_STATE,
   type StackCameraState,
 } from './stack-camera';
-import type {WorkplaneDagEdgeState, WorkplaneDagPosition} from './dag-document';
+import {
+  validateDagDocument,
+  type DagDocumentState,
+  type WorkplaneDagEdgeState,
+  type WorkplaneDagPosition,
+} from './dag-document';
 import type {LinkDefinition} from './line/types';
 
 export const STAGE_MODES = ['2d-mode', '3d-mode'] as const;
@@ -20,7 +25,7 @@ export type WorkplaneCameraView = {
 export const DEFAULT_STAGE_MODE: StageMode = '2d-mode';
 export const INITIAL_WORKPLANE_ID: WorkplaneId = 'wp-1';
 export const INITIAL_NEXT_WORKPLANE_NUMBER = 2;
-export const MAX_WORKPLANE_COUNT = 8;
+export const MAX_WORKPLANE_COUNT = 12;
 
 export type WorkplaneDocumentState = {
   labelTextOverrides: Record<string, string>;
@@ -65,6 +70,18 @@ export type StageSystemState = {
   session: StageSessionState;
 };
 
+export type DagControlAvailability = {
+  canFocusRoot: boolean;
+  canInsertParent: boolean;
+  canMoveDepthIn: boolean;
+  canMoveDepthOut: boolean;
+  canMoveLaneDown: boolean;
+  canMoveLaneUp: boolean;
+  canMoveRankBackward: boolean;
+  canMoveRankForward: boolean;
+  canSpawnChild: boolean;
+};
+
 export type WorkplaneViewState = {
   selectedLabelKey: string | null;
   camera: WorkplaneCameraView;
@@ -107,6 +124,33 @@ export function createStageSystemState(
       workplaneViewsById: {
         [workplane.workplaneId]: initialView,
       } as Record<WorkplaneId, WorkplaneViewState>,
+    },
+  };
+}
+
+export function createStageSystemStateWithDagRoot(
+  scene: StageScene,
+  options?: {
+    activeWorkplaneId?: WorkplaneId | null;
+    initialCamera?: WorkplaneCameraView;
+    initialCameraLabel?: string | null;
+    stageMode?: StageMode;
+  },
+): StageSystemState {
+  const state = createStageSystemState(scene, options);
+  const rootWorkplaneId = state.session.activeWorkplaneId;
+
+  return {
+    ...state,
+    document: {
+      ...state.document,
+      dag: {
+        edges: [],
+        positionsById: {
+          [rootWorkplaneId]: {column: 0, row: 0, layer: 0},
+        } as Record<WorkplaneId, WorkplaneDagPosition>,
+        rootWorkplaneId,
+      },
     },
   };
 }
@@ -186,12 +230,248 @@ export function canSpawnWorkplane(state: StageSystemState): boolean {
   return getPlaneCount(state) < MAX_WORKPLANE_COUNT;
 }
 
+export function getDagControlAvailability(
+  state: StageSystemState,
+): DagControlAvailability | null {
+  const dag = state.document.dag;
+  const activeWorkplaneId = state.session.activeWorkplaneId;
+  const activePosition = dag?.positionsById[activeWorkplaneId];
+
+  if (!dag || !activePosition) {
+    return null;
+  }
+
+  return {
+    canFocusRoot: activeWorkplaneId !== dag.rootWorkplaneId,
+    canInsertParent: canSpawnWorkplane(state),
+    canMoveDepthIn: true,
+    canMoveDepthOut: activePosition.layer > 0,
+    canMoveLaneDown: true,
+    canMoveLaneUp: activePosition.row > 0,
+    canMoveRankBackward: canMoveActiveDagWorkplaneColumn(state, -1),
+    canMoveRankForward: canMoveActiveDagWorkplaneColumn(state, 1),
+    canSpawnChild: canSpawnWorkplane(state),
+  };
+}
+
 export function selectPreviousWorkplane(state: StageSystemState): StageSystemState {
   return selectWorkplaneAtOffset(state, -1);
 }
 
 export function selectNextWorkplane(state: StageSystemState): StageSystemState {
   return selectWorkplaneAtOffset(state, 1);
+}
+
+export function focusDagRootWorkplane(state: StageSystemState): StageSystemState {
+  const dag = state.document.dag;
+
+  if (!dag || state.session.activeWorkplaneId === dag.rootWorkplaneId) {
+    return state;
+  }
+
+  return {
+    ...state,
+    session: {
+      ...state.session,
+      activeWorkplaneId: dag.rootWorkplaneId,
+    },
+  };
+}
+
+export function spawnDagChildWorkplane(state: StageSystemState): StageSystemState {
+  const dag = state.document.dag;
+  const activeWorkplaneId = state.session.activeWorkplaneId;
+  const activePosition = dag?.positionsById[activeWorkplaneId];
+
+  if (!dag || !activePosition || !canSpawnWorkplane(state)) {
+    return state;
+  }
+
+  const activeDocument = getActiveWorkplaneDocument(state);
+  const activeView = getActiveWorkplaneView(state);
+  const workplaneId: WorkplaneId = `wp-${state.document.nextWorkplaneNumber}`;
+  const nextDag: PlaneStackDagState = {
+    edges: [
+      ...dag.edges,
+      {
+        edgeKey: `dag:${activeWorkplaneId}->${workplaneId}`,
+        fromWorkplaneId: activeWorkplaneId,
+        toWorkplaneId: workplaneId,
+      },
+    ],
+    positionsById: {
+      ...dag.positionsById,
+      [workplaneId]: {
+        column: activePosition.column + 1,
+        row: getNextAvailableDagRow(dag.positionsById, activePosition.column + 1),
+        layer: activePosition.layer,
+      },
+    },
+    rootWorkplaneId: dag.rootWorkplaneId,
+  };
+
+  return applyDagStageMutation(state, {
+    activeWorkplaneId: workplaneId,
+    dag: nextDag,
+    nextWorkplaneNumber: state.document.nextWorkplaneNumber + 1,
+    workplaneViewsById: {
+      ...state.session.workplaneViewsById,
+      [workplaneId]: {
+        camera: {...activeView.camera},
+        selectedLabelKey: null,
+      },
+    },
+    workplanesById: {
+      ...state.document.workplanesById,
+      [workplaneId]: {
+        labelTextOverrides: {},
+        scene: createEmptyStageScene(activeDocument.scene.labelSetPreset, workplaneId),
+        workplaneId,
+      },
+    },
+  });
+}
+
+export function insertDagParentWorkplane(state: StageSystemState): StageSystemState {
+  const dag = state.document.dag;
+  const activeWorkplaneId = state.session.activeWorkplaneId;
+  const activePosition = dag?.positionsById[activeWorkplaneId];
+
+  if (!dag || !activePosition || !canSpawnWorkplane(state)) {
+    return state;
+  }
+
+  const activeDocument = getActiveWorkplaneDocument(state);
+  const activeView = getActiveWorkplaneView(state);
+  const workplaneId: WorkplaneId = `wp-${state.document.nextWorkplaneNumber}`;
+  const nextPositionsById = Object.fromEntries(
+    Object.entries(dag.positionsById).map(([workplaneId, position]) => [
+      workplaneId,
+      {...position},
+    ]),
+  ) as Record<WorkplaneId, WorkplaneDagPosition>;
+  let nextEdges = dag.edges.map((edge) => ({...edge}));
+  let rootWorkplaneId = dag.rootWorkplaneId;
+
+  if (activeWorkplaneId === dag.rootWorkplaneId) {
+    for (const position of Object.values(nextPositionsById)) {
+      position.column += 1;
+    }
+
+    nextPositionsById[workplaneId] = {column: 0, row: 0, layer: 0};
+    nextEdges.push({
+      edgeKey: `dag:${workplaneId}->${activeWorkplaneId}`,
+      fromWorkplaneId: workplaneId,
+      toWorkplaneId: activeWorkplaneId,
+    });
+    rootWorkplaneId = workplaneId;
+  } else {
+    const incomingEdges = dag.edges
+      .filter((edge) => edge.toWorkplaneId === activeWorkplaneId)
+      .sort((left, right) => compareWorkplaneIds(left.fromWorkplaneId, right.fromWorkplaneId));
+    const replacedEdge = incomingEdges[0];
+
+    if (!replacedEdge) {
+      return state;
+    }
+
+    for (const descendantWorkplaneId of collectDagDescendantIds(dag, activeWorkplaneId)) {
+      nextPositionsById[descendantWorkplaneId] = {
+        ...nextPositionsById[descendantWorkplaneId],
+        column: nextPositionsById[descendantWorkplaneId].column + 1,
+      };
+    }
+
+    nextPositionsById[workplaneId] = {...activePosition};
+    nextEdges = nextEdges.filter((edge) => edge.edgeKey !== replacedEdge.edgeKey);
+    nextEdges.push(
+      {
+        edgeKey: `dag:${replacedEdge.fromWorkplaneId}->${workplaneId}`,
+        fromWorkplaneId: replacedEdge.fromWorkplaneId,
+        toWorkplaneId: workplaneId,
+      },
+      {
+        edgeKey: `dag:${workplaneId}->${activeWorkplaneId}`,
+        fromWorkplaneId: workplaneId,
+        toWorkplaneId: activeWorkplaneId,
+      },
+    );
+  }
+
+  return applyDagStageMutation(state, {
+    activeWorkplaneId: workplaneId,
+    dag: {
+      edges: nextEdges,
+      positionsById: nextPositionsById,
+      rootWorkplaneId,
+    },
+    nextWorkplaneNumber: state.document.nextWorkplaneNumber + 1,
+    workplaneViewsById: {
+      ...state.session.workplaneViewsById,
+      [workplaneId]: {
+        camera: {...activeView.camera},
+        selectedLabelKey: null,
+      },
+    },
+    workplanesById: {
+      ...state.document.workplanesById,
+      [workplaneId]: {
+        labelTextOverrides: {},
+        scene: createEmptyStageScene(activeDocument.scene.labelSetPreset, workplaneId),
+        workplaneId,
+      },
+    },
+  });
+}
+
+export function moveActiveDagWorkplaneByRank(
+  state: StageSystemState,
+  delta: -1 | 1,
+): StageSystemState {
+  if (!canMoveActiveDagWorkplaneColumn(state, delta)) {
+    return state;
+  }
+
+  return updateActiveDagWorkplanePosition(state, (position) => ({
+    ...position,
+    column: position.column + delta,
+  }));
+}
+
+export function moveActiveDagWorkplaneByLane(
+  state: StageSystemState,
+  delta: -1 | 1,
+): StageSystemState {
+  return updateActiveDagWorkplanePosition(state, (position) => {
+    const nextRow = position.row + delta;
+
+    if (nextRow < 0) {
+      return null;
+    }
+
+    return {
+      ...position,
+      row: nextRow,
+    };
+  });
+}
+
+export function moveActiveDagWorkplaneByDepth(
+  state: StageSystemState,
+  delta: -1 | 1,
+): StageSystemState {
+  return updateActiveDagWorkplanePosition(state, (position) => {
+    const nextLayer = position.layer + delta;
+
+    if (nextLayer < 0) {
+      return null;
+    }
+
+    return {
+      ...position,
+      layer: nextLayer,
+    };
+  });
 }
 
 export function spawnWorkplaneAfterActive(state: StageSystemState): StageSystemState {
@@ -474,4 +754,190 @@ function selectWorkplaneAtOffset(
 
 function getActiveWorkplaneIndex(state: StageSystemState): number {
   return getWorkplaneIndex(state, state.session.activeWorkplaneId);
+}
+
+function applyDagStageMutation(
+  state: StageSystemState,
+  input: {
+    activeWorkplaneId?: WorkplaneId;
+    dag: PlaneStackDagState;
+    nextWorkplaneNumber?: number;
+    workplaneViewsById?: Record<WorkplaneId, WorkplaneViewState>;
+    workplanesById?: Record<WorkplaneId, WorkplaneDocumentState>;
+  },
+): StageSystemState {
+  const nextWorkplanesById = input.workplanesById ?? state.document.workplanesById;
+  const nextWorkplaneViewsById = input.workplaneViewsById ?? state.session.workplaneViewsById;
+  const nextWorkplaneNumber = input.nextWorkplaneNumber ?? state.document.nextWorkplaneNumber;
+
+  return {
+    document: {
+      ...state.document,
+      dag: clonePlaneStackDagState(input.dag),
+      nextWorkplaneNumber,
+      workplaneOrder: deriveDagWorkplaneOrder(input.dag, nextWorkplanesById, nextWorkplaneNumber),
+      workplanesById: nextWorkplanesById,
+    },
+    session: {
+      ...state.session,
+      activeWorkplaneId: input.activeWorkplaneId ?? state.session.activeWorkplaneId,
+      workplaneViewsById: nextWorkplaneViewsById,
+    },
+  };
+}
+
+function updateActiveDagWorkplanePosition(
+  state: StageSystemState,
+  update: (position: WorkplaneDagPosition) => WorkplaneDagPosition | null,
+): StageSystemState {
+  const dag = state.document.dag;
+  const activeWorkplaneId = state.session.activeWorkplaneId;
+  const activePosition = dag?.positionsById[activeWorkplaneId];
+
+  if (!dag || !activePosition) {
+    return state;
+  }
+
+  const nextPosition = update(activePosition);
+
+  if (!nextPosition) {
+    return state;
+  }
+
+  return applyDagStageMutation(state, {
+    dag: {
+      ...dag,
+      positionsById: {
+        ...dag.positionsById,
+        [activeWorkplaneId]: nextPosition,
+      },
+    },
+  });
+}
+
+function canMoveActiveDagWorkplaneColumn(
+  state: StageSystemState,
+  delta: -1 | 1,
+): boolean {
+  const dag = state.document.dag;
+  const activeWorkplaneId = state.session.activeWorkplaneId;
+  const activePosition = dag?.positionsById[activeWorkplaneId];
+
+  if (!dag || !activePosition) {
+    return false;
+  }
+
+  const nextColumn = activePosition.column + delta;
+
+  if (nextColumn < 0) {
+    return false;
+  }
+
+  for (const edge of dag.edges) {
+    if (edge.toWorkplaneId === activeWorkplaneId) {
+      const parentColumn = dag.positionsById[edge.fromWorkplaneId]?.column;
+
+      if (parentColumn === undefined || parentColumn >= nextColumn) {
+        return false;
+      }
+    }
+
+    if (edge.fromWorkplaneId === activeWorkplaneId) {
+      const childColumn = dag.positionsById[edge.toWorkplaneId]?.column;
+
+      if (childColumn === undefined || childColumn <= nextColumn) {
+        return false;
+      }
+    }
+  }
+
+  return true;
+}
+
+function collectDagDescendantIds(
+  dag: PlaneStackDagState,
+  workplaneId: WorkplaneId,
+): WorkplaneId[] {
+  const pendingWorkplaneIds: WorkplaneId[] = [workplaneId];
+  const visitedWorkplaneIds = new Set<WorkplaneId>();
+
+  while (pendingWorkplaneIds.length > 0) {
+    const currentWorkplaneId = pendingWorkplaneIds.shift();
+
+    if (!currentWorkplaneId || visitedWorkplaneIds.has(currentWorkplaneId)) {
+      continue;
+    }
+
+    visitedWorkplaneIds.add(currentWorkplaneId);
+
+    for (const edge of dag.edges) {
+      if (edge.fromWorkplaneId === currentWorkplaneId) {
+        pendingWorkplaneIds.push(edge.toWorkplaneId);
+      }
+    }
+  }
+
+  return [...visitedWorkplaneIds];
+}
+
+function deriveDagWorkplaneOrder(
+  dag: PlaneStackDagState,
+  workplanesById: Record<WorkplaneId, WorkplaneDocumentState>,
+  nextWorkplaneNumber: number,
+): WorkplaneId[] {
+  const dagDocument: DagDocumentState = {
+    edges: dag.edges.map((edge) => ({...edge})),
+    nextWorkplaneNumber,
+    nodesById: Object.fromEntries(
+      Object.keys(dag.positionsById).map((workplaneId) => {
+        const typedWorkplaneId = workplaneId as WorkplaneId;
+
+        return [
+          typedWorkplaneId,
+          {
+            labelTextOverrides: {...(workplanesById[typedWorkplaneId]?.labelTextOverrides ?? {})},
+            position: {...dag.positionsById[typedWorkplaneId]},
+            scene:
+              workplanesById[typedWorkplaneId]?.scene ??
+              createEmptyStageScene('dag-missing', typedWorkplaneId),
+            workplaneId: typedWorkplaneId,
+          },
+        ];
+      }),
+    ) as DagDocumentState['nodesById'],
+    rootWorkplaneId: dag.rootWorkplaneId,
+  };
+  const topologicalOrder = validateDagDocument(dagDocument).topologicalOrder;
+
+  if (topologicalOrder.length > 0) {
+    return topologicalOrder;
+  }
+
+  return Object.keys(dag.positionsById).sort(compareWorkplaneIds) as WorkplaneId[];
+}
+
+function getNextAvailableDagRow(
+  positionsById: Record<WorkplaneId, WorkplaneDagPosition>,
+  column: number,
+): number {
+  let maxRow = -1;
+
+  for (const position of Object.values(positionsById)) {
+    if (position.column === column) {
+      maxRow = Math.max(maxRow, position.row);
+    }
+  }
+
+  return maxRow + 1;
+}
+
+function compareWorkplaneIds(left: string, right: string): number {
+  const leftNumber = Number.parseInt(left.slice(3), 10);
+  const rightNumber = Number.parseInt(right.slice(3), 10);
+
+  if (Number.isFinite(leftNumber) && Number.isFinite(rightNumber) && leftNumber !== rightNumber) {
+    return leftNumber - rightNumber;
+  }
+
+  return left.localeCompare(right);
 }

@@ -2,17 +2,19 @@ import type {
   LabelFocusedCameraAction,
   LabelFocusedCameraAvailability,
 } from './label-focused-camera';
-import type {StageMode} from './plane-stack';
+import type {DagControlAvailability, StageMode} from './plane-stack';
 import type {LabelSetKind} from './stage-config';
 import type {LineStrategy} from './line/types';
 import type {TextStrategy} from './text/types';
 
 export type StrategyPanelMode = 'text' | 'line' | 'layout' | 'label-edit';
-export type ControlPadPage = 'edit' | 'navigate' | 'stage';
+export type ControlPadPage = 'dag' | 'edit' | 'navigate' | 'stage';
 
 export function syncStageStrategyPanels(input: {
   activeWorkplaneIndex: number;
   canDeleteWorkplane: boolean;
+  dagAvailable: boolean;
+  dagControlAvailability: DagControlAvailability | null;
   canSpawnWorkplane: boolean;
   controlPadPage: ControlPadPage;
   labelSetKind: LabelSetKind;
@@ -27,6 +29,8 @@ export function syncStageStrategyPanels(input: {
   const {
     activeWorkplaneIndex,
     canDeleteWorkplane,
+    dagAvailable,
+    dagControlAvailability,
     canSpawnWorkplane,
     controlPadPage,
     labelSetKind,
@@ -39,7 +43,10 @@ export function syncStageStrategyPanels(input: {
   } = input;
 
   for (const page of strategyModePanel.querySelectorAll<HTMLElement>('[data-control-pad-page]')) {
-    page.hidden = page.dataset.controlPadPage !== controlPadPage;
+    const pageKey = page.dataset.controlPadPage as ControlPadPage | undefined;
+    page.hidden =
+      pageKey !== controlPadPage ||
+      (pageKey === 'dag' && !dagAvailable);
   }
 
   const isSingleWorkplane = planeCount <= 1;
@@ -64,10 +71,51 @@ export function syncStageStrategyPanels(input: {
         button.disabled = isSingleWorkplane || isLastWorkplane;
         break;
       case 'spawn-workplane':
-        button.disabled = !canSpawnWorkplane;
+        button.disabled = dagAvailable || !canSpawnWorkplane;
         break;
       case 'delete-active-workplane':
-        button.disabled = !canDeleteWorkplane;
+        button.disabled = dagAvailable || !canDeleteWorkplane;
+        break;
+      default:
+        button.disabled = false;
+    }
+  }
+
+  for (const button of strategyModePanel.querySelectorAll<HTMLButtonElement>('[data-dag-action]')) {
+    const action = button.dataset.dagAction;
+
+    if (!dagAvailable || !dagControlAvailability) {
+      button.disabled = true;
+      continue;
+    }
+
+    switch (action) {
+      case 'focus-root':
+        button.disabled = !dagControlAvailability.canFocusRoot;
+        break;
+      case 'insert-parent-workplane':
+        button.disabled = !dagControlAvailability.canInsertParent;
+        break;
+      case 'move-depth-in':
+        button.disabled = !dagControlAvailability.canMoveDepthIn;
+        break;
+      case 'move-depth-out':
+        button.disabled = !dagControlAvailability.canMoveDepthOut;
+        break;
+      case 'move-lane-down':
+        button.disabled = !dagControlAvailability.canMoveLaneDown;
+        break;
+      case 'move-lane-up':
+        button.disabled = !dagControlAvailability.canMoveLaneUp;
+        break;
+      case 'move-rank-backward':
+        button.disabled = !dagControlAvailability.canMoveRankBackward;
+        break;
+      case 'move-rank-forward':
+        button.disabled = !dagControlAvailability.canMoveRankForward;
+        break;
+      case 'spawn-child-workplane':
+        button.disabled = !dagControlAvailability.canSpawnChild;
         break;
       default:
         button.disabled = false;
@@ -96,7 +144,9 @@ export function syncStageStrategyPanels(input: {
   }
 
   if (stageModeChip) {
-    stageModeChip.textContent = stageMode === '3d-mode' ? 'Stack' : 'Grid';
+    stageModeChip.textContent = dagAvailable ? 'Root' : stageMode === '3d-mode' ? 'Stack' : 'Grid';
+    stageModeChip.disabled = !dagAvailable || !dagControlAvailability?.canFocusRoot;
+    stageModeChip.setAttribute('aria-disabled', String(stageModeChip.disabled));
   }
 
   if (stageWorkplaneChip) {

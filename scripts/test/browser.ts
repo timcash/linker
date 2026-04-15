@@ -100,10 +100,23 @@ export async function readAppResult(page: Page): Promise<ReadyResult | NonReadyR
           dagActiveWorkplaneColumn: Number(document.body.dataset.dagActiveWorkplaneColumn ?? '0'),
           dagActiveWorkplaneLayer: Number(document.body.dataset.dagActiveWorkplaneLayer ?? '0'),
           dagActiveWorkplaneRow: Number(document.body.dataset.dagActiveWorkplaneRow ?? '0'),
+          dagCanFocusRoot: document.body.dataset.dagCanFocusRoot === 'true',
+          dagCanInsertParent: document.body.dataset.dagCanInsertParent === 'true',
+          dagCanMoveDepthIn: document.body.dataset.dagCanMoveDepthIn === 'true',
+          dagCanMoveDepthOut: document.body.dataset.dagCanMoveDepthOut === 'true',
+          dagCanMoveLaneDown: document.body.dataset.dagCanMoveLaneDown === 'true',
+          dagCanMoveLaneUp: document.body.dataset.dagCanMoveLaneUp === 'true',
+          dagCanMoveRankBackward: document.body.dataset.dagCanMoveRankBackward === 'true',
+          dagCanMoveRankForward: document.body.dataset.dagCanMoveRankForward === 'true',
+          dagCanSpawnChild: document.body.dataset.dagCanSpawnChild === 'true',
           dagEdgeCount: Number(document.body.dataset.dagEdgeCount ?? '0'),
+          dagFullWorkplaneCount: Number(document.body.dataset.dagFullWorkplaneCount ?? '0'),
+          dagGraphPointWorkplaneCount: Number(document.body.dataset.dagGraphPointWorkplaneCount ?? '0'),
+          dagLabelPointWorkplaneCount: Number(document.body.dataset.dagLabelPointWorkplaneCount ?? '0'),
           dagLayoutFingerprint: document.body.dataset.dagLayoutFingerprint ?? '',
           dagNodeCount: Number(document.body.dataset.dagNodeCount ?? '0'),
           dagRootWorkplaneId: document.body.dataset.dagRootWorkplaneId ?? '',
+          dagTitleOnlyWorkplaneCount: Number(document.body.dataset.dagTitleOnlyWorkplaneCount ?? '0'),
           dagVisibleEdgeCount: Number(document.body.dataset.dagVisibleEdgeCount ?? '0'),
           dagVisibleWorkplaneCount: Number(document.body.dataset.dagVisibleWorkplaneCount ?? '0'),
           documentBridgeLinkCount: Number(document.body.dataset.documentBridgeLinkCount ?? '0'),
@@ -200,10 +213,23 @@ export async function getStageState(page: Page): Promise<StageState> {
     dagActiveWorkplaneColumn: Number(document.body.dataset.dagActiveWorkplaneColumn ?? '0'),
     dagActiveWorkplaneLayer: Number(document.body.dataset.dagActiveWorkplaneLayer ?? '0'),
     dagActiveWorkplaneRow: Number(document.body.dataset.dagActiveWorkplaneRow ?? '0'),
+    dagCanFocusRoot: document.body.dataset.dagCanFocusRoot === 'true',
+    dagCanInsertParent: document.body.dataset.dagCanInsertParent === 'true',
+    dagCanMoveDepthIn: document.body.dataset.dagCanMoveDepthIn === 'true',
+    dagCanMoveDepthOut: document.body.dataset.dagCanMoveDepthOut === 'true',
+    dagCanMoveLaneDown: document.body.dataset.dagCanMoveLaneDown === 'true',
+    dagCanMoveLaneUp: document.body.dataset.dagCanMoveLaneUp === 'true',
+    dagCanMoveRankBackward: document.body.dataset.dagCanMoveRankBackward === 'true',
+    dagCanMoveRankForward: document.body.dataset.dagCanMoveRankForward === 'true',
+    dagCanSpawnChild: document.body.dataset.dagCanSpawnChild === 'true',
     dagEdgeCount: Number(document.body.dataset.dagEdgeCount ?? '0'),
+    dagFullWorkplaneCount: Number(document.body.dataset.dagFullWorkplaneCount ?? '0'),
+    dagGraphPointWorkplaneCount: Number(document.body.dataset.dagGraphPointWorkplaneCount ?? '0'),
+    dagLabelPointWorkplaneCount: Number(document.body.dataset.dagLabelPointWorkplaneCount ?? '0'),
     dagLayoutFingerprint: document.body.dataset.dagLayoutFingerprint ?? '',
     dagNodeCount: Number(document.body.dataset.dagNodeCount ?? '0'),
     dagRootWorkplaneId: document.body.dataset.dagRootWorkplaneId ?? '',
+    dagTitleOnlyWorkplaneCount: Number(document.body.dataset.dagTitleOnlyWorkplaneCount ?? '0'),
     dagVisibleEdgeCount: Number(document.body.dataset.dagVisibleEdgeCount ?? '0'),
     dagVisibleWorkplaneCount: Number(document.body.dataset.dagVisibleWorkplaneCount ?? '0'),
     documentBridgeLinkCount: Number(document.body.dataset.documentBridgeLinkCount ?? '0'),
@@ -453,15 +479,15 @@ export function buildEditorLabUrl(
   });
 }
 
-export function buildWorkplaneShowcaseUrl(
+export function buildEmptyDagUrl(
   baseUrl: string,
   extraParams?: Record<string, string>,
 ): string {
   return buildStageUrl(baseUrl, {
-    demoPreset: 'workplane-showcase',
+    demoPreset: 'dag-empty',
     labelSet: 'demo',
-    stageMode: '3d-mode',
-    workplane: 'wp-3',
+    stageMode: '2d-mode',
+    workplane: 'wp-1',
     ...extraParams,
   });
 }
@@ -941,6 +967,58 @@ export async function pressPlaneStackKey(
   await waitForBrowserUpdate(page);
 }
 
+export async function pressDagKey(
+  page: Page,
+  action:
+    | 'focus-root'
+    | 'insert-parent-workplane'
+    | 'move-depth-in'
+    | 'move-depth-out'
+    | 'move-lane-down'
+    | 'move-lane-up'
+    | 'move-rank-backward'
+    | 'move-rank-forward'
+    | 'spawn-child-workplane',
+): Promise<void> {
+  await page.evaluate(() => {
+    if (document.activeElement instanceof HTMLElement) {
+      document.activeElement.blur();
+    }
+  });
+
+  switch (action) {
+    case 'focus-root':
+      await page.keyboard.press('KeyF');
+      break;
+    case 'insert-parent-workplane':
+      await page.keyboard.press('KeyP');
+      break;
+    case 'move-depth-in':
+      await page.keyboard.press('KeyI');
+      break;
+    case 'move-depth-out':
+      await page.keyboard.press('KeyU');
+      break;
+    case 'move-lane-down':
+      await page.keyboard.press('KeyJ');
+      break;
+    case 'move-lane-up':
+      await page.keyboard.press('KeyK');
+      break;
+    case 'move-rank-backward':
+      await page.keyboard.press('KeyH');
+      break;
+    case 'move-rank-forward':
+      await page.keyboard.press('KeyL');
+      break;
+    case 'spawn-child-workplane':
+      await page.keyboard.press('KeyC');
+      break;
+  }
+
+  await waitForBrowserUpdate(page);
+}
+
 export async function pressStageModeKey(page: Page): Promise<void> {
   await page.evaluate(() => {
     if (document.activeElement instanceof HTMLElement) {
@@ -984,6 +1062,25 @@ export async function clickWorkplaneButton(
   await showControlPadPage(page, 'stage');
   const selector = `button[data-workplane-action="${action}"]`;
   await clickButton(page, selector, `Missing workplane button ${selector}`);
+  await waitForBrowserUpdate(page);
+}
+
+export async function clickDagButton(
+  page: Page,
+  action:
+    | 'focus-root'
+    | 'insert-parent-workplane'
+    | 'move-depth-in'
+    | 'move-depth-out'
+    | 'move-lane-down'
+    | 'move-lane-up'
+    | 'move-rank-backward'
+    | 'move-rank-forward'
+    | 'spawn-child-workplane',
+): Promise<void> {
+  await showControlPadPage(page, action === 'focus-root' ? 'stage' : 'dag');
+  const selector = `button[data-dag-action="${action}"]`;
+  await clickButton(page, selector, `Missing DAG button ${selector}`);
   await waitForBrowserUpdate(page);
 }
 
@@ -1076,11 +1173,11 @@ export async function clickControlPadToggle(page: Page): Promise<void> {
 
 export async function showControlPadPage(
   page: Page,
-  controlPadPage: 'edit' | 'navigate' | 'stage',
+  controlPadPage: 'dag' | 'edit' | 'navigate' | 'stage',
 ): Promise<void> {
-  for (let attempt = 0; attempt < 3; attempt += 1) {
+  for (let attempt = 0; attempt < 4; attempt += 1) {
     const currentPage = await page.evaluate(
-      () => (document.body.dataset.controlPadPage ?? 'navigate') as 'edit' | 'navigate' | 'stage',
+      () => (document.body.dataset.controlPadPage ?? 'navigate') as 'dag' | 'edit' | 'navigate' | 'stage',
     );
 
     if (currentPage === controlPadPage) {
@@ -1286,6 +1383,16 @@ export async function waitForAppDatasets(page: Page): Promise<void> {
         return true;
       }
 
+      const hasDagData =
+        Boolean(document.body.dataset.dagRootWorkplaneId) ||
+        Number(document.body.dataset.dagNodeCount ?? '0') > 0;
+      const hasRequiredDagLodCounts =
+        !hasDagData ||
+        (document.body.dataset.dagFullWorkplaneCount !== undefined &&
+          document.body.dataset.dagLabelPointWorkplaneCount !== undefined &&
+          document.body.dataset.dagTitleOnlyWorkplaneCount !== undefined &&
+          document.body.dataset.dagGraphPointWorkplaneCount !== undefined);
+
       return Boolean(
         document.body.dataset.activeWorkplaneId &&
           document.body.dataset.planeCount &&
@@ -1297,7 +1404,8 @@ export async function waitForAppDatasets(page: Page): Promise<void> {
           document.body.dataset.textVisibleLabelCount &&
           document.body.dataset.perfCpuFrameAvgMs &&
           document.body.dataset.perfCpuTextAvgMs &&
-          document.body.dataset.workplaneCanDelete,
+          document.body.dataset.workplaneCanDelete &&
+          hasRequiredDagLodCounts,
       );
     });
   } catch (error) {

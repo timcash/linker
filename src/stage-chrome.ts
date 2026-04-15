@@ -96,7 +96,7 @@ export function createStageChrome(root: HTMLElement): StageChromeElements {
         type="button"
         class="control-button control-button--chip"
         data-testid="stage-mode-chip"
-        disabled
+        data-dag-action="focus-root"
         aria-disabled="true"
       >
         Grid
@@ -124,6 +124,35 @@ export function createStageChrome(root: HTMLElement): StageChromeElements {
       </button>
       <button type="button" class="control-button control-button--tile" data-workplane-action="delete-active-workplane">
         Delete
+      </button>
+      <button type="button" class="control-button control-button--toggle" data-control-pad-action="toggle-page">
+        Toggle
+      </button>
+    </div>
+    <div class="control-page-grid" data-control-pad-page="dag" data-testid="control-pad-page-dag" hidden>
+      <button type="button" class="control-button control-button--tile" data-dag-action="move-rank-backward">
+        Rank -
+      </button>
+      <button type="button" class="control-button control-button--tile" data-dag-action="move-lane-up">
+        Lane Up
+      </button>
+      <button type="button" class="control-button control-button--tile" data-dag-action="move-depth-out">
+        Depth Out
+      </button>
+      <button type="button" class="control-button control-button--tile" data-dag-action="move-rank-forward">
+        Rank +
+      </button>
+      <button type="button" class="control-button control-button--tile" data-dag-action="move-lane-down">
+        Lane Down
+      </button>
+      <button type="button" class="control-button control-button--tile" data-dag-action="move-depth-in">
+        Depth In
+      </button>
+      <button type="button" class="control-button control-button--tile" data-dag-action="spawn-child-workplane">
+        Child
+      </button>
+      <button type="button" class="control-button control-button--tile" data-dag-action="insert-parent-workplane">
+        Parent
       </button>
       <button type="button" class="control-button control-button--toggle" data-control-pad-action="toggle-page">
         Toggle

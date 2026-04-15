@@ -1,3 +1,4 @@
+import type {ViewportSize} from './camera';
 import {
   getActiveWorkplaneDocument,
   type WorkplaneBridgeLinkDefinition,
@@ -35,13 +36,20 @@ export type StackBackplate = {
 export type StackViewState = {
   backplates: StackBackplate[];
   orbitTarget: ScenePoint3D;
+  projectorStackCamera: StageSystemState['session']['stackCamera'];
   scene: StageScene;
   sceneBounds: SceneBounds3D;
 };
 
-export function createStackViewState(state: StageSystemState): StackViewState {
+export function createStackViewState(
+  state: StageSystemState,
+  options?: {
+    stackCamera?: StageSystemState['session']['stackCamera'];
+    viewport?: ViewportSize;
+  },
+): StackViewState {
   if (state.document.dag) {
-    return createDagStackViewState(state);
+    return createDagStackViewState(state, options);
   }
 
   const activeWorkplane = getActiveWorkplaneDocument(state);
@@ -147,6 +155,7 @@ export function createStackViewState(state: StageSystemState): StackViewState {
   return {
     backplates,
     orbitTarget: orbitTarget ?? {x: 0, y: 0, z: 0},
+    projectorStackCamera: state.session.stackCamera,
     scene: {
       labelSetPreset: activeWorkplane.scene.labelSetPreset,
       labels,

@@ -1,6 +1,6 @@
 # DAG Workplane Product, Test, and Screenshot Plan
 
-Research snapshot: 2026-04-08
+Research snapshot: 2026-04-15
 
 ## Progress Snapshot
 
@@ -30,21 +30,67 @@ Research snapshot: 2026-04-08
   - added focused browser flow `scripts/test/dag-view-smoke.ts`
   - green command: `npm run test:browser -- --flow dag-view-smoke`
   - invariant: the browser can now seed the canonical DAG, enter `3d-mode`, render all five DAG workplanes plus six dependencies, and keep the active workplane selectable
-- `Slice 6` in progress:
+- `Slice 6` complete:
   - added `resolveWorkplaneLod()`, `bucketVisibleDagNodes()`, and `createProjectedDagVisibleNodes()` in `src/dag-view.ts`
   - tightened LOD coverage in `scripts/test/unit.ts` and `scripts/test/dag-view-smoke.ts`
   - green commands: `npm run test:dag:static` and `npm run test:browser -- --flow dag-view-smoke`
-  - invariant: projected workplane spans now classify close, mid, far, and universe views, and the canonical DAG smoke can reconstruct a root overview as `graph-point` plus a selected middle-workplane view as `title-only` from exported browser state
+  - invariant: projected workplane spans now classify close, mid, far, and universe views, and the browser dataset contract now exports live `dagFullWorkplaneCount`, `dagLabelPointWorkplaneCount`, `dagTitleOnlyWorkplaneCount`, and `dagGraphPointWorkplaneCount` values while `scripts/test/browser.ts` waits for those fields whenever DAG data is present
+- `Slice 7` complete:
+  - added pure DAG authoring mutations in `src/plane-stack.ts`
+  - added `demoPreset=dag-empty` boot support through `src/stage-config.ts` and `src/stage-session.ts`
+  - added DAG controls in `src/stage-chrome.ts`, `src/stage-panels.ts`, `src/app.ts`, `src/stage-snapshot.ts`, and `scripts/test/browser.ts`
+  - added focused browser flow `scripts/test/dag-control-pad.ts`
+  - green commands: `npm run test:dag:static`, `npm run test:browser -- --flow dag-control-pad`, and `npm run lint`
+  - invariant: one empty root DAG can now boot through the normal route and author a four-workplane graph with visible buttons plus mirrored hotkeys for root focus, child creation, parent insertion, and rank/lane/depth movement
+- `Slice 8` complete:
+  - raised `MAX_WORKPLANE_COUNT` to `12` in `src/plane-stack.ts`
+  - tightened DAG language around `rank slice`, `child fanout`, and `autoplacement` in `README.md` and `PLAN.md`
+  - added focused browser flow `scripts/test/dag-rank-fanout.ts`
+  - added `--keep-open` runner support plus `npm run test:browser:dag-rank-fanout:open` for end-to-end visual inspection
+  - green commands: `npm run test:dag:static`, `npm run test:browser -- --flow dag-rank-fanout`, `npm run test:browser -- --flow dag-control-pad`, and `npm run lint`
+  - invariant: `demoPreset=dag-empty` can now author a full `1-4-4-3` twelve-workplane DAG in one browser tab through visible buttons plus mirrored hotkeys only
+- `Slice 9` complete:
+  - added geometry-driven DAG presentation framing in `src/dag-view.ts`, `src/stack-view.ts`, `src/projector.ts`, and `src/app.ts`
+  - added focused browser flow `scripts/test/dag-zoom-journey.ts`
+  - updated browser DAG smoke flows to the readable `title-only` default 3D entry band
+  - green commands: `npm run test:dag:static`, `npm run test:browser -- --flow dag-zoom-journey`, `npm run test:browser -- --flow dag-view-smoke`, and `npm run lint`
+  - invariant: DAG 3D now uses geometry-driven orbit targeting, graph-distance brightness falloff, and a preloaded DAG text atlas so zoom bands progress cleanly through `graph-point`, `title-only`, `label-points`, `full-workplane`, and back to `2d-mode`
+- `Slice 10` complete:
+  - removed the legacy `workplane-showcase` preset and the obsolete stack/editor browser flows that were no longer part of the DAG-first product path
+  - repointed `npm run test:browser:zero-data` to the twelve-workplane `dag-rank-fanout` authoring proof
+  - added deploy-ready `/codex/` coverage through `scripts/test/codex-page-smoke.ts`, `scripts/test-codex-bridge.ts`, `server/index.ts`, and `build:pages`
+  - green commands: `npm run lint`, `npm run build:pages`, `npm run test:browser:boot`, `npm run test:browser:codex`, `npm run test:browser:dag-rank-fanout`, and `npm run test:codex:bridge`
+  - invariant: the repo now builds and boots around the twelve-workplane DAG as the primary path, and the static `/codex/` route is deployable alongside the main GitHub Pages site
+
+Current limitation to keep explicit:
+
+- the current DAG browser proof is still fixture-seeded with `openRouteWithBootState(...)`
+- the first button-only DAG authoring proof still exists through `demoPreset=dag-empty` and `scripts/test/dag-control-pad.ts`; it remains the small-slice control test
+- the new `scripts/test/dag-rank-fanout.ts` flow proves the larger twelve-workplane `1-4-4-3` build, but it is still a shape-only authoring proof rather than the canonical named network scenario
+- there is not yet a canonical `dag-network-build` browser test covering workplane naming, local content authoring, dependency editing beyond parent-child spawn, style switches, and screenshot capture in one flow
+- GitHub Pages still needs a post-push verification pass on both `/` and `/codex/` whenever the default DAG boot path or codex bridge client changes
+
+## DAG Domain Language
+
+- `workplane node`: one workplane treated as a DAG node in global `3d-mode`
+- `rank`: the left-to-right dependency stage for a workplane node; the UX term for global DAG `column`
+- `lane`: the top-to-bottom slot inside a rank; the UX term for global DAG `row`
+- `depth`: the front-to-back slot inside a rank; the UX term for global DAG `layer`
+- `rank slice`: the shared placement surface for all workplane nodes in one rank
+- `child fanout`: the set of direct child workplanes spread across the next rank slice
+- `autoplacement`: the deterministic rule that assigns the next lane and depth slot for a newly created child inside the downstream rank slice
+- use `rank/lane/depth` in UI copy, tests, and prompts even if internal helpers still use `column/row/layer`
+- avoid `workplane-layer` in UX because `layer` already means a local authored label layer inside one workplane
 
 ## Immediate Next Slice
 
-- `Slice:` 6
-- `Intent:` add screen-space LOD bucketing so the DAG view can collapse from full workplanes toward lighter-weight overview states
-- `Own Files:` `src/dag-view.ts`, `scripts/test/unit.ts`, `scripts/test/dag-view-smoke.ts`, and only add `src/app.ts`, `src/stage-snapshot.ts`, or `scripts/test/browser.ts` when the browser dataset contract needs one more stable exported count
-- `First Focused Command:` `npm run test:dag:static`
-- `Second Focused Command:` `npm run test:browser -- --flow dag-view-smoke`
-- `Datasets:` keep using the canonical five-workplane network DAG fixture already added in `src/data/network-dag.ts`
-- `Artifacts:` none yet; no README screenshot update is required until the LOD states are stable enough to become part of the canonical screenshot sequence
+- `Slice:` 11
+- `Intent:` promote the focused twelve-workplane rank-fanout proof into the canonical named network DAG build flow while keeping GitHub Pages smoke on `/` and `/codex/`
+- `Own Files:` optional new `scripts/test/dag-network-build.ts`, `scripts/test/dag-rank-fanout.ts`, `src/plane-stack.ts`, `src/stage-chrome.ts`, `src/stage-panels.ts`, `src/app.ts`, `src/stage-snapshot.ts`, `scripts/test/browser.ts`, `README.md`, and `PLAN.md`
+- `First Focused Command:` `npm run test:browser -- --flow dag-rank-fanout`
+- `Second Focused Command:` `npm run test:dag:static`
+- `Datasets:` boot through `demoPreset=dag-empty`; do not seed the DAG structure with `openRouteWithBootState(...)`
+- `Artifacts:` none yet; hold screenshot work until the twelve-workplane flow is stable enough to become the canonical product path
 
 Loop alignment rule for this and later slices:
 
@@ -55,31 +101,58 @@ Loop alignment rule for this and later slices:
 - the `/tasks` route should stay readable as the loop source of truth for task status, run history, command checks, and monitor review evidence
 - the `/tasks` route should stay browser-smoke-tested so loop visibility does not drift from the real run artifacts
 
-Slice 6 working notes:
+Slice 6 through 9 working notes:
 
 - pure helpers are now green:
   - `resolveWorkplaneLod(projectedPlaneSpanPx)`
   - `bucketVisibleDagNodes(...)`
-- the focused smoke is now green:
-  - the root `3d-mode` overview reconstructs `5` visible `graph-point` workplanes
-  - selecting `wp-2` reconstructs `5` visible `title-only` workplanes from the same exported browser state
-- keep the next browser assertion narrow:
-  - export active LOD bucket counts directly through `document.body.dataset`
-  - widen from `graph-point` and `title-only` toward `label-points` and `full-workplane` only after the dataset contract is stable
+- the focused seeded smoke is now green:
+  - entering `3d-mode` on the canonical DAG reconstructs `5` visible `title-only` workplanes from exported browser camera state
+  - `scripts/test/browser.ts` now blocks the seeded DAG smoke until `dagFullWorkplaneCount`, `dagLabelPointWorkplaneCount`, `dagTitleOnlyWorkplaneCount`, and `dagGraphPointWorkplaneCount` are present in `document.body.dataset`
+  - the wider `graph-point` band is still reachable through the zoom-journey flow
+- the screenshot-backed zoom proof is now green:
+  - `dag-zoom-journey` captures `graph-point`, `title-only`, `label-points`, `full-workplane`, and final `2d-mode` return screenshots
+  - visible glyph counts, local-link counts, and LOD bucket counts now rise and fall together across those zoom bands
+- the camera and brightness rules are now geometry-driven:
+  - use projected active-plane span to ease the orbit target from graph center toward the active workplane
+  - use graph-distance falloff to dim non-focus nodes and edges as the user zooms inward
+  - use a DAG-specific base camera angle for better screen-space rank/lane/depth separation
+- the text transition is now smooth:
+  - preload the richer DAG atlas before entering dense point-marker and full-workplane text bands
+  - keep `setLayoutLabels(...)` for LOD relayout so the zoom journey does not need to discover new glyphs mid-flight
 - keep live-site tracking visible in the loop:
   - browser-backed loop runs should also record `npm run test:live -- --url https://timcash.github.io/linker/`
   - the monitor should report whether GitHub Pages smoke is green, even when the local slice proof is still incomplete
-- do not start control-pad or canonical screenshot work in the same slice
+- the first zero-data authoring proof is now green:
+  - `demoPreset=dag-empty` boots a real empty-root DAG through the normal route
+  - `dag-control-pad` can create two children, move one node by `rank/lane/depth`, insert a parent, return focus to root, and enter `3d-mode`
+  - browser datasets now export DAG control availability booleans alongside root, counts, positions, and layout fingerprint
+- the focused twelve-workplane authoring proof is now green:
+  - `dag-rank-fanout` builds `1` root, `4` rank-1 children, `4` rank-2 children, and `3` rank-3 children in one tab
+  - the authored shape is driven only through visible buttons plus mirrored hotkeys
+  - the larger layout now exports one stable twelve-workplane `dagLayoutFingerprint`
+  - the same flow can now be run with `--keep-open` to leave Chrome open on the final `3d-mode` overview for manual inspection
 
-Current task ladder for Slice 6:
+Current task ladder for Slice 11:
 
-1. `export-dag-lod-dataset`
-   - export live DAG LOD bucket ids or counts through browser datasets
-   - allow `src/app.ts` when the dataset fields need one more computed count before snapshot export
-2. `assert-exported-root-selected-buckets`
-   - tighten the smoke flow so it reads exported root and selected bucket fields directly
-3. `prove-mid-near-lod-states`
-   - widen coverage from `graph-point` and `title-only` into `label-points` and `full-workplane`
+1. `promote-rank-fanout-to-dag-network-build`
+   - keep the flow in one browser tab
+   - reuse the green twelve-workplane authoring proof as the base route and navigation skeleton
+2. `settle-network-naming-and-local-content`
+   - name the authored workplanes and add the representative local labels needed for the network scenario
+   - keep the UX language and datasets on `rank/lane/depth`, `rank slice`, `child fanout`, and `autoplacement`
+3. `promote-to-canonical-build-flow`
+   - add the remaining dependency-edit, style, LOD, and screenshot coverage only after the authored network path is stable enough to become the source-of-truth product path
+
+Remaining milestones after the focused Slice 10 cleanup and codex-deploy proof:
+
+1. `dag-12-workplane-build`
+   - keep the `1` root, `4`, `4`, `3` twelve-workplane authored shape green while the product language and placement rules settle
+2. `dag-network-build`
+   - promote the larger zero-data authoring flow into the canonical named network source-of-truth browser test
+   - keep it seeded only by the normal `demoPreset=dag-empty` route
+3. `dag-screenshot-sequence`
+   - capture the canonical artifacts only after the twelve-workplane flow and layout language are stable
 
 ## Goal
 
@@ -1101,13 +1174,19 @@ Already available today:
 
 - `npm run lint`
 - `npm run test:dag:static`
+- `npm run test:browser -- --flow dag-control-pad`
+- `npm run test:browser -- --flow dag-rank-fanout`
+- `npm run test:browser:dag-rank-fanout:open`
 - `npm run test:browser -- --flow dag-view-smoke`
 - `npm run test:browser:zero-data`
+- `npm run test:browser:boot`
+- `npm run test:browser:codex`
+- `npm run test:codex:bridge`
+- `npm run build:pages`
 - `npm run test:browser`
 
 Commands that should be added during the DAG migration:
 
-- `npm run test:browser -- --flow dag-control-pad`
 - `npm run test:browser -- --flow dag-network-build`
 
 Recommended command ladder:
@@ -1116,8 +1195,10 @@ Recommended command ladder:
 2. first DAG render slice: `npm run test:browser -- --flow dag-view-smoke`
 3. loop-visibility slice: `npm run test:browser:tasks`
 4. control-pad slice: `npm run test:browser -- --flow dag-control-pad`
-5. canonical DAG flow slice: `npm run test:browser -- --flow dag-network-build`
-6. milestone pass: `npm run test:browser`
+5. twelve-workplane rank-fanout slice: `npm run test:browser -- --flow dag-rank-fanout`
+6. visual inspection path: `npm run test:browser:dag-rank-fanout:open`
+7. canonical DAG flow slice: `npm run test:browser -- --flow dag-network-build`
+8. milestone pass: `npm run test:browser`
 
 The agent should prefer the most focused command possible until a milestone is complete.
 

@@ -5,10 +5,6 @@ import '@fontsource/space-mono/400.css';
 import '@fontsource/space-mono/700.css';
 
 import './style.css';
-import { startApp } from './app';
-import { startAuthPage } from './auth-page';
-import { startReadmePage } from './readme-page';
-import { startTasksPage } from './tasks-page';
 
 const root = document.createElement('div');
 root.id = 'app';
@@ -17,12 +13,14 @@ document.body.append(root);
 const route = resolveRoute(window.location.pathname);
 const app =
   route === 'auth'
-    ? await startAuthPage(root)
+    ? await import('./auth-page').then(({startAuthPage}) => startAuthPage(root))
+    : route === 'codex'
+    ? await import('./codex-page').then(({startCodexPage}) => startCodexPage(root))
     : route === 'tasks'
-    ? await startTasksPage(root)
+    ? await import('./tasks-page').then(({startTasksPage}) => startTasksPage(root))
     : route === 'readme'
-      ? await startReadmePage(root)
-      : await startApp(root);
+      ? await import('./readme-page').then(({startReadmePage}) => startReadmePage(root))
+      : await import('./app').then(({startApp}) => startApp(root));
 
 if (import.meta.hot) {
   import.meta.hot.dispose(() => {
@@ -30,12 +28,16 @@ if (import.meta.hot) {
   });
 }
 
-function resolveRoute(pathname: string): 'app' | 'auth' | 'readme' | 'tasks' {
+function resolveRoute(pathname: string): 'app' | 'auth' | 'codex' | 'readme' | 'tasks' {
   const segments = pathname.split('/').filter((segment) => segment.length > 0);
   const lastSegment = segments[segments.length - 1];
 
   if (lastSegment === 'auth') {
     return 'auth';
+  }
+
+  if (lastSegment === 'codex') {
+    return 'codex';
   }
 
   if (lastSegment === 'tasks') {

@@ -19,7 +19,11 @@ import {DEFAULT_LINE_STRATEGY, LINE_STRATEGIES, type LineStrategy} from './line/
 import {DEFAULT_TEXT_STRATEGY, TEXT_STRATEGIES, type TextStrategy} from './text/types';
 
 export type LabelSetKind = 'demo' | 'benchmark';
-export type DemoPreset = 'classic' | 'editor-lab' | 'workplane-showcase';
+export type DemoPreset =
+  | 'classic'
+  | 'dag-empty'
+  | 'dag-rank-fanout'
+  | 'editor-lab';
 
 export type StageConfig = {
   benchmarkTraceStepCount: number;
@@ -162,13 +166,14 @@ function parseDemoPreset(
 
   if (
     requestedPreset === 'classic' ||
-    requestedPreset === 'editor-lab' ||
-    requestedPreset === 'workplane-showcase'
+    requestedPreset === 'dag-empty' ||
+    requestedPreset === 'dag-rank-fanout' ||
+    requestedPreset === 'editor-lab'
   ) {
     return requestedPreset;
   }
 
-  return hasClassicDemoRouteHints(params) ? 'classic' : 'workplane-showcase';
+  return hasClassicDemoRouteHints(params) ? 'classic' : 'dag-rank-fanout';
 }
 
 function parseLineStrategy(value: string | null): LineStrategy {

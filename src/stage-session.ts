@@ -1,14 +1,16 @@
 import {
   cloneStageSystemState,
   createStageSystemState,
+  createStageSystemStateWithDagRoot,
   replaceWorkplaneView,
   type StageSystemState,
 } from './plane-stack';
-import {createStageScene} from './scene-model';
+import {createEmptyStageScene, createStageScene} from './scene-model';
 import {type StageConfig} from './stage-config';
 import {type StrategyPanelMode} from './stage-panels';
+import {createDefaultDagRankFanoutState} from './data/dag-rank-fanout';
 import {createDefaultEditorLabState} from './data/editor-lab';
-import {createDefaultWorkplaneShowcaseState} from './data/workplane-showcase';
+import {DEMO_LABEL_SET_ID} from './data/demo-meta';
 
 export const DEFAULT_STRATEGY_PANEL_MODE: StrategyPanelMode = 'label-edit';
 
@@ -41,8 +43,19 @@ function createDefaultStageSystemState(config: StageConfig): StageSystemState {
     return createDefaultEditorLabState();
   }
 
-  if (shouldUseDefaultWorkplaneShowcase(config)) {
-    return createDefaultWorkplaneShowcaseState();
+  if (shouldUseDefaultDagRankFanout(config)) {
+    return createDefaultDagRankFanoutState();
+  }
+
+  if (shouldUseEmptyDagPreset(config)) {
+    return createStageSystemStateWithDagRoot(
+      createEmptyStageScene(DEMO_LABEL_SET_ID, 'wp-1'),
+      {
+        activeWorkplaneId: config.requestedWorkplaneId,
+        initialCameraLabel: config.initialCameraLabel,
+        stageMode: config.stageMode,
+      },
+    );
   }
 
   return createStageSystemState(
@@ -60,8 +73,12 @@ function createDefaultStageSystemState(config: StageConfig): StageSystemState {
   );
 }
 
-function shouldUseDefaultWorkplaneShowcase(config: StageConfig): boolean {
-  return !config.benchmarkEnabled && config.labelSetKind === 'demo' && config.demoPreset === 'workplane-showcase';
+function shouldUseDefaultDagRankFanout(config: StageConfig): boolean {
+  return !config.benchmarkEnabled && config.labelSetKind === 'demo' && config.demoPreset === 'dag-rank-fanout';
+}
+
+function shouldUseEmptyDagPreset(config: StageConfig): boolean {
+  return !config.benchmarkEnabled && config.labelSetKind === 'demo' && config.demoPreset === 'dag-empty';
 }
 
 function shouldUseEditorLab(config: StageConfig): boolean {

@@ -35,7 +35,8 @@ const STACK_CAMERA_PADDING = 1.18;
 const STACK_CAMERA_NEAR = 0.1;
 const STACK_CAMERA_FORWARD_FALLBACK: SceneVector3D = {x: 0, y: 0, z: -1};
 const STACK_CAMERA_UP: SceneVector3D = {x: 0, y: 1, z: 0};
-const STACK_CAMERA_SCREEN_PADDING_PX = 96;
+const STACK_CAMERA_SCREEN_PADDING_X_PX = 32;
+const STACK_CAMERA_SCREEN_PADDING_Y_PX = 112;
 
 export type StageWorldPoint = {
   x: number;
@@ -317,8 +318,8 @@ export class StackCameraProjector implements StageProjector {
     }
 
     const tanHalfFovY = Math.tan(STACK_CAMERA_FOV_Y_RADIANS * 0.5);
-    const safeWidth = Math.max(1, viewport.width - STACK_CAMERA_SCREEN_PADDING_PX * 2);
-    const safeHeight = Math.max(1, viewport.height - STACK_CAMERA_SCREEN_PADDING_PX * 2);
+    const safeWidth = Math.max(1, viewport.width - STACK_CAMERA_SCREEN_PADDING_X_PX * 2);
+    const safeHeight = Math.max(1, viewport.height - STACK_CAMERA_SCREEN_PADDING_Y_PX * 2);
     const widthScale = viewport.width / safeWidth;
     const heightScale = viewport.height / safeHeight;
     const requiredHorizontalDepth = horizontalExtent * widthScale / (tanHalfFovY * aspect);

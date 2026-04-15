@@ -4,6 +4,8 @@ dist
 node_modules
 vite.dev.log
 artifacts
+.env.local
+.env.codex.local
 .codex-temp
 .codex-loop/current-slice.json
 .codex-loop/current-slice.md

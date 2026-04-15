@@ -165,6 +165,9 @@ export async function createBrowserTestContext(): Promise<BrowserTestContext> {
 
 export async function destroyBrowserTestContext(
   context: BrowserTestContext,
+  options?: {
+    close?: boolean;
+  },
 ): Promise<void> {
   try {
     await ensureScreenshotUsesStackView(context);
@@ -196,6 +199,10 @@ export async function destroyBrowserTestContext(
     );
   }
 
+  if (options?.close === false) {
+    return;
+  }
+
   await context.browser.close();
   await context.server.close();
 }
@@ -203,6 +210,31 @@ export async function destroyBrowserTestContext(
 async function ensureScreenshotUsesStackView(
   context: BrowserTestContext,
 ): Promise<void> {
+  const shouldKeepCurrentRoute = await context.page.evaluate(() => {
+    return (
+      document.querySelector('.codex-page-shell') instanceof HTMLElement ||
+      document.querySelector('[data-testid="auth-page"]') instanceof HTMLElement ||
+      document.querySelector('[data-testid="readme-preview"]') instanceof HTMLElement ||
+      document.querySelector('[data-testid="tasks-dashboard"]') instanceof HTMLElement
+    );
+  }).catch(() => false);
+
+  if (shouldKeepCurrentRoute) {
+    return;
+  }
+
+  const alreadyReadyInStackView = await context.page.evaluate(() => {
+    return (
+      document.body.dataset.appState === 'ready' &&
+      (document.body.dataset.stageMode ?? '2d-mode') === '3d-mode'
+    );
+  }).catch(() => false);
+
+  if (alreadyReadyInStackView) {
+    await context.page.waitForFunction(() => document.body.dataset.cameraAnimating !== 'true');
+    return;
+  }
+
   const currentUrl = new URL(context.page.url() || context.url);
   currentUrl.searchParams.set('stageMode', '3d-mode');
 

@@ -15,6 +15,12 @@ import {
 } from '../../src/dag-document';
 import {layoutDagNode, resolveDagEdgeCurve} from '../../src/dag-layout';
 import {
+  DAG_RANK_FANOUT_EDGE_COUNT,
+  DAG_RANK_FANOUT_LAYOUT_FINGERPRINT,
+  DAG_RANK_FANOUT_WORKPLANE_ORDER,
+  createDefaultDagRankFanoutState,
+} from '../../src/data/dag-rank-fanout';
+import {
   createDefaultEditorLabState,
 } from '../../src/data/editor-lab';
 import {
@@ -28,7 +34,6 @@ import {
 } from '../../src/data/demo-layout';
 import {getDemoLinks} from '../../src/data/links';
 import {DEMO_LABELS} from '../../src/data/labels';
-import {createDefaultWorkplaneShowcaseState} from '../../src/data/workplane-showcase';
 import {GRID_LAYER_ZOOM_STEP} from '../../src/layer-grid';
 import {
   createLabelNavigationIndex,
@@ -44,15 +49,23 @@ import {
   canDeleteActiveWorkplane,
   canSpawnWorkplane,
   createStageSystemState,
+  createStageSystemStateWithDagRoot,
   deleteActiveWorkplane,
+  focusDagRootWorkplane,
   getActiveWorkplaneDocument,
   getActiveWorkplaneView,
+  getDagControlAvailability,
   getPlaneCount,
+  insertDagParentWorkplane,
+  moveActiveDagWorkplaneByDepth,
+  moveActiveDagWorkplaneByLane,
+  moveActiveDagWorkplaneByRank,
   replaceWorkplaneLabelTextOverride,
   replaceWorkplaneScene,
   replaceWorkplaneView,
   selectNextWorkplane,
   selectPreviousWorkplane,
+  spawnDagChildWorkplane,
   spawnWorkplaneAfterActive,
   type StageSystemState,
   type WorkplaneId,
@@ -371,12 +384,25 @@ function runDagViewTests(): void {
   );
 
   const viewport = {width: 393, height: 852};
+  const defaultRootBuckets = bucketVisibleDagNodes(
+    createProjectedDagVisibleNodes(
+      {
+        ...createCanonicalNetworkDagStageState(),
+        session: {
+          ...createCanonicalNetworkDagStageState().session,
+          stageMode: '3d-mode',
+        },
+      },
+      viewport,
+    ),
+  );
   const zoomedOutBuckets = bucketVisibleDagNodes(
     createProjectedDagVisibleNodes(
       {
         ...createCanonicalNetworkDagStageState(),
         session: {
           ...createCanonicalNetworkDagStageState().session,
+          stackCamera: scaleStackCameraDistance(DEFAULT_STACK_CAMERA_STATE, 3),
           stageMode: '3d-mode',
         },
       },
@@ -398,6 +424,17 @@ function runDagViewTests(): void {
   );
   assert.deepEqual(
     {
+      graphPointWorkplanes: defaultRootBuckets.graphPointWorkplanes.map((layout) => layout.workplaneId),
+      titleOnlyWorkplanes: defaultRootBuckets.titleOnlyWorkplanes.map((layout) => layout.workplaneId),
+    },
+    {
+      graphPointWorkplanes: [],
+      titleOnlyWorkplanes: ['wp-1', 'wp-2', 'wp-3', 'wp-4', 'wp-5'],
+    },
+    'The canonical DAG root entry view should begin in the readable title-only bucket.',
+  );
+  assert.deepEqual(
+    {
       graphPointWorkplanes: zoomedOutBuckets.graphPointWorkplanes.map((layout) => layout.workplaneId),
       titleOnlyWorkplanes: zoomedOutBuckets.titleOnlyWorkplanes.map((layout) => layout.workplaneId),
     },
@@ -405,7 +442,7 @@ function runDagViewTests(): void {
       graphPointWorkplanes: ['wp-1', 'wp-2', 'wp-3', 'wp-4', 'wp-5'],
       titleOnlyWorkplanes: [],
     },
-    'The canonical DAG root overview should keep every visible workplane in the zoomed-out graph-point bucket.',
+    'Zooming the canonical DAG root outward should collapse every visible workplane into the graph-point bucket.',
   );
   assert.deepEqual(
     {
@@ -541,6 +578,7 @@ function runDagFixtureTests(): void {
 
 function runRouteAndSessionTests(): void {
   const defaultConfig = readStageConfig('');
+  assert.equal(defaultConfig.demoPreset, 'dag-rank-fanout', 'Default config should target the authored twelve-workplane DAG preset.');
   assert.equal(defaultConfig.stageMode, '2d-mode', 'Default config should boot in 2d-mode.');
   assert.equal(defaultConfig.requestedStageMode, null, 'Default config should not request a stage-mode override.');
   assert.equal(defaultConfig.requestedWorkplaneId, null, 'Default config should not request a workplane override.');
@@ -559,16 +597,49 @@ function runRouteAndSessionTests(): void {
   assert.equal(invalidConfig.requestedWorkplaneId, null, 'Invalid workplane routes should be ignored.');
   assert.equal(invalidConfig.initialCameraLabel, null, 'Numeric camera params should be ignored after moving to label-only routing.');
 
+  const dagConfig = readStageConfig('?demoPreset=dag-empty&labelSet=demo&stageMode=3d-mode&workplane=wp-1');
+  assert.equal(dagConfig.demoPreset, 'dag-empty', 'Dag-empty routes should preserve the empty DAG preset.');
+  assert.equal(dagConfig.stageMode, '3d-mode', 'Dag-empty routes should preserve the requested stage mode.');
+
+  const dagRankFanoutConfig = readStageConfig('?demoPreset=dag-rank-fanout&labelSet=demo&stageMode=2d-mode&workplane=wp-8');
+  assert.equal(
+    dagRankFanoutConfig.demoPreset,
+    'dag-rank-fanout',
+    'Dag-rank-fanout routes should preserve the twelve-workplane DAG preset.',
+  );
+  assert.equal(
+    dagRankFanoutConfig.requestedWorkplaneId,
+    'wp-8',
+    'Dag-rank-fanout routes should preserve explicit workplane selection.',
+  );
+
+  const dagBootState = hydrateStageBootState(dagConfig, null);
+  assert.equal(
+    dagBootState.initialState.document.dag?.rootWorkplaneId,
+    'wp-1',
+    'Dag-empty routes should boot with a root DAG workplane.',
+  );
+  assert.deepEqual(
+    dagBootState.initialState.document.dag?.positionsById['wp-1'],
+    {column: 0, row: 0, layer: 0},
+    'Dag-empty routes should place the root workplane at rank 0 lane 0 depth 0.',
+  );
+  assert.equal(
+    dagBootState.initialState.document.workplanesById['wp-1']?.scene.labels.length ?? -1,
+    0,
+    'Dag-empty routes should boot with an empty local workplane scene.',
+  );
+
   const missingSessionBootState = hydrateStageBootState(readStageConfig('?session=stk-missing'), null);
   assert.equal(
     getPlaneCount(missingSessionBootState.initialState),
-    5,
-    'Ignored persisted-session routes should still boot the default demo preset instead of restoring a missing session.',
+    DAG_RANK_FANOUT_WORKPLANE_ORDER.length,
+    'Ignored persisted-session routes should still boot the default DAG preset instead of restoring a missing session.',
   );
   assert.equal(
     missingSessionBootState.initialState.session.activeWorkplaneId,
-    'wp-3',
-    'Fresh route boot should start on the default editor-demo workplane.',
+    'wp-1',
+    'Fresh route boot should start on the default DAG root workplane.',
   );
   assert.equal(
     missingSessionBootState.initialState.session.stageMode,
@@ -579,6 +650,18 @@ function runRouteAndSessionTests(): void {
     isStackCameraAtDefault(missingSessionBootState.initialState.session.stackCamera),
     true,
     'Fresh route boot should keep the default stack-camera orbit.',
+  );
+  assert.equal(
+    missingSessionBootState.initialState.document.dag?.edges.length ?? 0,
+    DAG_RANK_FANOUT_EDGE_COUNT,
+    'Fresh route boot should keep the full authored DAG dependency count.',
+  );
+  assert.equal(
+    formatDagLayoutFingerprint(
+      missingSessionBootState.initialState.document.dag?.positionsById ?? {},
+    ),
+    DAG_RANK_FANOUT_LAYOUT_FINGERPRINT,
+    'Fresh route boot should keep the stable authored DAG layout fingerprint.',
   );
 
   const scene = createStageScene({
@@ -762,6 +845,117 @@ function runPlaneStackStateTests(): void {
   assert.equal(getPlaneCount(cappedState), MAX_WORKPLANE_COUNT, 'The plane stack should stop at the hard cap.');
   assert.equal(canSpawnWorkplane(cappedState), false, 'The hard cap should block further spawns.');
   assert.equal(spawnWorkplaneAfterActive(cappedState), cappedState, 'Spawning at the cap should no-op.');
+
+  const dagRootState = createStageSystemStateWithDagRoot(
+    createEmptyStageScene('dag-unit', INITIAL_WORKPLANE_ID),
+    {
+      stageMode: '2d-mode',
+    },
+  );
+  assert.equal(
+    dagRootState.document.dag?.rootWorkplaneId,
+    INITIAL_WORKPLANE_ID,
+    'A single-root DAG stage state should keep wp-1 as the root workplane.',
+  );
+  assert.equal(
+    getDagControlAvailability(dagRootState)?.canFocusRoot,
+    false,
+    'The root workplane should not advertise focus-root while it is already active.',
+  );
+
+  const firstChildState = spawnDagChildWorkplane(dagRootState);
+  assert.equal(firstChildState.session.activeWorkplaneId, 'wp-2', 'Spawning a DAG child should select the new child workplane.');
+  assert.deepEqual(
+    firstChildState.document.dag?.positionsById['wp-2'],
+    {column: 1, row: 0, layer: 0},
+    'The first DAG child should land in the next rank at the first lane.',
+  );
+  assert.equal(
+    firstChildState.document.dag?.edges.length,
+    1,
+    'Spawning a DAG child should create one dependency edge from the active parent.',
+  );
+
+  const secondChildState = spawnDagChildWorkplane(focusDagRootWorkplane(firstChildState));
+  assert.deepEqual(
+    secondChildState.document.dag?.positionsById['wp-3'],
+    {column: 1, row: 1, layer: 0},
+    'A second child from the root should stack into the next available lane of the same rank.',
+  );
+
+  const rankMoveState = moveActiveDagWorkplaneByRank(
+    selectNextWorkplane(focusDagRootWorkplane(secondChildState)),
+    1,
+  );
+  assert.deepEqual(
+    rankMoveState.document.dag?.positionsById['wp-2'],
+    {column: 2, row: 0, layer: 0},
+    'Rank-forward should move the active DAG workplane one rank to the right when topology allows it.',
+  );
+
+  const laneAndDepthMoveState = moveActiveDagWorkplaneByDepth(
+    moveActiveDagWorkplaneByLane(rankMoveState, 1),
+    1,
+  );
+  assert.deepEqual(
+    laneAndDepthMoveState.document.dag?.positionsById['wp-2'],
+    {column: 2, row: 1, layer: 1},
+    'Lane-down and depth-in should move the active DAG workplane within the same rank slice.',
+  );
+  assert.equal(
+    getDagControlAvailability(laneAndDepthMoveState)?.canMoveDepthOut,
+    true,
+    'Depth-out should become available once the active DAG workplane is no longer at depth 0.',
+  );
+  assert.equal(
+    getDagControlAvailability(laneAndDepthMoveState)?.canMoveLaneUp,
+    true,
+    'Lane-up should become available once the active DAG workplane is no longer in the top lane.',
+  );
+
+  const insertedParentState = insertDagParentWorkplane(laneAndDepthMoveState);
+  assert.equal(
+    insertedParentState.session.activeWorkplaneId,
+    'wp-4',
+    'Inserting a DAG parent should select the newly inserted parent workplane.',
+  );
+  assert.deepEqual(
+    insertedParentState.document.dag?.positionsById['wp-4'],
+    {column: 2, row: 1, layer: 1},
+    'Inserted DAG parents should occupy the previous active rank/lane/depth slot.',
+  );
+  assert.deepEqual(
+    insertedParentState.document.dag?.positionsById['wp-2'],
+    {column: 3, row: 1, layer: 1},
+    'Inserting a DAG parent should push the active workplane and its descendants one rank to the right.',
+  );
+  assert.deepEqual(
+    insertedParentState.document.dag?.edges.map((edge) => `${edge.fromWorkplaneId}->${edge.toWorkplaneId}`),
+    ['wp-1->wp-3', 'wp-1->wp-4', 'wp-4->wp-2'],
+    'Inserting a DAG parent should replace the primary incoming edge with a valid two-edge chain.',
+  );
+  assert.equal(
+    validateDagDocument(createDagDocumentFromStageState(insertedParentState)).valid,
+    true,
+    'DAG authoring mutations should preserve the core DAG invariants.',
+  );
+
+  const newRootState = insertDagParentWorkplane(dagRootState);
+  assert.equal(
+    newRootState.document.dag?.rootWorkplaneId,
+    'wp-2',
+    'Inserting a parent on the root should create a new root workplane.',
+  );
+  assert.deepEqual(
+    newRootState.document.dag?.positionsById['wp-1'],
+    {column: 1, row: 0, layer: 0},
+    'Creating a new root should shift the previous root one rank to the right.',
+  );
+  assert.equal(
+    validateDagDocument(createDagDocumentFromStageState(newRootState)).valid,
+    true,
+    'Root-parent insertion should still preserve the DAG invariants.',
+  );
 }
 
 function runCameraAndProjectionTests(): void {
@@ -1272,17 +1466,18 @@ function runDemoPresetGeometryTests(): void {
     labelTargetCount: DEMO_LABEL_COUNT,
     layoutStrategy: 'flow-columns',
   });
+  const defaultDagState = createDefaultDagRankFanoutState();
   const editorLabState = createDefaultEditorLabState();
-  const showcaseState = createDefaultWorkplaneShowcaseState();
 
   assertSceneUsesAlignedGrid(classicScene, 'Classic demo scene');
+  assert.equal(
+    validateDagDocument(createDagDocumentFromStageState(defaultDagState)).valid,
+    true,
+    'The default twelve-workplane DAG preset should remain a valid DAG document.',
+  );
   assertBridgeLinksResolveInStackView(
     editorLabState,
     'Editor lab should resolve authored workplane bridge links in stack view.',
-  );
-  assertBridgeLinksResolveInStackView(
-    showcaseState,
-    'Workplane showcase should resolve authored workplane bridge links in stack view.',
   );
 
   for (const workplaneId of editorLabState.document.workplaneOrder) {
@@ -1292,10 +1487,10 @@ function runDemoPresetGeometryTests(): void {
     );
   }
 
-  for (const workplaneId of showcaseState.document.workplaneOrder) {
+  for (const workplaneId of defaultDagState.document.workplaneOrder) {
     assertSceneUsesAlignedGrid(
-      showcaseState.document.workplanesById[workplaneId].scene,
-      `Workplane showcase ${workplaneId}`,
+      defaultDagState.document.workplanesById[workplaneId].scene,
+      `Default DAG ${workplaneId}`,
     );
   }
 
@@ -1517,6 +1712,20 @@ function countRenderedBridgeLinks(
   return links.filter((link) => link.linkKey.startsWith('bridge:')).length;
 }
 
+function formatDagLayoutFingerprint(
+  positionsById: Record<string, {column: number; layer: number; row: number}>,
+): string {
+  return Object.entries(positionsById)
+    .sort(([leftWorkplaneId], [rightWorkplaneId]) =>
+      leftWorkplaneId.localeCompare(rightWorkplaneId, undefined, {numeric: true}),
+    )
+    .map(
+      ([workplaneId, position]) =>
+        `${workplaneId}:${position.column}:${position.row}:${position.layer}`,
+    )
+    .join('|');
+}
+
 function createCanonicalDemoLayoutEntries(): DemoLayoutEntry[] {
   const entries: DemoLayoutEntry[] = [];
 
@@ -1726,5 +1935,37 @@ function createDagTestDocument(options: {
       ]),
     ) as DagDocumentState['nodesById'],
     rootWorkplaneId: options.rootWorkplaneId,
+  };
+}
+
+function createDagDocumentFromStageState(
+  state: StageSystemState,
+): DagDocumentState {
+  const dag = state.document.dag;
+
+  if (!dag) {
+    throw new Error('Expected a DAG stage state.');
+  }
+
+  return {
+    edges: dag.edges.map((edge) => ({...edge})),
+    nextWorkplaneNumber: state.document.nextWorkplaneNumber,
+    nodesById: Object.fromEntries(
+      Object.keys(dag.positionsById).map((workplaneId) => {
+        const typedWorkplaneId = workplaneId as WorkplaneId;
+        const workplane = state.document.workplanesById[typedWorkplaneId];
+
+        return [
+          typedWorkplaneId,
+          {
+            labelTextOverrides: {...workplane.labelTextOverrides},
+            position: {...dag.positionsById[typedWorkplaneId]},
+            scene: workplane.scene,
+            workplaneId: typedWorkplaneId,
+          },
+        ];
+      }),
+    ) as DagDocumentState['nodesById'],
+    rootWorkplaneId: dag.rootWorkplaneId,
   };
 }

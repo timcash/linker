@@ -361,9 +361,10 @@ export class TextLayer {
     private readonly device: Device,
     labels: LabelDefinition[],
     mode: TextStrategy = DEFAULT_TEXT_STRATEGY,
+    options?: {characterSet?: string[]},
   ) {
     this.mode = mode;
-    const characterSet = getCharacterSetFromLabels(labels);
+    const characterSet = options?.characterSet ?? getCharacterSetFromLabels(labels);
 
     this.resources = createPreparedTextResources(
       device,

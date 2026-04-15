@@ -163,6 +163,38 @@ export function createCanonicalNetworkDagStageState(): StageSystemState {
   };
 }
 
+export function createBridgeLinkedFiveWorkplaneDagState(): StageSystemState {
+  const bridgeLinkedState = createBridgeLinkedFiveWorkplaneState();
+  const dagState = createCanonicalNetworkDagStageState();
+  const workplaneOrder = dagState.document.workplaneOrder;
+
+  return {
+    document: {
+      dag: dagState.document.dag,
+      nextWorkplaneNumber: bridgeLinkedState.document.nextWorkplaneNumber,
+      workplaneBridgeLinks: [],
+      workplaneOrder,
+      workplanesById: Object.fromEntries(
+        workplaneOrder.map((workplaneId) => [
+          workplaneId,
+          bridgeLinkedState.document.workplanesById[workplaneId],
+        ]),
+      ) as StageSystemState['document']['workplanesById'],
+    },
+    session: {
+      activeWorkplaneId: 'wp-1',
+      stackCamera: cloneStackCameraState(DEFAULT_STACK_CAMERA_STATE),
+      stageMode: '2d-mode',
+      workplaneViewsById: Object.fromEntries(
+        workplaneOrder.map((workplaneId) => [
+          workplaneId,
+          bridgeLinkedState.session.workplaneViewsById[workplaneId],
+        ]),
+      ) as StageSystemState['session']['workplaneViewsById'],
+    },
+  };
+}
+
 function createDemoScene(workplaneId: WorkplaneId = INITIAL_WORKPLANE_ID) {
   return createStageScene({
     demoLayerCount: 12,

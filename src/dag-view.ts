@@ -15,10 +15,12 @@ import {
 import {StackCameraProjector} from './projector';
 import type {StageScene} from './scene-model';
 import {
+  getSceneBoundsCenter,
   includeScenePointInBounds,
   type SceneBounds3D,
   type ScenePoint3D,
 } from './scene-space';
+import {DEFAULT_STACK_CAMERA_STATE} from './stack-camera';
 import type {StackBackplate, StackViewState} from './stack-view';
 import type {LabelDefinition, LabelPlaneBasis, RgbaColor} from './text/types';
 
@@ -30,7 +32,25 @@ const ACTIVE_BACKPLATE_FILL: RgbaColor = [0.08, 0.12, 0.18, 0.82];
 const ACTIVE_BACKPLATE_OUTLINE: RgbaColor = [0.66, 0.82, 1, 0.94];
 const INACTIVE_BACKPLATE_FILL: RgbaColor = [0.04, 0.06, 0.09, 0.58];
 const INACTIVE_BACKPLATE_OUTLINE: RgbaColor = [0.19, 0.24, 0.32, 0.72];
-const DAG_EDGE_COLOR: RgbaColor = [0.78, 0.82, 0.9, 0.56];
+const DAG_EDGE_COLOR: RgbaColor = [0.86, 0.9, 1, 0.82];
+const DAG_TITLE_ACTIVE_COLOR: RgbaColor = [0.96, 0.98, 1, 1];
+const DAG_TITLE_INACTIVE_COLOR: RgbaColor = [0.82, 0.88, 0.98, 0.92];
+const DAG_POINT_COLOR: RgbaColor = [0.92, 0.96, 1, 0.96];
+const DAG_TITLE_LABEL_SIZE = 1.12;
+const DAG_GRAPH_POINT_LABEL_SIZE = 0.6;
+const DAG_LABEL_POINT_MARKER_SIZE = 0.38;
+const DAG_ALWAYS_VISIBLE_ZOOM_LEVEL = 0;
+const DAG_ALWAYS_VISIBLE_ZOOM_RANGE = 40;
+const DEFAULT_DAG_VIEWPORT: ViewportSize = {width: 393, height: 852};
+const DAG_FULL_LABEL_SIZE_SCALE = 2.2;
+const DAG_FULL_MIN_LABEL_SIZE = 0.44;
+const DAG_FULL_LINE_WIDTH_SCALE = 1.35;
+const DAG_CAMERA_BASE_AZIMUTH_MIN = -0.96;
+const DAG_CAMERA_BASE_AZIMUTH_MAX = -0.44;
+const DAG_CAMERA_BASE_AZIMUTH_STEP = 0.08;
+const DAG_CAMERA_BASE_ELEVATION_MIN = -0.28;
+const DAG_CAMERA_BASE_ELEVATION_MAX = -0.04;
+const DAG_CAMERA_BASE_ELEVATION_STEP = 0.04;
 
 type ScenePlaneBounds = {
   maxX: number;
@@ -40,9 +60,24 @@ type ScenePlaneBounds = {
 };
 
 type DagProjectedNode = {
+  contentPlaneBounds: DagNodeWorldLayout['planeBounds'];
   layout: DagNodeWorldLayout;
   translation: ScenePoint3D;
   workplane: StageSystemState['document']['workplanesById'][WorkplaneId];
+};
+
+type DagSceneScaffold = {
+  activeOrbitTarget: ScenePoint3D;
+  graphCenter: ScenePoint3D;
+  sceneBounds: SceneBounds3D;
+};
+
+type DagProjectionContext = {
+  focusAlpha: number;
+  orbitTarget: ScenePoint3D;
+  projectedPlaneSpanById: Map<WorkplaneId, number>;
+  scaffold: DagSceneScaffold;
+  stackCamera: StageSystemState['session']['stackCamera'];
 };
 
 export type WorkplaneLod =
@@ -114,6 +149,7 @@ export function bucketVisibleDagNodes(visibleNodes: DagVisibleNode[]): DagLodBuc
 export function createProjectedDagVisibleNodes(
   state: StageSystemState,
   viewport: ViewportSize,
+  options?: {stackCamera?: StageSystemState['session']['stackCamera']},
 ): DagVisibleNode[] {
   const dagDocument = createDagDocumentFromState(state);
 
@@ -121,15 +157,17 @@ export function createProjectedDagVisibleNodes(
     return [];
   }
 
-  const stackViewState = createDagStackViewState(state);
-  const projector = new StackCameraProjector();
-  projector.setSceneBounds(stackViewState.sceneBounds);
-  projector.setOrbitTarget(stackViewState.orbitTarget);
-  projector.setStackCamera(state.session.stackCamera);
+  const projectedNodes = createProjectedDagNodes(state, dagDocument);
+  const projectionContext = createDagProjectionContext(
+    projectedNodes,
+    state.session.activeWorkplaneId,
+    options?.stackCamera ?? state.session.stackCamera,
+    viewport,
+  );
 
-  return createProjectedDagNodes(state, dagDocument).map((node) => ({
+  return projectedNodes.map((node) => ({
     layout: node.layout,
-    projectedPlaneSpanPx: measureProjectedPlaneSpanPx(node.layout, projector, viewport),
+    projectedPlaneSpanPx: projectionContext.projectedPlaneSpanById.get(node.layout.workplaneId) ?? 0,
   }));
 }
 
@@ -161,7 +199,13 @@ export function createDagEdgeCurves(document: DagDocumentState): DagEdgeWorldLay
   });
 }
 
-export function createDagStackViewState(state: StageSystemState): StackViewState {
+export function createDagStackViewState(
+  state: StageSystemState,
+  options?: {
+    stackCamera?: StageSystemState['session']['stackCamera'];
+    viewport?: ViewportSize;
+  },
+): StackViewState {
   const dagDocument = createDagDocumentFromState(state);
   const activeWorkplane = getActiveWorkplaneDocument(state);
 
@@ -169,6 +213,7 @@ export function createDagStackViewState(state: StageSystemState): StackViewState
     return {
       backplates: [],
       orbitTarget: {x: 0, y: 0, z: 0},
+      projectorStackCamera: options?.stackCamera ?? state.session.stackCamera,
       scene: {
         labelSetPreset: activeWorkplane.scene.labelSetPreset,
         labels: [],
@@ -187,64 +232,67 @@ export function createDagStackViewState(state: StageSystemState): StackViewState
   }
 
   const projectedNodes = createProjectedDagNodes(state, dagDocument);
+  const viewport = options?.viewport ?? DEFAULT_DAG_VIEWPORT;
+  const projectionContext = createDagProjectionContext(
+    projectedNodes,
+    state.session.activeWorkplaneId,
+    options?.stackCamera ?? state.session.stackCamera,
+    viewport,
+  );
+  const projectedPlaneSpanById = projectionContext.projectedPlaneSpanById;
   const nodeLayoutsById = new Map(projectedNodes.map((node) => [node.layout.workplaneId, node.layout]));
+  const graphDistanceById = createDagGraphDistanceById(
+    dagDocument,
+    state.session.activeWorkplaneId,
+  );
   const backplates: StackBackplate[] = [];
   const labels: LabelDefinition[] = [];
   const links: LinkDefinition[] = [];
-  let orbitTarget: ScenePoint3D | null = null;
-  let sceneBounds: SceneBounds3D | null = null;
+  let sceneBounds: SceneBounds3D | null = cloneSceneBounds(projectionContext.scaffold.sceneBounds);
 
   for (const node of projectedNodes) {
     const isActive = node.layout.workplaneId === state.session.activeWorkplaneId;
-    const alphaScale = isActive ? 1 : INACTIVE_PLANE_ALPHA_SCALE;
-    const backplateCorners = createBackplateCorners(node.layout.planeBounds);
-
-    backplates.push({
-      corners: backplateCorners,
-      fillColor: isActive ? ACTIVE_BACKPLATE_FILL : INACTIVE_BACKPLATE_FILL,
+    const alphaScale = resolveDagNodeAlphaScale(
       isActive,
-      outlineColor: isActive ? ACTIVE_BACKPLATE_OUTLINE : INACTIVE_BACKPLATE_OUTLINE,
-      workplaneId: node.layout.workplaneId,
-    });
-    sceneBounds = includeCornersInSceneBounds(sceneBounds, backplateCorners);
+      graphDistanceById.get(node.layout.workplaneId) ?? Number.POSITIVE_INFINITY,
+      projectionContext.focusAlpha,
+    );
+    const projectedPlaneSpanPx = projectedPlaneSpanById.get(node.layout.workplaneId) ?? 0;
+    const lod = resolveWorkplaneLod(projectedPlaneSpanPx);
+    const backplateCorners = createBackplateCorners(
+      lod === 'full-workplane' ? node.contentPlaneBounds : node.layout.planeBounds,
+    );
 
-    if (isActive) {
-      orbitTarget = {
-        x: (node.layout.planeBounds.minX + node.layout.planeBounds.maxX) * 0.5,
-        y: (node.layout.planeBounds.minY + node.layout.planeBounds.maxY) * 0.5,
-        z: node.layout.origin.z,
-      };
-    }
-
-    for (const label of node.workplane.scene.labels) {
-      const worldLocation = projectWorkplanePointToScene(label.location, node.translation);
-      const worldLabel: LabelDefinition = {
-        ...label,
-        color: label.color ? scaleColorAlpha(label.color, alphaScale) : undefined,
-        inputLinkKeys: [...label.inputLinkKeys],
-        location: worldLocation,
-        navigation: label.navigation ? {...label.navigation} : undefined,
-        outputLinkKeys: [...label.outputLinkKeys],
-        planeBasisX: {...STACK_PLANE_BASIS_X},
-        planeBasisY: {...STACK_PLANE_BASIS_Y},
-      };
-
-      labels.push(worldLabel);
-      sceneBounds = includeScenePointInBounds(sceneBounds, worldLocation);
-    }
-
-    for (const link of node.workplane.scene.links) {
-      const inputLocation = projectWorkplanePointToScene(link.inputLocation, node.translation);
-      const outputLocation = projectWorkplanePointToScene(link.outputLocation, node.translation);
-
-      links.push({
-        ...link,
-        color: scaleColorAlpha(link.color, alphaScale),
-        inputLocation,
-        outputLocation,
+    if (lod === 'full-workplane' || lod === 'label-points') {
+      backplates.push({
+        corners: backplateCorners,
+        fillColor: isActive ? ACTIVE_BACKPLATE_FILL : INACTIVE_BACKPLATE_FILL,
+        isActive,
+        outlineColor: isActive ? ACTIVE_BACKPLATE_OUTLINE : INACTIVE_BACKPLATE_OUTLINE,
+        workplaneId: node.layout.workplaneId,
       });
-      sceneBounds = includeScenePointInBounds(sceneBounds, inputLocation);
-      sceneBounds = includeScenePointInBounds(sceneBounds, outputLocation);
+    }
+
+    switch (lod) {
+      case 'full-workplane':
+        appendFullWorkplaneNodeScene(
+          node,
+          isActive,
+          alphaScale,
+          labels,
+          links,
+          state.session.workplaneViewsById[node.workplane.workplaneId]?.selectedLabelKey ?? null,
+        );
+        break;
+      case 'label-points':
+        appendLabelPointNodeScene(node, isActive, alphaScale, labels);
+        break;
+      case 'title-only':
+        appendTitleOnlyNodeScene(node, isActive, alphaScale, labels);
+        break;
+      case 'graph-point':
+        appendGraphPointNodeScene(node, alphaScale, labels);
+        break;
     }
   }
 
@@ -255,29 +303,306 @@ export function createDagStackViewState(state: StageSystemState): StackViewState
       continue;
     }
 
-    links.push(createDagEdgeLinkDefinition(resolvedEdge));
+    links.push(
+      createDagEdgeLinkDefinition(
+        resolvedEdge,
+        resolveDagEdgeAlphaScale(
+          graphDistanceById.get(resolvedEdge.fromWorkplaneId) ?? Number.POSITIVE_INFINITY,
+          graphDistanceById.get(resolvedEdge.toWorkplaneId) ?? Number.POSITIVE_INFINITY,
+          projectionContext.focusAlpha,
+        ),
+      ),
+    );
     sceneBounds = includeScenePointInBounds(sceneBounds, resolvedEdge.input);
     sceneBounds = includeScenePointInBounds(sceneBounds, resolvedEdge.output);
   }
 
   return {
     backplates,
-    orbitTarget: orbitTarget ?? {x: 0, y: 0, z: 0},
+    orbitTarget: projectionContext.orbitTarget,
+    projectorStackCamera: projectionContext.stackCamera,
     scene: {
       labelSetPreset: activeWorkplane.scene.labelSetPreset,
       labels,
       links,
       workplaneId: activeWorkplane.scene.workplaneId,
     },
-    sceneBounds:
-      sceneBounds ?? {
-        maxX: 1,
-        maxY: 1,
-        maxZ: 1,
-        minX: -1,
-        minY: -1,
-        minZ: -1,
-      },
+    sceneBounds: sceneBounds ?? cloneSceneBounds(projectionContext.scaffold.sceneBounds),
+  };
+}
+
+function appendFullWorkplaneNodeScene(
+  node: DagProjectedNode,
+  isActive: boolean,
+  alphaScale: number,
+  labels: LabelDefinition[],
+  links: LinkDefinition[],
+  focusedLabelKey: string | null,
+): void {
+  labels.push(createWorkplaneTitleLabel(node, isActive, alphaScale));
+
+  for (const label of node.workplane.scene.labels) {
+    labels.push(createWorldLabel(label, node.translation, alphaScale));
+  }
+
+  for (const link of node.workplane.scene.links) {
+    links.push(createWorldLink(link, node.translation, alphaScale));
+  }
+
+  const focusedLabel = focusedLabelKey
+    ? node.workplane.scene.labels.find((label) => label.navigation?.key === focusedLabelKey) ?? null
+    : null;
+
+  if (focusedLabel) {
+    labels.push(createFocusedWorkplaneSummaryLabel(focusedLabel, node.translation, alphaScale));
+  }
+}
+
+function appendLabelPointNodeScene(
+  node: DagProjectedNode,
+  isActive: boolean,
+  alphaScale: number,
+  labels: LabelDefinition[],
+): void {
+  labels.push(createWorkplaneTitleLabel(node, isActive, alphaScale));
+
+  for (const label of node.workplane.scene.labels) {
+    labels.push(createWorkplanePointMarkerLabel(label, node.translation, alphaScale));
+  }
+}
+
+function appendTitleOnlyNodeScene(
+  node: DagProjectedNode,
+  isActive: boolean,
+  alphaScale: number,
+  labels: LabelDefinition[],
+): void {
+  labels.push(createWorkplaneTitleLabel(node, isActive, alphaScale));
+}
+
+function appendGraphPointNodeScene(
+  node: DagProjectedNode,
+  alphaScale: number,
+  labels: LabelDefinition[],
+): void {
+  labels.push(createWorkplaneGraphPointLabel(node, alphaScale));
+}
+
+function createWorldLabel(
+  label: LabelDefinition,
+  translation: ScenePoint3D,
+  alphaScale: number,
+): LabelDefinition {
+  return {
+    ...label,
+    color: label.color ? scaleColorAlpha(label.color, alphaScale) : undefined,
+    inputLinkKeys: [...label.inputLinkKeys],
+    location: projectWorkplanePointToScene(label.location, translation),
+    navigation: label.navigation ? {...label.navigation} : undefined,
+    outputLinkKeys: [...label.outputLinkKeys],
+    planeBasisX: {...STACK_PLANE_BASIS_X},
+    planeBasisY: {...STACK_PLANE_BASIS_Y},
+    size: Math.max(DAG_FULL_MIN_LABEL_SIZE, label.size * DAG_FULL_LABEL_SIZE_SCALE),
+    zoomLevel: DAG_ALWAYS_VISIBLE_ZOOM_LEVEL,
+    zoomRange: DAG_ALWAYS_VISIBLE_ZOOM_RANGE,
+  };
+}
+
+function createWorldLink(
+  link: LinkDefinition,
+  translation: ScenePoint3D,
+  alphaScale: number,
+): LinkDefinition {
+  return {
+    ...link,
+    color: scaleColorAlpha(link.color, alphaScale),
+    inputLocation: projectWorkplanePointToScene(link.inputLocation, translation),
+    lineWidth: link.lineWidth * DAG_FULL_LINE_WIDTH_SCALE,
+    outputLocation: projectWorkplanePointToScene(link.outputLocation, translation),
+    zoomLevel: DAG_ALWAYS_VISIBLE_ZOOM_LEVEL,
+    zoomRange: DAG_ALWAYS_VISIBLE_ZOOM_RANGE,
+  };
+}
+
+function createWorkplaneTitleLabel(
+  node: DagProjectedNode,
+  isActive: boolean,
+  alphaScale: number,
+): LabelDefinition {
+  return {
+    color: scaleColorAlpha(
+      isActive ? DAG_TITLE_ACTIVE_COLOR : DAG_TITLE_INACTIVE_COLOR,
+      alphaScale,
+    ),
+    inputLinkKeys: [],
+    location: {...node.layout.titleAnchor},
+    outputLinkKeys: [],
+    planeBasisX: {...STACK_PLANE_BASIS_X},
+    planeBasisY: {...STACK_PLANE_BASIS_Y},
+    size: DAG_TITLE_LABEL_SIZE,
+    text: node.workplane.workplaneId,
+    zoomLevel: DAG_ALWAYS_VISIBLE_ZOOM_LEVEL,
+    zoomRange: DAG_ALWAYS_VISIBLE_ZOOM_RANGE,
+  };
+}
+
+function createWorkplaneGraphPointLabel(
+  node: DagProjectedNode,
+  alphaScale: number,
+): LabelDefinition {
+  return {
+    color: scaleColorAlpha(DAG_POINT_COLOR, alphaScale),
+    inputLinkKeys: [],
+    location: {...node.layout.origin},
+    outputLinkKeys: [],
+    planeBasisX: {...STACK_PLANE_BASIS_X},
+    planeBasisY: {...STACK_PLANE_BASIS_Y},
+    size: DAG_GRAPH_POINT_LABEL_SIZE,
+    text: node.workplane.workplaneId.slice(3),
+    zoomLevel: DAG_ALWAYS_VISIBLE_ZOOM_LEVEL,
+    zoomRange: DAG_ALWAYS_VISIBLE_ZOOM_RANGE,
+  };
+}
+
+function createWorkplanePointMarkerLabel(
+  label: LabelDefinition,
+  translation: ScenePoint3D,
+  alphaScale: number,
+): LabelDefinition {
+  const worldLocation = projectWorkplanePointToScene(label.location, translation);
+
+  return {
+    color: scaleColorAlpha(label.color ?? DAG_POINT_COLOR, alphaScale),
+    inputLinkKeys: [],
+    location: worldLocation,
+    outputLinkKeys: [],
+    planeBasisX: {...STACK_PLANE_BASIS_X},
+    planeBasisY: {...STACK_PLANE_BASIS_Y},
+    size: DAG_LABEL_POINT_MARKER_SIZE,
+    text: '+',
+    zoomLevel: DAG_ALWAYS_VISIBLE_ZOOM_LEVEL,
+    zoomRange: DAG_ALWAYS_VISIBLE_ZOOM_RANGE,
+  };
+}
+
+function createFocusedWorkplaneSummaryLabel(
+  label: LabelDefinition,
+  translation: ScenePoint3D,
+  alphaScale: number,
+): LabelDefinition {
+  return {
+    color: scaleColorAlpha(label.color ?? DAG_TITLE_ACTIVE_COLOR, alphaScale),
+    inputLinkKeys: [],
+    location: {
+      x: label.location.x + translation.x,
+      y: label.location.y + translation.y + 2.2,
+      z: (label.location.z ?? 0) + translation.z,
+    },
+    outputLinkKeys: [],
+    planeBasisX: {...STACK_PLANE_BASIS_X},
+    planeBasisY: {...STACK_PLANE_BASIS_Y},
+    size: Math.max(0.78, label.size * 3.2),
+    text: label.text,
+    zoomLevel: DAG_ALWAYS_VISIBLE_ZOOM_LEVEL,
+    zoomRange: DAG_ALWAYS_VISIBLE_ZOOM_RANGE,
+  };
+}
+
+function createDagProjectionContext(
+  projectedNodes: DagProjectedNode[],
+  activeWorkplaneId: WorkplaneId,
+  stackCamera: StageSystemState['session']['stackCamera'],
+  viewport: ViewportSize,
+): DagProjectionContext {
+  const scaffold = createDagSceneScaffold(projectedNodes, activeWorkplaneId);
+  const effectiveStackCamera = resolveDagEffectiveStackCamera(
+    projectedNodes,
+    scaffold,
+    stackCamera,
+    viewport,
+  );
+  const referenceProjector = new StackCameraProjector();
+  referenceProjector.setSceneBounds(scaffold.sceneBounds);
+  referenceProjector.setOrbitTarget(scaffold.graphCenter);
+  referenceProjector.setStackCamera(effectiveStackCamera);
+
+  const activeNode =
+    projectedNodes.find((node) => node.layout.workplaneId === activeWorkplaneId) ?? null;
+  const activeProjectedPlaneSpanPx = activeNode
+    ? measureProjectedPlaneSpanPx(activeNode.layout, referenceProjector, viewport)
+    : 0;
+  const focusAlpha = smoothstep(
+    inverseLerp(20, 180, activeProjectedPlaneSpanPx),
+  );
+  const orbitTarget = lerpScenePoint(
+    scaffold.graphCenter,
+    scaffold.activeOrbitTarget,
+    focusAlpha,
+  );
+  const projector = new StackCameraProjector();
+  projector.setSceneBounds(scaffold.sceneBounds);
+  projector.setOrbitTarget(orbitTarget);
+  projector.setStackCamera(effectiveStackCamera);
+
+  return {
+    focusAlpha,
+    orbitTarget,
+    projectedPlaneSpanById: new Map(
+      projectedNodes.map((node) => [
+        node.layout.workplaneId,
+        measureProjectedPlaneSpanPx(node.layout, projector, viewport),
+      ]),
+    ),
+    scaffold,
+    stackCamera: effectiveStackCamera,
+  };
+}
+
+function createDagSceneScaffold(
+  projectedNodes: DagProjectedNode[],
+  activeWorkplaneId: WorkplaneId,
+): DagSceneScaffold {
+  let activeOrbitTarget: ScenePoint3D | null = null;
+  let sceneBounds: SceneBounds3D | null = null;
+
+  for (const node of projectedNodes) {
+    const backplateCorners = createBackplateCorners(node.layout.planeBounds);
+    sceneBounds = includeCornersInSceneBounds(sceneBounds, backplateCorners);
+
+    if (node.layout.workplaneId === activeWorkplaneId) {
+      activeOrbitTarget = {
+        x: (node.layout.planeBounds.minX + node.layout.planeBounds.maxX) * 0.5,
+        y: (node.layout.planeBounds.minY + node.layout.planeBounds.maxY) * 0.5,
+        z: node.layout.origin.z,
+      };
+    }
+  }
+
+  const normalizedSceneBounds =
+    sceneBounds ?? {
+      maxX: 1,
+      maxY: 1,
+      maxZ: 1,
+      minX: -1,
+      minY: -1,
+      minZ: -1,
+    };
+
+  return {
+    activeOrbitTarget: activeOrbitTarget ?? getSceneBoundsCenter(normalizedSceneBounds),
+    graphCenter: getSceneBoundsCenter(normalizedSceneBounds),
+    sceneBounds: normalizedSceneBounds,
+  };
+}
+
+function cloneSceneBounds(sceneBounds: SceneBounds3D): SceneBounds3D {
+  return {
+    maxX: sceneBounds.maxX,
+    maxY: sceneBounds.maxY,
+    maxZ: sceneBounds.maxZ,
+    minX: sceneBounds.minX,
+    minY: sceneBounds.minY,
+    minZ: sceneBounds.minZ,
   };
 }
 
@@ -354,13 +679,13 @@ function createProjectedDagNodes(
       {
         layout: {
           ...baseLayout,
-          planeBounds: {
-            maxX: baseLayout.origin.x + localHalfWidth,
-            maxY: baseLayout.origin.y + localHalfHeight,
-            minX: baseLayout.origin.x - localHalfWidth,
-            minY: baseLayout.origin.y - localHalfHeight,
-            z: baseLayout.origin.z,
-          },
+        },
+        contentPlaneBounds: {
+          maxX: baseLayout.origin.x + localHalfWidth,
+          maxY: baseLayout.origin.y + localHalfHeight,
+          minX: baseLayout.origin.x - localHalfWidth,
+          minY: baseLayout.origin.y - localHalfHeight,
+          z: baseLayout.origin.z,
         },
         translation,
         workplane,
@@ -369,10 +694,13 @@ function createProjectedDagNodes(
   });
 }
 
-function createDagEdgeLinkDefinition(edge: DagEdgeWorldLayout): LinkDefinition {
+function createDagEdgeLinkDefinition(
+  edge: DagEdgeWorldLayout,
+  alphaScale: number,
+): LinkDefinition {
   return {
     bendDirection: 1,
-    color: [...DAG_EDGE_COLOR],
+    color: scaleColorAlpha(DAG_EDGE_COLOR, alphaScale),
     curveBias: 0.24,
     curveDepth: 0.16,
     curveLift: 0.1,
@@ -493,6 +821,229 @@ function includeCornersInSceneBounds(
     minY: -1,
     minZ: -1,
   };
+}
+
+function resolveDagEffectiveStackCamera(
+  projectedNodes: DagProjectedNode[],
+  scaffold: DagSceneScaffold,
+  stackCamera: StageSystemState['session']['stackCamera'],
+  viewport: ViewportSize,
+): StageSystemState['session']['stackCamera'] {
+  const baseOrientation = resolveDagBaseCameraOrientation(
+    projectedNodes,
+    scaffold,
+    viewport,
+  );
+  const azimuthDelta =
+    stackCamera.azimuthRadians - DEFAULT_STACK_CAMERA_STATE.azimuthRadians;
+  const elevationDelta =
+    stackCamera.elevationRadians - DEFAULT_STACK_CAMERA_STATE.elevationRadians;
+
+  return {
+    azimuthRadians: baseOrientation.azimuthRadians + azimuthDelta,
+    distanceScale: stackCamera.distanceScale,
+    elevationRadians: baseOrientation.elevationRadians + elevationDelta,
+  };
+}
+
+function resolveDagBaseCameraOrientation(
+  projectedNodes: DagProjectedNode[],
+  scaffold: DagSceneScaffold,
+  viewport: ViewportSize,
+): Pick<StageSystemState['session']['stackCamera'], 'azimuthRadians' | 'elevationRadians'> {
+  const projector = new StackCameraProjector();
+  projector.setSceneBounds(scaffold.sceneBounds);
+  projector.setOrbitTarget(scaffold.graphCenter);
+
+  let bestCandidate: {
+    azimuthRadians: number;
+    elevationRadians: number;
+    score: number;
+  } | null = null;
+
+  for (
+    let azimuthRadians = DAG_CAMERA_BASE_AZIMUTH_MIN;
+    azimuthRadians <= DAG_CAMERA_BASE_AZIMUTH_MAX + 0.0001;
+    azimuthRadians += DAG_CAMERA_BASE_AZIMUTH_STEP
+  ) {
+    for (
+      let elevationRadians = DAG_CAMERA_BASE_ELEVATION_MIN;
+      elevationRadians <= DAG_CAMERA_BASE_ELEVATION_MAX + 0.0001;
+      elevationRadians += DAG_CAMERA_BASE_ELEVATION_STEP
+    ) {
+      projector.setStackCamera({
+        azimuthRadians,
+        distanceScale: DEFAULT_STACK_CAMERA_STATE.distanceScale,
+        elevationRadians,
+      });
+
+      const nodeScreenPoints = projectedNodes
+        .map((node) => ({
+          screenPoint: projector.projectWorldPoint(node.layout.origin, viewport),
+          x: node.layout.origin.x,
+          y: node.layout.origin.y,
+          z: node.layout.origin.z,
+        }))
+        .sort((left, right) => left.x - right.x || right.y - left.y || right.z - left.z);
+
+      let minDistance = Number.POSITIVE_INFINITY;
+      let minDepthSeparation = Number.POSITIVE_INFINITY;
+      let maxX = Number.NEGATIVE_INFINITY;
+      let maxY = Number.NEGATIVE_INFINITY;
+      let minX = Number.POSITIVE_INFINITY;
+      let minY = Number.POSITIVE_INFINITY;
+      let orderPenalty = 0;
+
+      for (let index = 0; index < nodeScreenPoints.length; index += 1) {
+        const node = nodeScreenPoints[index];
+        minX = Math.min(minX, node.screenPoint.x);
+        maxX = Math.max(maxX, node.screenPoint.x);
+        minY = Math.min(minY, node.screenPoint.y);
+        maxY = Math.max(maxY, node.screenPoint.y);
+
+        if (index > 0 && node.screenPoint.x <= nodeScreenPoints[index - 1].screenPoint.x) {
+          orderPenalty += 120;
+        }
+
+        for (let compareIndex = index + 1; compareIndex < nodeScreenPoints.length; compareIndex += 1) {
+          const compareNode = nodeScreenPoints[compareIndex];
+          const deltaX = node.screenPoint.x - compareNode.screenPoint.x;
+          const deltaY = node.screenPoint.y - compareNode.screenPoint.y;
+          const distance = Math.hypot(deltaX, deltaY);
+
+          minDistance = Math.min(minDistance, distance);
+          if (node.z !== compareNode.z) {
+            minDepthSeparation = Math.min(minDepthSeparation, distance);
+          }
+        }
+      }
+
+      const width = maxX - minX;
+      const height = maxY - minY;
+      const score =
+        minDistance +
+        width * 0.18 +
+        height * 0.12 +
+        (Number.isFinite(minDepthSeparation) ? minDepthSeparation * 0.35 : 0) -
+        orderPenalty;
+
+      if (!bestCandidate || score > bestCandidate.score) {
+        bestCandidate = {
+          azimuthRadians,
+          elevationRadians,
+          score,
+        };
+      }
+    }
+  }
+
+  return bestCandidate ?? {
+    azimuthRadians: DEFAULT_STACK_CAMERA_STATE.azimuthRadians,
+    elevationRadians: DEFAULT_STACK_CAMERA_STATE.elevationRadians,
+  };
+}
+
+function createDagGraphDistanceById(
+  dagDocument: DagDocumentState,
+  activeWorkplaneId: WorkplaneId,
+): Map<WorkplaneId, number> {
+  const adjacencyById = new Map<WorkplaneId, Set<WorkplaneId>>();
+
+  for (const workplaneId of Object.keys(dagDocument.nodesById) as WorkplaneId[]) {
+    adjacencyById.set(workplaneId, new Set());
+  }
+
+  for (const edge of dagDocument.edges) {
+    adjacencyById.get(edge.fromWorkplaneId)?.add(edge.toWorkplaneId);
+    adjacencyById.get(edge.toWorkplaneId)?.add(edge.fromWorkplaneId);
+  }
+
+  const distanceById = new Map<WorkplaneId, number>([[activeWorkplaneId, 0]]);
+  const queue: WorkplaneId[] = [activeWorkplaneId];
+
+  for (let index = 0; index < queue.length; index += 1) {
+    const workplaneId = queue[index];
+    const nextDistance = (distanceById.get(workplaneId) ?? 0) + 1;
+
+    for (const neighborId of adjacencyById.get(workplaneId) ?? []) {
+      if (distanceById.has(neighborId)) {
+        continue;
+      }
+
+      distanceById.set(neighborId, nextDistance);
+      queue.push(neighborId);
+    }
+  }
+
+  return distanceById;
+}
+
+function resolveDagNodeAlphaScale(
+  isActive: boolean,
+  graphDistance: number,
+  focusAlpha: number,
+): number {
+  if (isActive) {
+    return 1;
+  }
+
+  const safeDistance = Number.isFinite(graphDistance) ? graphDistance : 4;
+  const distanceAlphaBoost =
+    safeDistance <= 1 ? 0.08 : safeDistance === 2 ? 0.02 : 0;
+  const baseAlpha = INACTIVE_PLANE_ALPHA_SCALE - Math.min(0.1, (safeDistance - 1) * 0.06);
+
+  return clamp(
+    baseAlpha + distanceAlphaBoost - focusAlpha * Math.min(0.34, 0.12 + safeDistance * 0.08),
+    0.24,
+    INACTIVE_PLANE_ALPHA_SCALE,
+  );
+}
+
+function resolveDagEdgeAlphaScale(
+  fromDistance: number,
+  toDistance: number,
+  focusAlpha: number,
+): number {
+  const safeDistance = Math.min(
+    Number.isFinite(fromDistance) ? fromDistance : 4,
+    Number.isFinite(toDistance) ? toDistance : 4,
+  );
+  const baseAlpha = safeDistance <= 1 ? 1 : safeDistance === 2 ? 0.82 : 0.68;
+
+  return clamp(baseAlpha - focusAlpha * (safeDistance <= 1 ? 0.1 : 0.22), 0.3, 1);
+}
+
+function lerpScenePoint(
+  start: ScenePoint3D,
+  end: ScenePoint3D,
+  alpha: number,
+): ScenePoint3D {
+  return {
+    x: lerp(start.x, end.x, alpha),
+    y: lerp(start.y, end.y, alpha),
+    z: lerp(start.z, end.z, alpha),
+  };
+}
+
+function inverseLerp(start: number, end: number, value: number): number {
+  if (Math.abs(end - start) <= 0.0001) {
+    return 0;
+  }
+
+  return clamp((value - start) / (end - start), 0, 1);
+}
+
+function smoothstep(value: number): number {
+  const clampedValue = clamp(value, 0, 1);
+  return clampedValue * clampedValue * (3 - 2 * clampedValue);
+}
+
+function clamp(value: number, min: number, max: number): number {
+  return Math.min(max, Math.max(min, value));
+}
+
+function lerp(start: number, end: number, alpha: number): number {
+  return start + (end - start) * alpha;
 }
 
 function scaleColorAlpha(
