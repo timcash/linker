@@ -101,7 +101,7 @@ npm run codex:daemon:status
 npm run codex:tunnel
 ```
 
-## 3. Command Line Interface
+## 3. CLI Workflow
 
 ```bash
 npm install --legacy-peer-deps
