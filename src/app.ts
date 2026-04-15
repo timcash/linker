@@ -61,6 +61,7 @@ import {
   spawnWorkplaneAfterActive,
   type StageSystemState,
   type WorkplaneCameraView,
+  type WorkplaneId,
 } from './plane-stack';
 import {
   createDemoStageScene,
@@ -76,6 +77,7 @@ import {
 import {StackBackplateLayer} from './stack-backplate';
 import {
   readStageConfig,
+  STAGE_ONBOARDING_COMPLETION_STORAGE_KEY,
   syncStageRouteQueryParams,
   type StageConfig,
 } from './stage-config';
@@ -116,6 +118,7 @@ import {
 import {
   createStageSnapshot,
   type DagSnapshotState,
+  type OnboardingSnapshotState,
   writeStageSnapshot,
 } from './stage-snapshot';
 import {
@@ -263,9 +266,25 @@ type BootPhase =
   | 'unsupported'
   | 'error';
 
+type OnboardingPhase = 'complete' | 'dismissed' | 'inactive' | 'running';
+type OnboardingStepState = {
+  body: string;
+  detail: string;
+  stepCount: number;
+  stepId: string;
+  stepIndex: number;
+  targetSelectors: string[];
+  title: string;
+};
+
 export type AppHandle = {
   destroy: () => void;
 };
+
+const ONBOARDING_CLICK_SETTLE_MS = 220;
+const ONBOARDING_FRAME_SETTLE_MS = 420;
+const ONBOARDING_TYPING_DELAY_MS = 72;
+const ONBOARDING_TYPING_SETTLE_MS = 180;
 
 export async function startApp(root: HTMLElement): Promise<AppHandle> {
   const stageChrome = createStageChrome(root);
@@ -321,6 +340,7 @@ class LumaStageController {
   private readonly lineStrategyButtons: HTMLButtonElement[] = [];
   private readonly controlPadToggleButtons: HTMLButtonElement[] = [];
   private readonly dagActionButtons: HTMLButtonElement[] = [];
+  private readonly onboardingActionButtons: HTMLButtonElement[] = [];
   private readonly stageModeActionButtons: HTMLButtonElement[] = [];
   private readonly textStrategyButtons: HTMLButtonElement[] = [];
   private readonly workplaneActionButtons: HTMLButtonElement[] = [];
@@ -332,6 +352,17 @@ class LumaStageController {
   private layoutStrategy: LayoutStrategy;
   private lastFrameAt = 0;
   private lineStrategy: LineStrategy;
+  private onboardingPhase: OnboardingPhase;
+  private onboardingRunId = 0;
+  private onboardingStepState: OnboardingStepState = {
+    body: '',
+    detail: '',
+    stepCount: 0,
+    stepId: '',
+    stepIndex: 0,
+    targetSelectors: [],
+    title: 'Linker walkthrough',
+  };
   private strategyPanelMode: StrategyPanelMode;
   private textLayerCharacterSet = new Set<string>();
   private textStrategy: TextStrategy;
@@ -359,6 +390,7 @@ class LumaStageController {
     this.stackProjector.setStackCamera(this.stackCameraAnimator.getSnapshot());
     this.layoutStrategy = config.layoutStrategy;
     this.lineStrategy = config.lineStrategy;
+    this.onboardingPhase = config.onboardingEnabled ? 'running' : 'inactive';
     this.strategyPanelMode =
       strategyPanelMode === 'label-edit' ? strategyPanelMode : DEFAULT_STRATEGY_PANEL_MODE;
     this.textStrategy = config.textStrategy;
@@ -461,6 +493,7 @@ class LumaStageController {
       this.syncEditorPanel();
       this.syncLabelInputPanel({forceValue: true});
       this.syncHistorySnapshot();
+      this.syncOnboardingPanel();
       this.chrome.launchBanner.hidden = true;
       this.chrome.canvas.hidden = false;
       this.syncCanvasDrawingBufferSize();
@@ -480,6 +513,10 @@ class LumaStageController {
 
       if (this.config.benchmarkEnabled) {
         void this.runBenchmark();
+      }
+
+      if (this.config.onboardingEnabled) {
+        void this.startOnboardingWalkthrough();
       }
     } catch (error) {
       if (isWebGPUUnavailableError(error)) {
@@ -1791,6 +1828,28 @@ class LumaStageController {
     this.updateCameraPanel();
   };
 
+  private handleOnboardingActionButtonClick = (event: MouseEvent): void => {
+    const button = event.currentTarget;
+
+    if (!(button instanceof HTMLButtonElement)) {
+      return;
+    }
+
+    switch (button.dataset.onboardAction) {
+      case 'dismiss':
+        this.dismissOnboardingPanel();
+        return;
+      case 'replay':
+        this.replayOnboardingWalkthrough();
+        return;
+      case 'skip':
+        this.skipOnboardingWalkthrough();
+        return;
+      default:
+        return;
+    }
+  };
+
   private handleLabelInputFormSubmit = (event: SubmitEvent): void => {
     event.preventDefault();
 
@@ -1987,6 +2046,623 @@ class LumaStageController {
     }
   }
 
+  private syncOnboardingPanel(): void {
+    const showPanel =
+      this.onboardingPhase === 'running' ||
+      this.onboardingPhase === 'complete';
+
+    this.chrome.statusPanel.dataset.panelMode = showPanel ? 'onboarding' : 'status';
+    this.chrome.onboardPanel.hidden = !showPanel;
+    this.chrome.stats.hidden = showPanel;
+
+    if (!showPanel) {
+      this.clearOnboardingHighlights();
+      return;
+    }
+
+    const stepIndex =
+      this.onboardingStepState.stepCount <= 0
+        ? 0
+        : Math.max(1, this.onboardingStepState.stepIndex);
+
+    this.chrome.onboardProgress.textContent =
+      this.onboardingStepState.stepCount <= 0
+        ? 'Intro ready'
+        : `Step ${stepIndex} of ${this.onboardingStepState.stepCount}`;
+    this.chrome.onboardTitle.textContent = this.onboardingStepState.title;
+    this.chrome.onboardBody.textContent = this.onboardingStepState.body;
+    this.chrome.onboardDetail.textContent = this.onboardingStepState.detail;
+
+    const isRunning = this.onboardingPhase === 'running';
+
+    this.chrome.onboardSkipButton.hidden = !isRunning;
+    this.chrome.onboardSkipButton.disabled = !isRunning;
+    this.chrome.onboardReplayButton.hidden = isRunning;
+    this.chrome.onboardReplayButton.disabled = isRunning;
+    this.chrome.onboardDismissButton.hidden = this.onboardingPhase !== 'complete';
+    this.chrome.onboardDismissButton.disabled = this.onboardingPhase !== 'complete';
+  }
+
+  private setOnboardingStepState(input: OnboardingStepState): void {
+    this.onboardingStepState = {
+      ...input,
+      targetSelectors: [...input.targetSelectors],
+    };
+    this.applyOnboardingHighlights(input.targetSelectors);
+    this.syncOnboardingPanel();
+  }
+
+  private applyOnboardingHighlights(selectors: string[]): void {
+    this.clearOnboardingHighlights();
+
+    for (const selector of selectors) {
+      const element = document.querySelector<HTMLElement>(selector);
+
+      if (element) {
+        element.dataset.onboardHighlight = 'true';
+      }
+    }
+  }
+
+  private clearOnboardingHighlights(): void {
+    for (const element of document.querySelectorAll<HTMLElement>(
+      '[data-onboard-highlight="true"], [data-onboard-press="true"]',
+    )) {
+      delete element.dataset.onboardHighlight;
+      delete element.dataset.onboardPress;
+    }
+  }
+
+  private dismissOnboardingPanel(): void {
+    if (this.onboardingPhase !== 'complete') {
+      return;
+    }
+
+    this.onboardingPhase = 'dismissed';
+    this.clearOnboardingHighlights();
+    this.syncOnboardingPanel();
+    this.updateStatus();
+  }
+
+  private skipOnboardingWalkthrough(): void {
+    if (this.onboardingPhase !== 'running') {
+      return;
+    }
+
+    this.onboardingRunId += 1;
+    this.onboardingPhase = 'dismissed';
+    this.persistOnboardingCompletion();
+    this.clearOnboardingHighlights();
+    this.syncOnboardingPanel();
+    this.updateStatus();
+  }
+
+  private replayOnboardingWalkthrough(): void {
+    const url = new URL(window.location.href);
+
+    url.search = '';
+    url.searchParams.set('onboarding', '1');
+    window.location.assign(url.toString());
+  }
+
+  private persistOnboardingCompletion(): void {
+    try {
+      window.localStorage.setItem(STAGE_ONBOARDING_COMPLETION_STORAGE_KEY, '1');
+    } catch {
+      // Ignore storage failures in private or restricted browser contexts.
+    }
+  }
+
+  private isOnboardingRunActive(runId: number): boolean {
+    return (
+      !this.destroyed &&
+      this.onboardingPhase === 'running' &&
+      this.onboardingRunId === runId
+    );
+  }
+
+  private ensureOnboardingRunActive(runId: number): void {
+    if (!this.isOnboardingRunActive(runId)) {
+      throw new Error('Onboarding walkthrough cancelled.');
+    }
+  }
+
+  private async startOnboardingWalkthrough(): Promise<void> {
+    const runId = ++this.onboardingRunId;
+    const totalSteps = 20;
+
+    this.onboardingPhase = 'running';
+    this.setOnboardingStepState({
+      body: 'Linker is starting from one empty root workplane and will author the whole DAG live.',
+      detail: 'The top panel will guide the sequence. You can press Skip any time and take over manually.',
+      stepCount: totalSteps,
+      stepId: 'intro',
+      stepIndex: 0,
+      targetSelectors: [],
+      title: 'Building a 12-workplane DAG from zero',
+    });
+    this.updateStatus();
+
+    try {
+      await this.waitForOnboardingIdle(runId, {waitForCamera: false});
+      await this.runOnboardingWalkthrough(runId, totalSteps);
+
+      if (!this.isOnboardingRunActive(runId)) {
+        return;
+      }
+
+      this.persistOnboardingCompletion();
+      this.onboardingPhase = 'complete';
+      this.setOnboardingStepState({
+        body: 'The guided run finished on the live 3D overview with a twelve-workplane DAG and the root back in focus.',
+        detail: 'Tap Replay to watch the sequence again, or Stats to restore the live telemetry strip.',
+        stepCount: totalSteps,
+        stepId: 'complete',
+        stepIndex: totalSteps,
+        targetSelectors: [],
+        title: 'Walkthrough complete',
+      });
+      this.updateStatus();
+    } catch (error) {
+      if (!this.isOnboardingRunActive(runId)) {
+        return;
+      }
+
+      console.error('Onboarding walkthrough failed.', error);
+      this.onboardingPhase = 'complete';
+      this.setOnboardingStepState({
+        body: 'The automated walkthrough paused early, but the editor is still live and ready for manual use.',
+        detail: 'Replay will restart the intro from an empty dataset. Stats returns the usual status strip.',
+        stepCount: totalSteps,
+        stepId: 'error',
+        stepIndex: Math.max(this.onboardingStepState.stepIndex, 1),
+        targetSelectors: [],
+        title: 'Walkthrough paused',
+      });
+      this.updateStatus();
+    } finally {
+      this.clearOnboardingHighlights();
+      this.syncOnboardingPanel();
+    }
+  }
+
+  private async runOnboardingWalkthrough(
+    runId: number,
+    totalSteps: number,
+  ): Promise<void> {
+    let stepIndex = 0;
+    const step = async (input: {
+      body: string;
+      detail: string;
+      stepId: string;
+      targetSelectors: string[];
+      title: string;
+    }): Promise<void> => {
+      this.ensureOnboardingRunActive(runId);
+      stepIndex += 1;
+      this.setOnboardingStepState({
+        ...input,
+        stepCount: totalSteps,
+        stepIndex,
+      });
+      this.updateStatus();
+      await this.waitOnboardingDelay(runId, ONBOARDING_FRAME_SETTLE_MS);
+    };
+
+    await this.showOnboardingControlPadPage('edit', runId);
+    await step({
+      body: 'We begin by converting the first ghost slot into a real label stack on the root workplane.',
+      detail: 'The pulsing Select/Create button is the fastest way to grow local content in 2D.',
+      stepId: 'root-create',
+      targetSelectors: ['button[data-editor-shortcut="toggle-selection-or-create"]'],
+      title: 'Create the first label stack',
+    });
+    await this.clickOnboardingButton('button[data-editor-shortcut="toggle-selection-or-create"]', runId);
+
+    await step({
+      body: 'Now the input box is live, so Linker can type the first local label directly into the focused stack.',
+      detail: 'Typing and Save both happen in the same edit pad without leaving the workplane.',
+      stepId: 'root-name',
+      targetSelectors: ['[data-testid="label-input-field"]', '[data-testid="label-input-submit"]'],
+      title: 'Name the root label',
+    });
+    await this.typeOnboardingFocusedLabel(runId, 'Root Router');
+
+    await this.showOnboardingControlPadPage('navigate', runId);
+    await step({
+      body: 'The navigate pad moves the 2D cursor across labels and empty cells.',
+      detail: 'Here the same Right button that pans a camera in stack view advances the local editor cursor.',
+      stepId: 'cursor-right',
+      targetSelectors: ['button[data-control="pan-right"]'],
+      title: 'Move to the next grid cell',
+    });
+    await this.clickOnboardingButton('button[data-control="pan-right"]', runId);
+
+    await this.showOnboardingControlPadPage('edit', runId);
+    await step({
+      body: 'The next ghost slot becomes a second stack, which gives the root plane something to link and remove.',
+      detail: 'A focused label can be renamed immediately after creation in the same input field.',
+      stepId: 'firewall-create',
+      targetSelectors: ['button[data-editor-shortcut="toggle-selection-or-create"]'],
+      title: 'Create another local label',
+    });
+    await this.clickOnboardingButton('button[data-editor-shortcut="toggle-selection-or-create"]', runId);
+
+    await step({
+      body: 'This second label becomes a temporary firewall node so the walkthrough can demonstrate local link CRUD.',
+      detail: 'Watch the input field type directly into the focused stack again.',
+      stepId: 'firewall-name',
+      targetSelectors: ['[data-testid="label-input-field"]', '[data-testid="label-input-submit"]'],
+      title: 'Type into the input box',
+    });
+    await this.typeOnboardingFocusedLabel(runId, 'Firewall');
+
+    await step({
+      body: 'Select/Create also toggles ranked selection on existing labels, not just empty cells.',
+      detail: 'The current Firewall label becomes selection rank one.',
+      stepId: 'firewall-select',
+      targetSelectors: ['button[data-editor-shortcut="toggle-selection-or-create"]'],
+      title: 'Select the focused label',
+    });
+    await this.clickOnboardingButton('button[data-editor-shortcut="toggle-selection-or-create"]', runId);
+
+    await this.showOnboardingControlPadPage('navigate', runId);
+    await step({
+      body: 'We move back to the root stack so the second selection can complete a local link pair.',
+      detail: 'The same 2D navigation controls are still driving the editor cursor under the hood.',
+      stepId: 'cursor-left',
+      targetSelectors: ['button[data-control="pan-left"]'],
+      title: 'Return to the root stack',
+    });
+    await this.clickOnboardingButton('button[data-control="pan-left"]', runId);
+
+    await this.showOnboardingControlPadPage('edit', runId);
+    await step({
+      body: 'Selecting the root label second builds the ranked pair that link creation uses.',
+      detail: 'Linker keeps the selection order live so the link button can act on it immediately.',
+      stepId: 'root-select',
+      targetSelectors: ['button[data-editor-shortcut="toggle-selection-or-create"]'],
+      title: 'Add the root to the ranked selection',
+    });
+    await this.clickOnboardingButton('button[data-editor-shortcut="toggle-selection-or-create"]', runId);
+
+    await step({
+      body: 'The Link button creates a local workplane connection between the selected labels.',
+      detail: 'Local links stay inside one workplane and never affect the global DAG edges.',
+      stepId: 'local-link',
+      targetSelectors: ['button[data-editor-action="link-selection"]'],
+      title: 'Create a local link',
+    });
+    await this.clickOnboardingButton('button[data-editor-action="link-selection"]', runId);
+
+    await step({
+      body: 'Unlink immediately removes that local connection without deleting either label stack.',
+      detail: 'This keeps label CRUD and link CRUD separate inside the same workplane.',
+      stepId: 'local-unlink',
+      targetSelectors: ['button[data-editor-action="remove-links"]'],
+      title: 'Remove the local link',
+    });
+    await this.clickOnboardingButton('button[data-editor-action="remove-links"]', runId);
+
+    await step({
+      body: 'Clear drops the ranked selection, then the extra Firewall stack can be removed cleanly.',
+      detail: 'The Remove action deletes every authored layer in the focused stack and returns the cell to a ghost slot.',
+      stepId: 'local-remove',
+      targetSelectors: [
+        'button[data-editor-action="clear-selection"]',
+        'button[data-editor-action="remove-label"]',
+      ],
+      title: 'Clear selection and prune the extra label',
+    });
+    await this.clickOnboardingButton('button[data-editor-action="clear-selection"]', runId);
+    await this.showOnboardingControlPadPage('navigate', runId);
+    await this.clickOnboardingButton('button[data-control="pan-right"]', runId);
+    await this.showOnboardingControlPadPage('edit', runId);
+    await this.clickOnboardingButton('button[data-editor-action="remove-label"]', runId);
+
+    await step({
+      body: 'Child, Parent, and Delete also support temporary graph surgery before the main fanout begins.',
+      detail: 'A short extra chain is created off the root, then removed again, so the final twelve-node build still lands on the clean canonical ids.',
+      stepId: 'dag-crud',
+      targetSelectors: [],
+      title: 'Demonstrate DAG add and remove',
+    });
+    await this.focusRootWithOnboarding(runId);
+    await this.showOnboardingControlPadPage('dag', runId);
+    await this.clickOnboardingButton('button[data-dag-action="spawn-child-workplane"]', runId);
+    await this.clickOnboardingButton('button[data-dag-action="insert-parent-workplane"]', runId);
+    await this.navigateToWorkplaneByButtons('wp-2', runId);
+    await this.showOnboardingControlPadPage('stage', runId);
+    await this.clickOnboardingButton('button[data-workplane-action="delete-active-workplane"]', runId);
+    await this.clickOnboardingButton('button[data-workplane-action="delete-active-workplane"]', runId);
+
+    await step({
+      body: 'Now the root fans out into four rank-one child workplanes using the DAG control pad only.',
+      detail: 'Each Child press creates the next downstream node and makes it active.',
+      stepId: 'rank-one',
+      targetSelectors: [],
+      title: 'Build the first fanout rank',
+    });
+    for (let index = 0; index < 4; index += 1) {
+      await this.focusRootWithOnboarding(runId);
+      await this.showOnboardingControlPadPage('dag', runId);
+      await this.clickOnboardingButton('button[data-dag-action="spawn-child-workplane"]', runId, {
+        settleMs: ONBOARDING_CLICK_SETTLE_MS,
+      });
+    }
+
+    await step({
+      body: 'Next and Child together build the second rank so each first-rank node fans out one level deeper.',
+      detail: 'This is the first time the walkthrough uses stage-page workplane navigation to author across the graph.',
+      stepId: 'rank-two',
+      targetSelectors: [],
+      title: 'Build the second fanout rank',
+    });
+    for (const parentWorkplaneId of ['wp-2', 'wp-3', 'wp-4', 'wp-5'] as const) {
+      await this.navigateToWorkplaneByButtons(parentWorkplaneId, runId);
+      await this.showOnboardingControlPadPage('dag', runId);
+      await this.clickOnboardingButton('button[data-dag-action="spawn-child-workplane"]', runId, {
+        settleMs: ONBOARDING_CLICK_SETTLE_MS,
+      });
+    }
+
+    await step({
+      body: 'Three of those second-rank leaves expand once more to finish the target 1-4-4-3 DAG.',
+      detail: 'At this point the walkthrough has authored a full twelve-workplane graph from the empty root.',
+      stepId: 'rank-three',
+      targetSelectors: [],
+      title: 'Finish the twelve-workplane DAG',
+    });
+    for (const parentWorkplaneId of ['wp-6', 'wp-7', 'wp-8'] as const) {
+      await this.navigateToWorkplaneByButtons(parentWorkplaneId, runId);
+      await this.showOnboardingControlPadPage('dag', runId);
+      await this.clickOnboardingButton('button[data-dag-action="spawn-child-workplane"]', runId, {
+        settleMs: ONBOARDING_CLICK_SETTLE_MS,
+      });
+    }
+
+    await step({
+      body: 'A leaf can slide along the DAG rails in rank, lane, and depth without changing its local 2D label coordinates.',
+      detail: 'The walkthrough nudges the active leaf out and back so the final overview still ends on the canonical shape.',
+      stepId: 'dag-rails',
+      targetSelectors: [
+        'button[data-dag-action="move-rank-forward"]',
+        'button[data-dag-action="move-lane-down"]',
+        'button[data-dag-action="move-depth-in"]',
+      ],
+      title: 'Move a workplane across the DAG rails',
+    });
+    await this.showOnboardingControlPadPage('dag', runId);
+    await this.clickOnboardingButton('button[data-dag-action="move-rank-forward"]', runId);
+    await this.clickOnboardingButton('button[data-dag-action="move-rank-backward"]', runId);
+    await this.clickOnboardingButton('button[data-dag-action="move-lane-down"]', runId);
+    await this.clickOnboardingButton('button[data-dag-action="move-lane-up"]', runId);
+    await this.clickOnboardingButton('button[data-dag-action="move-depth-in"]', runId);
+    await this.clickOnboardingButton('button[data-dag-action="move-depth-out"]', runId);
+
+    await step({
+      body: 'Now the walkthrough leaves 2D and lifts the finished graph into the global stack view.',
+      detail: 'The camera pad keeps the same layout, but in 3D it becomes orbit and zoom control for the DAG.',
+      stepId: 'stage-3d',
+      targetSelectors: ['button[data-stage-mode-action="set-3d-mode"]'],
+      title: 'Enter 3D mode',
+    });
+    await this.focusRootWithOnboarding(runId);
+    await this.showOnboardingControlPadPage('stage', runId);
+    await this.clickOnboardingButton('button[data-stage-mode-action="set-3d-mode"]', runId, {
+      waitForCamera: true,
+    });
+
+    await step({
+      body: 'The navigate pad now orbits and zooms the whole DAG so new users can read the rank slices in space.',
+      detail: 'A small orbit and zoom-out is enough to show the transition from the plane editor to the graph overview.',
+      stepId: 'stage-camera',
+      targetSelectors: [
+        'button[data-control="zoom-out"]',
+        'button[data-control="pan-right"]',
+        'button[data-control="pan-up"]',
+      ],
+      title: 'Orbit and zoom the finished DAG',
+    });
+    await this.showOnboardingControlPadPage('navigate', runId);
+    await this.clickOnboardingButton('button[data-control="zoom-out"]', runId, {waitForCamera: true});
+    await this.clickOnboardingButton('button[data-control="pan-right"]', runId, {waitForCamera: true});
+    await this.clickOnboardingButton('button[data-control="pan-up"]', runId, {waitForCamera: true});
+
+    await step({
+      body: 'Workplane selection still moves in 3D, so the walkthrough hops off the root and comes right back.',
+      detail: 'This is the same stage-page Next and Prev path used during authoring, now applied to the live graph overview.',
+      stepId: 'stage-next-prev',
+      targetSelectors: [
+        'button[data-workplane-action="select-next-workplane"]',
+        'button[data-workplane-action="select-previous-workplane"]',
+      ],
+      title: 'Switch workplanes inside the DAG view',
+    });
+    await this.showOnboardingControlPadPage('stage', runId);
+    await this.clickOnboardingButton('button[data-workplane-action="select-next-workplane"]', runId);
+    await this.clickOnboardingButton('button[data-workplane-action="select-previous-workplane"]', runId);
+
+    await step({
+      body: 'The edit page still controls 3D rendering style, so Linker flips the link and text modes once before settling.',
+      detail: 'After the style pass, Root and Reset bring the guided intro back to the clean overview state.',
+      stepId: 'styles-finish',
+      targetSelectors: [
+        'button[data-line-strategy="arc-links"]',
+        'button[data-text-strategy="sdf-soft"]',
+        'button[data-dag-action="focus-root"]',
+        'button[data-control="reset-camera"]',
+      ],
+      title: 'Change styles and settle on the final overview',
+    });
+    await this.showOnboardingControlPadPage('edit', runId);
+    await this.clickOnboardingButton('button[data-line-strategy="arc-links"]', runId);
+    await this.clickOnboardingButton('button[data-line-strategy="rounded-step-links"]', runId);
+    await this.clickOnboardingButton('button[data-text-strategy="sdf-soft"]', runId);
+    await this.clickOnboardingButton('button[data-text-strategy="sdf-instanced"]', runId);
+    await this.focusRootWithOnboarding(runId);
+    await this.showOnboardingControlPadPage('navigate', runId);
+    await this.clickOnboardingButton('button[data-control="reset-camera"]', runId, {waitForCamera: true});
+    await this.clickOnboardingButton('button[data-control="zoom-out"]', runId, {waitForCamera: true});
+    await this.waitForOnboardingIdle(runId);
+  }
+
+  private async focusRootWithOnboarding(runId: number): Promise<void> {
+    if (this.state.session.activeWorkplaneId === this.state.document.dag?.rootWorkplaneId) {
+      return;
+    }
+
+    await this.showOnboardingControlPadPage('stage', runId);
+    await this.clickOnboardingButton('button[data-dag-action="focus-root"]', runId);
+  }
+
+  private async navigateToWorkplaneByButtons(
+    targetWorkplaneId: WorkplaneId,
+    runId: number,
+  ): Promise<void> {
+    this.ensureOnboardingRunActive(runId);
+    const currentIndex = getWorkplaneIndex(this.state, this.state.session.activeWorkplaneId);
+    const targetIndex = getWorkplaneIndex(this.state, targetWorkplaneId);
+
+    if (targetIndex < 0 || targetIndex === currentIndex) {
+      return;
+    }
+
+    await this.showOnboardingControlPadPage('stage', runId);
+    const action =
+      targetIndex > currentIndex
+        ? 'select-next-workplane'
+        : 'select-previous-workplane';
+
+    for (let step = 0; step < Math.abs(targetIndex - currentIndex); step += 1) {
+      await this.clickOnboardingButton(
+        `button[data-workplane-action="${action}"]`,
+        runId,
+      );
+    }
+  }
+
+  private async showOnboardingControlPadPage(
+    targetPage: ControlPadPage,
+    runId: number,
+  ): Promise<void> {
+    this.ensureOnboardingRunActive(runId);
+
+    for (let attempt = 0; attempt < 5 && this.controlPadPage !== targetPage; attempt += 1) {
+      await this.clickOnboardingButton(
+        'button[data-control-pad-action="toggle-page"]',
+        runId,
+        {
+          highlight: false,
+          settleMs: 120,
+          waitForCamera: false,
+        },
+      );
+    }
+  }
+
+  private async clickOnboardingButton(
+    selector: string,
+    runId: number,
+    options?: {
+      highlight?: boolean;
+      settleMs?: number;
+      waitForCamera?: boolean;
+    },
+  ): Promise<void> {
+    this.ensureOnboardingRunActive(runId);
+    const button = document.querySelector<HTMLButtonElement>(selector);
+
+    if (!(button instanceof HTMLButtonElement) || button.disabled) {
+      throw new Error(`Expected an enabled onboarding button for selector ${selector}.`);
+    }
+
+    if (options?.highlight !== false) {
+      button.dataset.onboardHighlight = 'true';
+    }
+
+    button.focus({preventScroll: true});
+    button.dataset.onboardPress = 'true';
+    await this.waitOnboardingDelay(runId, options?.settleMs ?? 110);
+    button.click();
+    delete button.dataset.onboardPress;
+    await this.waitForOnboardingIdle(runId, {
+      waitForCamera: options?.waitForCamera ?? true,
+    });
+  }
+
+  private async typeOnboardingFocusedLabel(
+    runId: number,
+    value: string,
+  ): Promise<void> {
+    this.ensureOnboardingRunActive(runId);
+    const input = this.chrome.labelInputField;
+
+    if (input.disabled) {
+      throw new Error('Expected the label input field to be enabled during onboarding.');
+    }
+
+    input.focus({preventScroll: true});
+    input.dataset.onboardHighlight = 'true';
+    input.value = '';
+    input.dispatchEvent(new InputEvent('input', {bubbles: true, composed: true}));
+
+    for (const character of value) {
+      this.ensureOnboardingRunActive(runId);
+      input.value += character;
+      input.dispatchEvent(
+        new InputEvent('input', {
+          bubbles: true,
+          composed: true,
+          data: character,
+          inputType: 'insertText',
+        }),
+      );
+      await this.waitOnboardingDelay(runId, ONBOARDING_TYPING_DELAY_MS);
+    }
+
+    await this.waitOnboardingDelay(runId, ONBOARDING_TYPING_SETTLE_MS);
+    await this.clickOnboardingButton('[data-testid="label-input-submit"]', runId);
+  }
+
+  private async waitForOnboardingIdle(
+    runId: number,
+    options?: {waitForCamera?: boolean},
+  ): Promise<void> {
+    const waitForCamera = options?.waitForCamera ?? true;
+
+    for (let attempt = 0; attempt < 180; attempt += 1) {
+      this.ensureOnboardingRunActive(runId);
+
+      const cameraAnimating =
+        this.camera.isAnimating || this.stackCameraAnimator.isAnimating;
+
+      if (
+        !this.labelInputPending &&
+        !this.workplaneSyncPending &&
+        (!waitForCamera || !cameraAnimating)
+      ) {
+        return;
+      }
+
+      await this.waitForAnimationFrames(1);
+    }
+
+    throw new Error('Timed out waiting for onboarding state to settle.');
+  }
+
+  private async waitOnboardingDelay(
+    runId: number,
+    durationMs: number,
+  ): Promise<void> {
+    this.ensureOnboardingRunActive(runId);
+    await new Promise<void>((resolve) => {
+      window.setTimeout(() => resolve(), durationMs);
+    });
+    this.ensureOnboardingRunActive(runId);
+    await this.waitForAnimationFrames(1);
+  }
+
   private installInteractionHandlers(): void {
     this.actionButtons.push(
       ...this.chrome.strategyModePanel.querySelectorAll<HTMLButtonElement>('[data-control]'),
@@ -2002,6 +2678,11 @@ class LumaStageController {
     );
     this.dagActionButtons.push(
       ...this.chrome.strategyModePanel.querySelectorAll<HTMLButtonElement>('[data-dag-action]'),
+    );
+    this.onboardingActionButtons.push(
+      this.chrome.onboardSkipButton,
+      this.chrome.onboardReplayButton,
+      this.chrome.onboardDismissButton,
     );
     this.stageModeActionButtons.push(
       ...this.chrome.strategyModePanel.querySelectorAll<HTMLButtonElement>('[data-stage-mode-action]'),
@@ -2037,6 +2718,10 @@ class LumaStageController {
 
     for (const button of this.dagActionButtons) {
       button.addEventListener('click', this.handleDagActionButtonClick);
+    }
+
+    for (const button of this.onboardingActionButtons) {
+      button.addEventListener('click', this.handleOnboardingActionButtonClick);
     }
 
     for (const button of this.stageModeActionButtons) {
@@ -2091,6 +2776,10 @@ class LumaStageController {
       button.removeEventListener('click', this.handleDagActionButtonClick);
     }
 
+    for (const button of this.onboardingActionButtons) {
+      button.removeEventListener('click', this.handleOnboardingActionButtonClick);
+    }
+
     for (const button of this.stageModeActionButtons) {
       button.removeEventListener('click', this.handleStageModeActionButtonClick);
     }
@@ -2126,6 +2815,7 @@ class LumaStageController {
     this.editorShortcutButtons.length = 0;
     this.controlPadToggleButtons.length = 0;
     this.dagActionButtons.length = 0;
+    this.onboardingActionButtons.length = 0;
     this.stageModeActionButtons.length = 0;
     this.textStrategyButtons.length = 0;
     this.lineStrategyButtons.length = 0;
@@ -2690,6 +3380,7 @@ class LumaStageController {
       layoutStrategy: this.layoutStrategy,
       lineStats: this.lineLayer?.getStats(),
       lineStrategy: this.lineStrategy,
+      onboarding: this.getOnboardingSnapshotState(),
       planeCount: getPlaneCount(this.state),
       perf: this.frameTelemetry?.getSnapshot(),
       renderBridgeLinkCount: countRenderedBridgeLinks(this.renderScene),
@@ -2703,6 +3394,7 @@ class LumaStageController {
     });
 
     writeStageSnapshot(snapshot);
+    this.syncOnboardingPanel();
     writeStageBenchmarkDatasets(
       createStageBenchmarkDatasets({
         gpuTimingEnabled: this.config.gpuTimingEnabled,
@@ -2758,6 +3450,18 @@ class LumaStageController {
       titleOnlyWorkplaneCount: dagLodBuckets?.titleOnlyWorkplanes.length ?? 0,
       visibleEdgeCount: isStackView ? countRenderedBridgeLinks(this.renderScene) : 0,
       visibleWorkplaneCount: isStackView ? this.stackBackplates.length : 0,
+    };
+  }
+
+  private getOnboardingSnapshotState(): OnboardingSnapshotState {
+    return {
+      panelVisible:
+        this.onboardingPhase === 'running' ||
+        this.onboardingPhase === 'complete',
+      state: this.onboardingPhase,
+      stepCount: this.onboardingStepState.stepCount,
+      stepId: this.onboardingStepState.stepId,
+      stepIndex: this.onboardingStepState.stepIndex,
     };
   }
 
@@ -3296,14 +4000,8 @@ function reduceWorkplaneAction(
   state: StageSystemState,
   action: WorkplaneAction,
 ): StageSystemState {
-  if (state.document.dag) {
-    switch (action) {
-      case 'delete-active-workplane':
-      case 'spawn-workplane':
-        return state;
-      default:
-        break;
-    }
+  if (state.document.dag && action === 'spawn-workplane') {
+    return state;
   }
 
   switch (action) {

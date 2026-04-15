@@ -14,6 +14,7 @@ type BrowserLaunchOptions = {
 
 type SmokeTestOptions = {
   allowUnsupported?: boolean;
+  expectOnboarding?: boolean;
   screenshotName: string;
   timeoutMs?: number;
   url: string;
@@ -24,7 +25,13 @@ type SmokeDiagnostics = {
   appState: string;
   bootPhase: string;
   activeWorkplaneId: string;
+  dagEdgeCount: number;
+  dagNodeCount: number;
+  onboardingPanelVisible: boolean;
+  onboardingState: string;
+  onboardingStepId: string;
   planeCount: number;
+  renderBridgeLinkCount: number;
   stageMode: string;
 };
 
@@ -163,7 +170,13 @@ export async function runSmokeTest(
     appState: document.body.dataset.appState ?? 'missing',
     bootPhase: document.body.dataset.bootPhase ?? 'missing',
     activeWorkplaneId: document.body.dataset.activeWorkplaneId ?? '',
+    dagEdgeCount: Number(document.body.dataset.dagEdgeCount ?? '0'),
+    dagNodeCount: Number(document.body.dataset.dagNodeCount ?? '0'),
+    onboardingPanelVisible: document.body.dataset.onboardingPanelVisible === 'true',
+    onboardingState: document.body.dataset.onboardingState ?? '',
+    onboardingStepId: document.body.dataset.onboardingStepId ?? '',
     planeCount: Number(document.body.dataset.planeCount ?? '0'),
+    renderBridgeLinkCount: Number(document.body.dataset.renderBridgeLinkCount ?? '0'),
     stageMode: document.body.dataset.stageMode ?? '',
   }));
 
@@ -221,6 +234,43 @@ export async function runSmokeTest(
   } else {
     assert.equal(diagnostics.appState, 'ready', `Expected ready state for ${options.url}.`);
     assert.equal(diagnostics.bootPhase, 'ready', `Expected boot phase ready for ${options.url}.`);
+  }
+
+  if (options.expectOnboarding && diagnostics.appState === 'ready') {
+    await page.waitForFunction(
+      () =>
+        document.body.dataset.onboardingState === 'complete' &&
+        document.body.dataset.onboardingStepId === 'complete' &&
+        document.body.dataset.stageMode === '3d-mode' &&
+        document.body.dataset.activeWorkplaneId === 'wp-1' &&
+        Number(document.body.dataset.planeCount ?? '0') === 12 &&
+        Number(document.body.dataset.dagNodeCount ?? '0') === 12 &&
+        Number(document.body.dataset.dagEdgeCount ?? '0') === 11 &&
+        Number(document.body.dataset.renderBridgeLinkCount ?? '0') === 11,
+      {timeout: options.timeoutMs ?? 120_000},
+    );
+
+    const finalOnboardingDiagnostics = await page.evaluate(() => ({
+      activeWorkplaneId: document.body.dataset.activeWorkplaneId ?? '',
+      dagEdgeCount: Number(document.body.dataset.dagEdgeCount ?? '0'),
+      dagNodeCount: Number(document.body.dataset.dagNodeCount ?? '0'),
+      onboardingPanelVisible: document.body.dataset.onboardingPanelVisible === 'true',
+      onboardingState: document.body.dataset.onboardingState ?? '',
+      onboardingStepId: document.body.dataset.onboardingStepId ?? '',
+      planeCount: Number(document.body.dataset.planeCount ?? '0'),
+      renderBridgeLinkCount: Number(document.body.dataset.renderBridgeLinkCount ?? '0'),
+      stageMode: document.body.dataset.stageMode ?? '',
+    }));
+
+    diagnostics.activeWorkplaneId = finalOnboardingDiagnostics.activeWorkplaneId;
+    diagnostics.dagEdgeCount = finalOnboardingDiagnostics.dagEdgeCount;
+    diagnostics.dagNodeCount = finalOnboardingDiagnostics.dagNodeCount;
+    diagnostics.onboardingPanelVisible = finalOnboardingDiagnostics.onboardingPanelVisible;
+    diagnostics.onboardingState = finalOnboardingDiagnostics.onboardingState;
+    diagnostics.onboardingStepId = finalOnboardingDiagnostics.onboardingStepId;
+    diagnostics.planeCount = finalOnboardingDiagnostics.planeCount;
+    diagnostics.renderBridgeLinkCount = finalOnboardingDiagnostics.renderBridgeLinkCount;
+    diagnostics.stageMode = finalOnboardingDiagnostics.stageMode;
   }
 
   return diagnostics;

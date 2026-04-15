@@ -26,6 +26,14 @@ export type StageSnapshot = {
   statsSignature: string;
 };
 
+export type OnboardingSnapshotState = {
+  panelVisible: boolean;
+  state: 'complete' | 'dismissed' | 'inactive' | 'running';
+  stepCount: number;
+  stepId: string;
+  stepIndex: number;
+};
+
 export type DagSnapshotState = {
   activePosition: {column: number; layer: number; row: number} | null;
   canFocusRoot: boolean;
@@ -72,6 +80,7 @@ export function createStageSnapshot(input: {
   layoutStrategy: LayoutStrategy;
   lineStats: LineLayerStats | null | undefined;
   lineStrategy: LineStrategy;
+  onboarding: OnboardingSnapshotState;
   planeCount: number;
   perf: FrameTelemetrySnapshot | null | undefined;
   renderBridgeLinkCount: number;
@@ -104,6 +113,7 @@ export function createStageSnapshot(input: {
     layoutStrategy,
     lineStats,
     lineStrategy,
+    onboarding,
     planeCount,
     perf,
     renderBridgeLinkCount,
@@ -225,6 +235,11 @@ export function createStageSnapshot(input: {
       lineStrategyLabel,
       lineSubmittedVertexCount: String(submittedLineVertexCount),
       lineVisibleLinkCount: String(visibleLinkCount),
+      onboardingPanelVisible: String(onboarding.panelVisible),
+      onboardingState: onboarding.state,
+      onboardingStepCount: String(onboarding.stepCount),
+      onboardingStepId: onboarding.stepId,
+      onboardingStepIndex: String(onboarding.stepIndex),
       perfCpuDrawAvgMs: perf ? perf.cpuDrawAvgMs.toFixed(3) : '0.000',
       perfCpuDrawLastMs: perf ? perf.cpuDrawLastMs.toFixed(3) : '0.000',
       perfCpuFrameAvgMs: perf ? perf.cpuFrameAvgMs.toFixed(3) : '0.000',

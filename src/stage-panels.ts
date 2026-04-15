@@ -74,7 +74,7 @@ export function syncStageStrategyPanels(input: {
         button.disabled = dagAvailable || !canSpawnWorkplane;
         break;
       case 'delete-active-workplane':
-        button.disabled = dagAvailable || !canDeleteWorkplane;
+        button.disabled = !canDeleteWorkplane;
         break;
       default:
         button.disabled = false;

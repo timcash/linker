@@ -92,8 +92,8 @@ export async function runBootFlow(
   );
   assert.equal(
     result.stage.workplaneCanDelete,
-    true,
-    'Default boot should allow deletion because the default DAG has more than one workplane.',
+    false,
+    'Default boot should keep delete disabled because the root DAG workplane is not deletable.',
   );
   assert.equal(result.text.labelSetPreset, DEMO_LABEL_SET_ID, 'Default boot should use the demo label set.');
   assert.ok(result.text.glyphCount > 0, 'Default boot should generate glyph geometry.');

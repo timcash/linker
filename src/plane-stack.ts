@@ -223,6 +223,10 @@ export function getWorkplaneIndex(
 }
 
 export function canDeleteActiveWorkplane(state: StageSystemState): boolean {
+  if (state.document.dag) {
+    return canDeleteActiveDagWorkplane(state);
+  }
+
   return getPlaneCount(state) > 1;
 }
 
@@ -516,6 +520,10 @@ export function spawnWorkplaneAfterActive(state: StageSystemState): StageSystemS
 }
 
 export function deleteActiveWorkplane(state: StageSystemState): StageSystemState {
+  if (state.document.dag) {
+    return deleteActiveDagWorkplane(state);
+  }
+
   if (!canDeleteActiveWorkplane(state)) {
     return state;
   }
@@ -527,16 +535,18 @@ export function deleteActiveWorkplane(state: StageSystemState): StageSystemState
   );
   const nextIndex = Math.min(activeIndex, workplaneOrder.length - 1);
   const nextActiveWorkplaneId = workplaneOrder[nextIndex];
+  const nextWorkplanesById = Object.fromEntries(
+    Object.entries(state.document.workplanesById).filter(
+      ([workplaneId]) => workplaneId !== activeWorkplaneId,
+    ),
+  ) as Record<WorkplaneId, WorkplaneDocumentState>;
 
   return {
     document: {
       ...state.document,
+      nextWorkplaneNumber: deriveNextWorkplaneNumber(nextWorkplanesById),
       workplaneOrder,
-      workplanesById: Object.fromEntries(
-        Object.entries(state.document.workplanesById).filter(
-          ([workplaneId]) => workplaneId !== activeWorkplaneId,
-        ),
-      ) as Record<WorkplaneId, WorkplaneDocumentState>,
+      workplanesById: nextWorkplanesById,
     },
     session: {
       ...state.session,
@@ -815,6 +825,83 @@ function updateActiveDagWorkplanePosition(
   });
 }
 
+function canDeleteActiveDagWorkplane(state: StageSystemState): boolean {
+  const dag = state.document.dag;
+  const activeWorkplaneId = state.session.activeWorkplaneId;
+
+  if (!dag) {
+    return false;
+  }
+
+  if (activeWorkplaneId === dag.rootWorkplaneId) {
+    return false;
+  }
+
+  return !dag.edges.some((edge) => edge.fromWorkplaneId === activeWorkplaneId);
+}
+
+function deleteActiveDagWorkplane(state: StageSystemState): StageSystemState {
+  const dag = state.document.dag;
+
+  if (!dag || !canDeleteActiveDagWorkplane(state)) {
+    return state;
+  }
+
+  const activeIndex = getActiveWorkplaneIndex(state);
+  const activeWorkplaneId = state.session.activeWorkplaneId;
+  const workplaneOrder = state.document.workplaneOrder.filter(
+    (workplaneId) => workplaneId !== activeWorkplaneId,
+  );
+  const nextIndex = Math.min(activeIndex, workplaneOrder.length - 1);
+  const nextActiveWorkplaneId = workplaneOrder[nextIndex];
+  const nextWorkplanesById = Object.fromEntries(
+    Object.entries(state.document.workplanesById).filter(
+      ([workplaneId]) => workplaneId !== activeWorkplaneId,
+    ),
+  ) as Record<WorkplaneId, WorkplaneDocumentState>;
+  const nextWorkplaneViewsById = Object.fromEntries(
+    Object.entries(state.session.workplaneViewsById).filter(
+      ([workplaneId]) => workplaneId !== activeWorkplaneId,
+    ),
+  ) as Record<WorkplaneId, WorkplaneViewState>;
+  const nextWorkplaneNumber = deriveNextWorkplaneNumber(nextWorkplanesById);
+
+  return applyDagStageMutation(
+    {
+      document: {
+        ...state.document,
+        nextWorkplaneNumber,
+        workplaneOrder,
+        workplanesById: nextWorkplanesById,
+      },
+      session: {
+        ...state.session,
+        activeWorkplaneId: nextActiveWorkplaneId,
+        workplaneViewsById: nextWorkplaneViewsById,
+      },
+    },
+    {
+      activeWorkplaneId: nextActiveWorkplaneId,
+      dag: {
+        edges: dag.edges.filter(
+          (edge) =>
+            edge.fromWorkplaneId !== activeWorkplaneId &&
+            edge.toWorkplaneId !== activeWorkplaneId,
+        ),
+        positionsById: Object.fromEntries(
+          Object.entries(dag.positionsById).filter(
+            ([workplaneId]) => workplaneId !== activeWorkplaneId,
+          ),
+        ) as Record<WorkplaneId, WorkplaneDagPosition>,
+        rootWorkplaneId: dag.rootWorkplaneId,
+      },
+      nextWorkplaneNumber,
+      workplaneViewsById: nextWorkplaneViewsById,
+      workplanesById: nextWorkplanesById,
+    },
+  );
+}
+
 function canMoveActiveDagWorkplaneColumn(
   state: StageSystemState,
   delta: -1 | 1,
@@ -929,6 +1016,22 @@ function getNextAvailableDagRow(
   }
 
   return maxRow + 1;
+}
+
+function deriveNextWorkplaneNumber(
+  workplanesById: Record<WorkplaneId, WorkplaneDocumentState>,
+): number {
+  let maxWorkplaneNumber = 0;
+
+  for (const workplaneId of Object.keys(workplanesById)) {
+    const parsedNumber = Number.parseInt(workplaneId.slice(3), 10);
+
+    if (Number.isFinite(parsedNumber)) {
+      maxWorkplaneNumber = Math.max(maxWorkplaneNumber, parsedNumber);
+    }
+  }
+
+  return maxWorkplaneNumber + 1;
 }
 
 function compareWorkplaneIds(left: string, right: string): number {

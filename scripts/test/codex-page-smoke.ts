@@ -1,27 +1,29 @@
 import assert from 'node:assert/strict';
-import {resolve} from 'node:path';
+import type {HTTPRequest} from 'puppeteer';
 
 import type {BrowserTestContext} from './shared';
-import {CodexBridgeServer} from '../../server/codex/CodexBridgeServer';
 
 export async function runCodexPageSmokeFlow(
   context: BrowserTestContext,
 ): Promise<void> {
   const codexUrl = new URL('codex/', context.url).toString();
   const {page, pageErrors} = context;
-  process.env.CODEX_BRIDGE_PASSWORD = 'test-browser-password';
-  process.env.CODEX_PUBLIC_ORIGIN = 'https://linker.dialtone.earth';
-  const bridgeServer = new CodexBridgeServer({
-    host: '127.0.0.1',
-    port: 4186,
-    publicOrigin: 'https://linker.dialtone.earth',
-    staticRoot: resolve(process.cwd(), 'dist'),
-    workspaceRoot: process.cwd(),
+  const bridgeRequests: string[] = [];
+  const requestListener = (request: HTTPRequest) => {
+    const url = request.url();
+    if (url.includes('/api/codex/') || url.includes('/codex-bridge')) {
+      bridgeRequests.push(`${request.method()} ${url}`);
+    }
+  };
+
+  await page.goto(context.url, {waitUntil: 'load'});
+  await page.evaluate(() => {
+    sessionStorage.removeItem('linker.codex.auth');
+    localStorage.removeItem('linker.codex.bridge-mode');
   });
 
-  await bridgeServer.listen();
-
   try {
+    page.on('request', requestListener);
     await page.goto(codexUrl, {waitUntil: 'load'});
     await page.waitForSelector('.codex-page-shell');
     await page.waitForSelector('[data-codex-unlock-form]');
@@ -40,6 +42,8 @@ export async function runCodexPageSmokeFlow(
         (link) => link.textContent?.trim() === 'Codex',
       ),
       hasAuthLink: Boolean(document.querySelector('.codex-lede a[href="../auth/"]')),
+      healthText:
+        document.querySelector<HTMLElement>('[data-codex-health]')?.textContent?.trim() ?? '',
       lockMessage:
         document.querySelector<HTMLElement>('[data-codex-unlock-message]')?.textContent?.trim() ?? '',
       modeSummary:
@@ -59,11 +63,17 @@ export async function runCodexPageSmokeFlow(
     assert.equal(state.hasAuthLink, true, 'The Codex route should point users to the Auth page for Cloudflare Access.');
     assert.match(state.modeSummary, /auto/i, 'The Codex route should explain the default bridge mode.');
     assert.match(state.authText, /locked/i, 'The Codex route should begin locked.');
+    assert.match(state.bridgeText, /127\.0\.0\.1:4173/i, 'The Codex route should expose the current local bridge target while locked.');
+    assert.match(state.healthText, /after unlock/i, 'The Codex route should defer bridge health checks until unlock.');
     assert.match(state.lockMessage, /password/i, 'The Codex route should explain the unlock step.');
     assert.equal(state.restartDisabled, true, 'The Codex route should keep restart disabled until unlock.');
     assert.ok(state.statusText.length > 0, 'The Codex route should show connection status copy.');
-    assert.ok(state.bridgeText.length > 0, 'The Codex route should expose the current bridge origin.');
+    assert.deepEqual(
+      bridgeRequests,
+      [],
+      `The locked Codex route should not probe bridge endpoints before unlock: ${bridgeRequests.join('\n')}`,
+    );
   } finally {
-    await bridgeServer.close();
+    page.off('request', requestListener);
   }
 }

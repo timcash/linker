@@ -102,6 +102,11 @@ export type StageState = {
   dagVisibleEdgeCount: number;
   dagVisibleWorkplaneCount: number;
   documentBridgeLinkCount: number;
+  onboardingPanelVisible: boolean;
+  onboardingState: string;
+  onboardingStepCount: number;
+  onboardingStepId: string;
+  onboardingStepIndex: number;
   planeCount: number;
   renderBridgeLinkCount: number;
   stageMode: string;

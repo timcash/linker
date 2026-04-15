@@ -1,5 +1,6 @@
 import type { CodexBridgeMode, CodexBridgeServerMessage, TerminalSize } from '../../shared/codex/CodexBridgeTypes';
 import { CodexAuthStore, type StoredCodexAuth } from './CodexAuthStore';
+import { buildDeferredBridgeHealthSummary, buildLockedBridgeStatus, shouldProbeCodexBridge } from './CodexBridgePolicy';
 import { CodexAuthError, CodexTerminalClient, type CodexTerminalClientLifecycle } from './CodexTerminalClient';
 import { CodexTerminalView } from './CodexTerminalView';
 
@@ -50,9 +51,8 @@ export class CodexTerminalPage {
     this.view.render();
     this.syncBridgeUi();
     this.view.setSessionId(this.sessionId);
-    this.view.setConnectionState('starting', `Checking the ${bridgeModeLabelMap[this.bridgeMode]} route.`);
+    this.view.setConnectionState('starting', `Preparing ${bridgeModeLabelMap[this.bridgeMode]}.`);
     this.view.setAuthSummary('Locked.');
-    this.view.setHealthSummary('Checking bridge config.');
     this.view.setLockState(true, 'Enter the password to unlock this browser session.');
     this.view.setActionAvailability({
       canConnect: false,
@@ -64,15 +64,15 @@ export class CodexTerminalPage {
 
     window.addEventListener('beforeunload', this.handleBeforeUnload);
 
-    await this.refreshBridgeConfig();
-
     const storedAuth = this.authStore.getAuth();
-    if (!storedAuth) {
-      this.view.setConnectionState('locked', 'Bridge is ready, but this browser is locked.');
+    if (!shouldProbeCodexBridge(storedAuth)) {
+      this.view.setHealthSummary(buildDeferredBridgeHealthSummary(this.bridgeMode, this.client.getBridgeOrigin()));
+      this.view.setConnectionState('locked', buildLockedBridgeStatus(this.bridgeMode));
       this.view.focusPassword();
       return;
     }
 
+    await this.refreshBridgeConfig();
     await this.adoptAuth(storedAuth, 'Restoring the last short-lived unlock token.');
   }
 
@@ -176,6 +176,7 @@ export class CodexTerminalPage {
   private readonly handleManualLock = async () => {
     const currentToken = this.auth?.authToken;
     this.clearAuthState();
+    this.view.setHealthSummary(buildDeferredBridgeHealthSummary(this.bridgeMode, this.client.getBridgeOrigin()));
     this.view.setLockState(true, 'Locked. Enter the password to unlock this browser again.');
     this.view.setConnectionState('locked', 'Browser session locked.');
     this.view.focusPassword();
@@ -220,8 +221,7 @@ export class CodexTerminalPage {
       canLock: false
     });
     this.view.setLockState(true, `Switched to ${bridgeModeLabelMap[mode]}. Unlock again to open the terminal.`);
-    this.view.setConnectionState('starting', `Checking the ${bridgeModeLabelMap[mode]} route.`);
-    await this.refreshBridgeConfig();
+    this.view.setHealthSummary(buildDeferredBridgeHealthSummary(this.bridgeMode, this.client.getBridgeOrigin()));
     this.view.setConnectionState('locked', `${bridgeModeLabelMap[mode]} is selected. Unlock to connect.`);
     this.view.focusPassword();
   };
@@ -281,6 +281,7 @@ export class CodexTerminalPage {
 
   private readonly handleAuthExpired = (detail: string) => {
     this.clearAuthState();
+    this.view.setHealthSummary(buildDeferredBridgeHealthSummary(this.bridgeMode, this.client.getBridgeOrigin()));
     this.view.setTerminalInputEnabled(false);
     this.view.setActionAvailability({
       canConnect: false,

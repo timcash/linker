@@ -25,6 +25,8 @@ export type DemoPreset =
   | 'dag-rank-fanout'
   | 'editor-lab';
 
+export const STAGE_ONBOARDING_COMPLETION_STORAGE_KEY = 'linker.onboarding.complete.v1';
+
 export type StageConfig = {
   benchmarkTraceStepCount: number;
   benchmarkEnabled: boolean;
@@ -36,6 +38,7 @@ export type StageConfig = {
   layoutStrategy: LayoutStrategy;
   labelTargetCount: number;
   lineStrategy: LineStrategy;
+  onboardingEnabled: boolean;
   requestedStageMode: StageMode | null;
   requestedWorkplaneId: WorkplaneId | null;
   stageMode: StageMode;
@@ -62,7 +65,8 @@ const MANAGED_STAGE_ROUTE_PARAM_KEYS = [
 export function readStageConfig(search: string): StageConfig {
   const params = new URLSearchParams(search);
   const labelSetKind: LabelSetKind = params.get('labelSet') === 'benchmark' ? 'benchmark' : 'demo';
-  const demoPreset = parseDemoPreset(params, labelSetKind);
+  const onboardingEnabled = resolveOnboardingEnabled(params, labelSetKind);
+  const demoPreset = parseDemoPreset(params, labelSetKind, onboardingEnabled);
   const layoutStrategy = parseLayoutStrategy(params.get('layoutStrategy'));
   const lineStrategy = parseLineStrategy(params.get('lineStrategy'));
   const requestedStageMode = parseRequestedStageMode(params.get('stageMode'));
@@ -93,9 +97,10 @@ export function readStageConfig(search: string): StageConfig {
     layoutStrategy,
     labelTargetCount,
     lineStrategy,
+    onboardingEnabled,
     requestedStageMode,
     requestedWorkplaneId: parseWorkplaneId(params.get('workplane')),
-    stageMode: requestedStageMode ?? DEFAULT_STAGE_MODE,
+    stageMode: requestedStageMode ?? (onboardingEnabled ? '2d-mode' : DEFAULT_STAGE_MODE),
     textStrategy: parseTextStrategy(params.get('textStrategy')),
   };
 }
@@ -157,6 +162,7 @@ function parseTextStrategy(value: string | null): TextStrategy {
 function parseDemoPreset(
   params: URLSearchParams,
   labelSetKind: LabelSetKind,
+  onboardingEnabled: boolean,
 ): DemoPreset {
   if (labelSetKind === 'benchmark') {
     return 'classic';
@@ -171,6 +177,10 @@ function parseDemoPreset(
     requestedPreset === 'editor-lab'
   ) {
     return requestedPreset;
+  }
+
+  if (onboardingEnabled) {
+    return 'dag-empty';
   }
 
   return hasClassicDemoRouteHints(params) ? 'classic' : 'dag-rank-fanout';
@@ -225,6 +235,62 @@ function hasClassicDemoRouteHints(params: URLSearchParams): boolean {
     params.has('demoLayers') ||
     params.has('layoutStrategy')
   );
+}
+
+function resolveOnboardingEnabled(
+  params: URLSearchParams,
+  labelSetKind: LabelSetKind,
+): boolean {
+  if (labelSetKind !== 'demo') {
+    return false;
+  }
+
+  const requestedOnboarding = params.get('onboarding');
+
+  if (requestedOnboarding === '0') {
+    return false;
+  }
+
+  if (requestedOnboarding === '1') {
+    return true;
+  }
+
+  const hostname =
+    typeof window === 'undefined'
+      ? ''
+      : window.location.hostname;
+
+  if (hasExplicitRoutePreset(params) || !isGitHubPagesHost(hostname)) {
+    return false;
+  }
+
+  return !hasCompletedOnboarding();
+}
+
+function hasExplicitRoutePreset(params: URLSearchParams): boolean {
+  return (
+    params.has('cameraLabel') ||
+    params.has('demoLayers') ||
+    params.has('demoPreset') ||
+    params.has('stageMode') ||
+    params.has('workplane')
+  );
+}
+
+function hasCompletedOnboarding(): boolean {
+  if (typeof window === 'undefined') {
+    return false;
+  }
+
+  try {
+    return window.localStorage.getItem(STAGE_ONBOARDING_COMPLETION_STORAGE_KEY) === '1';
+  } catch {
+    return false;
+  }
+}
+
+function isGitHubPagesHost(hostname: string): boolean {
+  return hostname.endsWith('.github.io');
 }
 
 function updateRouteSearchParams(

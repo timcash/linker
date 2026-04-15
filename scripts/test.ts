@@ -15,9 +15,11 @@ import {runAuthPageSmokeFlow} from './test/auth-page-smoke';
 import {runBootFlow} from './test/boot';
 import {runCodexPageSmokeFlow} from './test/codex-page-smoke';
 import {runDagControlPadFlow} from './test/dag-control-pad';
+import {runDagNetworkBuildFlow} from './test/dag-network-build';
 import {runDagRankFanoutFlow} from './test/dag-rank-fanout';
 import {runDagViewSmokeFlow} from './test/dag-view-smoke';
 import {runDagZoomJourneyFlow} from './test/dag-zoom-journey';
+import {runOnboardingWalkthroughFlow} from './test/onboarding-walkthrough';
 import {runReadmePreviewSmokeFlow} from './test/readme-preview-smoke';
 import {runTasksDashboardSmokeFlow} from './test/tasks-dashboard-smoke';
 import {
@@ -30,10 +32,12 @@ type BrowserFlowName =
   | 'boot'
   | 'codex-page-smoke'
   | 'dag-control-pad'
+  | 'dag-network-build'
   | 'dag-rank-fanout'
   | 'dag-view-smoke'
   | 'dag-zoom-journey'
   | 'full'
+  | 'onboarding-walkthrough'
   | 'readme-preview-smoke'
   | 'tasks-dashboard-smoke';
 type CliOptions = {
@@ -159,6 +163,18 @@ async function runSelectedBrowserFlows(
     return;
   }
 
+  if (options.flow === 'dag-network-build') {
+    context.addBrowserLog('test', `Running focused browser flow ${options.flow}.`);
+    await runDagNetworkBuildFlow(context);
+    return;
+  }
+
+  if (options.flow === 'onboarding-walkthrough') {
+    context.addBrowserLog('test', `Running focused browser flow ${options.flow}.`);
+    await runOnboardingWalkthroughFlow(context);
+    return;
+  }
+
   if (options.flow === 'dag-rank-fanout') {
     context.addBrowserLog('test', `Running focused browser flow ${options.flow}.`);
     await runDagRankFanoutFlow(context);
@@ -197,6 +213,8 @@ async function runSelectedBrowserFlows(
 
   await runDagViewSmokeFlow(context);
   await runDagControlPadFlow(context);
+  await runDagNetworkBuildFlow(context);
+  await runOnboardingWalkthroughFlow(context);
   await runDagRankFanoutFlow(context);
   await runDagZoomJourneyFlow(context);
   await runCodexPageSmokeFlow(context);
@@ -224,10 +242,12 @@ function parseCliOptions(args: string[]): CliOptions {
         requestedFlow === 'boot' ||
         requestedFlow === 'codex-page-smoke' ||
         requestedFlow === 'dag-control-pad' ||
+        requestedFlow === 'dag-network-build' ||
         requestedFlow === 'dag-rank-fanout' ||
         requestedFlow === 'dag-view-smoke' ||
         requestedFlow === 'dag-zoom-journey' ||
         requestedFlow === 'full' ||
+        requestedFlow === 'onboarding-walkthrough' ||
         requestedFlow === 'auth-page-smoke' ||
         requestedFlow === 'readme-preview-smoke' ||
         requestedFlow === 'tasks-dashboard-smoke'
@@ -238,7 +258,7 @@ function parseCliOptions(args: string[]): CliOptions {
       }
 
       throw new Error(
-        `Unsupported --flow value "${requestedFlow ?? ''}". Expected one of: full, boot, codex-page-smoke, dag-view-smoke, dag-control-pad, dag-rank-fanout, dag-zoom-journey, auth-page-smoke, tasks-dashboard-smoke, readme-preview-smoke.`,
+        `Unsupported --flow value "${requestedFlow ?? ''}". Expected one of: full, boot, codex-page-smoke, dag-view-smoke, dag-control-pad, dag-network-build, onboarding-walkthrough, dag-rank-fanout, dag-zoom-journey, auth-page-smoke, tasks-dashboard-smoke, readme-preview-smoke.`,
       );
     }
 

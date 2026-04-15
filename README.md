@@ -2,134 +2,48 @@
 
 Linker is a `luma.gl` + WebGPU DAG workplane viewer and editor with aligned `12x12x12` label grids, `rank/lane/depth` 3D navigation, a compact mobile-style control pad, and a browser `/codex` terminal page that can talk to a locally hosted bridge through Cloudflare.
 
-## 0. Target Workflow
+## 1. Live Onboarding
 
-Linker is moving from a stacked workplane editor toward a DAG workplane tool. The target build workflow is test-first and slice-based. Use this README for the short working loop, and use [PLAN.md](PLAN.md) for the full DAG architecture, test ladder, screenshot contract, and renderer performance plan.
+First-time GitHub Pages visits now boot from `demoPreset=dag-empty` and replace the top stats strip with an `onboard-panel`. The guided run uses the same visible control-pad buttons and label input that Linker exposes to the user:
 
-The supervised agent loop now also supports an isolated worker `git worktree` so the worker can edit and run checks without touching the main tree:
+- create and rename a local label stack on the root workplane
+- create, remove, and clear a local label selection and local link
+- demonstrate `child`, `parent`, and leaf `delete` DAG CRUD
+- build the full `1-4-4-3` twelve-workplane DAG from zero data
+- move a leaf across `rank`, `lane`, and `depth`, then settle it back onto the rails
+- enter `3d-mode`, orbit and zoom the graph, switch selected workplanes, and flip link/text styles
+- finish on the root-focused 3D DAG overview
 
-```powershell
-.\agent.ps1 -Worktree -Once -Browser
-```
+Current proven invariant:
 
-After a run, review the worker diff bundle and apply it back to root only if it looks right:
+- `npm run test:browser:onboarding` is green for the hosted-style introduction
+- `npm run test:browser:dag-network-build` is green for the canonical zero-data 2D + 3D interaction proof
+- `npm run test:dag:static` is green for pure DAG validation, layout, edge, and model mutation rules
+- `npm run build:pages` is green for the deployable GitHub Pages bundle
 
-```powershell
-# inspect the latest run folder under .codex-loop\runs\<run-id>\
-.\agent.ps1 -PromoteRun <run-id>
-```
+Replay and skip:
 
-That loop is task-driven now: every run writes `.codex-loop/current-task.json`, `.codex-loop/current-task.md`, and `.codex-loop/next-task-ideas.md` so the worker and monitor stay on one explicit job at a time. The loop is expected to review `README.md` and `PLAN.md` first, then leave behind a per-run `monitor-steps.md` checklist confirming README review, PLAN review, test-first progress, code usage in tests, logs review, screenshot review, and scope control. All local test and loop logging now rolls into the root `test.log`, including Vite server output, Puppeteer browser console/page errors, smoke-test output, GitHub Pages live-smoke output, and agent-loop worker/monitor command logs. The per-run `check-results.json` file now also records which required docs were updated so the monitor can verify docs sync directly instead of inferring it from the diff, and focused browser commands now judge unexpected structured errors only from their own session so earlier exploratory failures do not poison later loop checks.
+- the hosted root auto-runs onboarding on a true first visit
+- `?onboarding=1` forces a replay
+- `?onboarding=0` skips the intro and boots the regular DAG route
+- after a completion or a skip, Linker stores a local completion flag and later hosted visits return to the normal DAG overview
 
-The repo now also has a `/tasks` route for reviewing the loop itself. It renders HTML tables from `public/tasks-data.json` and shows:
-
-- the current loop state and active task packet
-- the task ladder and next task ideas
-- run history with worker status, monitor decision, local browser smoke, and live GitHub Pages smoke
-- every monitor review step and its evidence
-
-You can smoke-test that route directly with:
-
-```bash
-npm run test:browser:tasks
-```
-
-The repo also now has a `/readme` route that renders `README.md` in a live preview shell with the same typography direction used by `cad-pga`, so repo notes can be checked in-browser instead of only in GitHub markdown.
-
-The repo also now has an `/auth` route that mirrors the `cad-pga` Legion Cloudflare Access pattern: keep the page static, pick local or remote origin modes, trigger Cloudflare Access with an authorize button, and verify the session route from the browser.
-
-The repo also now has a `/codex` route that stays static on GitHub Pages while talking to a local PTY-backed bridge through a direct bridge URL or the `linker.dialtone.earth` tunnel. The route is covered by a bridge HTTP test and a browser smoke test so the locked terminal shell, docs navigation, and local proxy wiring do not drift.
-
-The current loop rule is stricter now: every worker iteration should also update `README.md` and `PLAN.md` so the docs stay in sync with the latest code, tests, monitor findings, and next-step guidance.
+Focused working loop:
 
 ```bash
-# DAG target workflow from PLAN.md
-
-# 1. Pick one slice from PLAN.md and keep the smallest test green first.
-npm run test:dag:static                           # green now for pure DAG model/layout/edge/LOD slices
+npm run test:dag:static
 npm run lint
-
-# 2. Prove the first DAG render slice.
-npm run test:browser -- --flow dag-view-smoke     # green now for the focused seeded DAG render flow
-npm run lint
-
-# 3. Prove the DAG control-pad slice.
-npm run test:browser -- --flow dag-control-pad    # green now for the first zero-data DAG authoring flow
-npm run lint
-
-# 4. Prove the twelve-workplane rank-fanout slice.
-npm run test:browser -- --flow dag-rank-fanout    # green now for the zero-data 12-workplane rank fanout flow
-npm run test:browser:dag-rank-fanout:open         # watch the same flow end to end and leave the browser open on the final DAG overview
-npm run lint
-
-# 5. Prove the DAG zoom journey and screenshot bands.
-npm run test:browser -- --flow dag-zoom-journey   # green now for the geometry-driven DAG zoom journey and screenshot flow
-npm run lint
-
-# 6. Prove the canonical DAG source-of-truth flow.
-npm run test:browser -- --flow dag-network-build  # target later zero-data DAG build flow
-npm run lint
-
-# 7. At milestone boundaries, run the broader repo checks.
+npm run test:browser:onboarding
+npm run test:browser:dag-network-build
+npm run test:browser:dag-rank-fanout
 npm run test:browser
-npm run build
+npm run build:pages
+npm run test:live -- --url https://timcash.github.io/linker/ --expect-onboarding
 ```
 
-The commands above are the target DAG workflow described in [PLAN.md](PLAN.md). The currently available repo commands are listed below.
+Use [PLAN.md](PLAN.md) for the full slice ledger, the zero-data interaction checklist, the screenshot contract, and the next narrow DAG task.
 
-Current DAG slice status:
-
-- `Slice 1` DAG validation primitives are green through `npm run test:dag:static`
-- `Slice 2` integer DAG layout is green through `npm run test:dag:static`
-- `Slice 3` DAG edge geometry is green through `npm run test:dag:static`
-- `Slice 4` canonical five-workplane network fixture is green through `npm run test:dag:static`
-- `Slice 5` DAG view smoke coverage is green through `npm run test:browser -- --flow dag-view-smoke`
-- `Slice 6` projected LOD reconstruction and browser-exported LOD counts are green through `npm run test:dag:static` and `npm run test:browser -- --flow dag-view-smoke`
-- `Slice 7` first DAG control-pad authoring coverage is green through `npm run test:browser -- --flow dag-control-pad`
-- `Slice 8` focused twelve-workplane rank-fanout coverage is green through `npm run test:browser -- --flow dag-rank-fanout`
-- `Slice 9` geometry-driven DAG zoom journey coverage is green through `npm run test:browser -- --flow dag-zoom-journey`
-
-Current checkpoint:
-
-- the default root route now boots the `dag-rank-fanout` twelve-workplane dataset in `3d-mode`; the old `workplane-showcase` preset is gone from the runtime and the old legacy browser flows have been removed from the repo
-- the pure DAG model, layout, edge geometry, and canonical five-workplane fixture are in place
-- the browser can now boot the canonical DAG fixture, switch to `3d-mode`, render `5` DAG workplanes plus `6` DAG edges, and keep workplane selection stable
-- the DAG browser data contract now exports `dagRootWorkplaneId`, `dagNodeCount`, `dagEdgeCount`, active DAG position fields, visible DAG counts, `dagLayoutFingerprint`, and the active LOD count fields `dagFullWorkplaneCount`, `dagLabelPointWorkplaneCount`, `dagTitleOnlyWorkplaneCount`, and `dagGraphPointWorkplaneCount`
-- the focused browser harness now waits for those four exported LOD count fields whenever DAG data is present, so the seeded DAG smoke does not race the graph-point dataset contract
-- projected workplane spans now classify close, mid, far, and universe LOD states, and the canonical DAG fixture now buckets nodes deterministically in pure tests
-- the DAG presentation camera now uses geometry-driven orbit targeting, graph-distance brightness falloff, and a DAG-specific base viewing angle so `3d-mode` opens in a readable `title-only` band and zooms smoothly toward `label-points` and `full-workplane`
-- the 3D DAG text layer now preloads the richer DAG character set so zooming from graph titles into point markers and dense local workplane text does not lose glyphs mid-flight
-- the current DAG smoke is still fixture-seeded through `openRouteWithBootState(...)`; it does not yet build the DAG step by step from an empty document with buttons and hotkeys only
-- `demoPreset=dag-empty` now boots a real empty-root DAG through the normal route, `dag-control-pad` still proves the first four-workplane authoring slice, and `dag-rank-fanout` now grows the same empty route into a `1-4-4-3` twelve-workplane DAG with buttons and hotkeys only
-- `npm run test:browser:dag-rank-fanout:open` now runs the same end-to-end authored build and leaves Chrome open on the final `3d-mode` DAG overview for manual inspection
-- DAG browser datasets now also export control availability for `focus root`, `new child`, `add parent`, and the `rank/lane/depth` moves, plus a stable layout fingerprint for the larger twelve-workplane fanout
-- `dag-zoom-journey` now captures the five-step screenshot proof for `graph-point`, `title-only`, `label-points`, `full-workplane`, and the final `2d-mode` workplane focus return
-- `/codex/` now has a local bridge test, a browser smoke flow, a deployable static entry point, and example local env settings in `.env.codex.local.example`
-
-What to do next:
-
-1. Promote the focused `dag-rank-fanout` proof into `dag-network-build` once workplane naming, local content authoring, and dependency-edit coverage are stable enough to become the canonical product flow.
-2. Keep using `rank`, `lane`, and `depth` as the UX terms, and use `rank slice`, `child fanout`, and `autoplacement` for the larger authored layout rules.
-3. Split the browser work cleanly:
-   keep `dag-view-smoke` for seeded render and LOD coverage
-   keep `dag-control-pad` for zero-data authoring coverage
-   keep `dag-rank-fanout` for the zero-data `1-4-4-3` authoring proof
-   keep `dag-zoom-journey` for screenshot-backed camera, LOD, and text-density coverage
-   add `dag-network-build` only once the larger authoring path is stable enough to be the canonical product flow
-4. Keep the focused loop narrow:
-   `npm run test:dag:static`
-   `npm run lint`
-   `npm run test:browser:boot`
-   `npm run test:browser:codex`
-   `npm run test:codex:bridge`
-   `npm run test:browser -- --flow dag-control-pad`
-   `npm run test:browser -- --flow dag-rank-fanout`
-   `npm run test:browser:dag-rank-fanout:open`
-   `npm run test:browser -- --flow dag-zoom-journey`
-   `npm run test:browser -- --flow dag-view-smoke`
-   `npm run test:live -- --url https://timcash.github.io/linker/`
-
-## 1. Screenshot and Links
+## 2. Screenshot and Links
 
 <!-- README_SHOWCASE:START -->
 
@@ -145,7 +59,7 @@ What to do next:
 - Live root: [timcash.github.io/linker](https://timcash.github.io/linker/)
 - GitHub repository: [github.com/timcash/linker](https://github.com/timcash/linker)
 
-Each screenshot opens a live route backed by the current DAG-first boot path or the `/codex/` terminal page.
+The live root now opens into the automated onboarding walkthrough on a first visit, then settles on the same DAG-first product path shown in the screenshots below.
 <!-- README_SHOWCASE:END -->
 
 Local dev URL: `http://127.0.0.1:5173/`
@@ -160,6 +74,7 @@ Docs routes:
 To choose the dataset and focused label on the live page, only change these query params:
 
 ```text
+onboarding=0|1
 demoPreset=classic|dag-empty|dag-rank-fanout|editor-lab
 cameraLabel=workplane-id:layer:row:column
 ```
@@ -186,7 +101,7 @@ npm run codex:daemon:status
 npm run codex:tunnel
 ```
 
-## 2. Command Line Interface
+## 3. Command Line Interface
 
 ```bash
 npm install --legacy-peer-deps
@@ -208,6 +123,8 @@ npm run test:browser:boot
 npm run test:browser:auth
 npm run test:browser:codex
 npm run test:browser:dag-control-pad
+npm run test:browser:dag-network-build
+npm run test:browser:onboarding
 npm run test:browser:dag-rank-fanout
 npm run test:browser:dag-rank-fanout:open
 npm run test:browser:dag-zoom-journey
@@ -219,6 +136,7 @@ npm run test:codex:bridge
 npm run test:browser
 npm run test:preview
 npm run test:live -- --url https://timcash.github.io/linker/
+npm run test:live -- --url https://timcash.github.io/linker/ --expect-onboarding
 npm run test:live -- --url https://timcash.github.io/linker/codex/
 npm run test:live -- --url https://timcash.github.io/linker/ --allow-unsupported
 npm test
@@ -227,7 +145,7 @@ npm run perf:trace -- --stage-mode 3d-mode --label-set benchmark --label-count 4
 npm run perf:orbit-stutter -- --label-set benchmark --label-count 4096 --segment-count 3
 ```
 
-## 3. Domain Language
+## 4. Domain Language
 
 - `label key`: the canonical id format `workplane-id:layer:row:column`, for example `wp-3:2:6:12`
 - `workplane id`: the `wp-N` id for one workplane
@@ -254,10 +172,12 @@ npm run perf:orbit-stutter -- --label-set benchmark --label-count 4096 --segment
 - `DAG rails`: the snapped integer `rank/lane/depth` placement grid used in `3d-mode`
 - `control pad section`: one named container inside the 3x3 bottom pad: `navigate`, `stage`, `dag`, or `edit`
 - `status strip`: the compact live table at the top of the screen
+- `onboard panel`: the guided walkthrough panel that temporarily replaces the status strip on first-run GitHub Pages visits
 
-## 4. UI Panels
+## 5. UI Panels
 
 - `status strip`: the top telemetry table with the live stage stats
+- `onboard panel`: the temporary top panel used during the automated first-run walkthrough; it replaces the status strip until the intro completes or is dismissed
 - `navigate controls`: the default bottom 3x3 container for zoom and movement
 - `stage controls`: the bottom 3x3 container for `2d-mode`, `3d-mode`, workplane switching, and root focus when a DAG is active
 - `dag controls`: the bottom 3x3 container for `child`, `parent`, and `rank/lane/depth` DAG placement moves
@@ -265,20 +185,21 @@ npm run perf:orbit-stutter -- --label-set benchmark --label-count 4096 --segment
 - `toggle button`: the bottom-right button that cycles `navigate -> stage -> edit` for linear docs and `navigate -> stage -> dag -> edit` when a DAG is active
 - `editor overlays`: the selection box, ranked-selection badges, and ghost-slot markers drawn over the canvas
 
-## 5. Code Index
+## 6. Code Index
 
 - `src/main.ts`: app entry point
 - `src/auth-page.ts`: Cloudflare Access auth/status route modeled on the cad-pga Legion page
 - `src/codex-page.ts`: `/codex/` route shell that mounts the codex terminal UI inside the shared docs navigation
+- `src/codex/CodexBridgePolicy.ts`: locked-shell probe policy and copy helpers for the `/codex/` route
 - `src/codex/CodexTerminalPage.ts`: codex route controller for unlock state, bridge mode, and terminal session lifecycle
 - `src/codex/CodexTerminalClient.ts`: browser bridge client for HTTP auth, health, and WebSocket terminal traffic
 - `src/codex/CodexTerminalView.ts`: xterm.js-backed codex route DOM and terminal surface
 - `src/readme-page.ts`: live markdown preview route for `README.md`
 - `src/app.ts`: WebGPU boot, plane-stack state, input handling, render loop, and dataset exports
 - `src/style.css`: static overlay grid for the status strip, fullscreen canvas, and bottom control pad
-- `src/stage-chrome.ts`: DOM shell for the status strip and 3x3 control pad
+- `src/stage-chrome.ts`: DOM shell for the status strip, `onboard-panel`, and 3x3 control pad
 - `src/stage-panels.ts`: sync logic for the `navigate`, `stage`, `dag`, and `edit` control containers
-- `src/stage-config.ts`: query parsing for `demoPreset` and `cameraLabel`
+- `src/stage-config.ts`: query parsing for `demoPreset`, `cameraLabel`, and hosted onboarding
 - `src/stage-session.ts`: boot hydration and default dataset selection
 - `src/plane-stack.ts`: document/session helpers across workplanes
 - `src/dag-document.ts`: DAG document types, validation helpers, and topological checks
@@ -305,6 +226,8 @@ npm run perf:orbit-stutter -- --label-set benchmark --label-count 4096 --segment
 - `scripts/test.ts`: browser test entry point
 - `scripts/test/codex-page-smoke.ts`: focused `/codex/` browser route proof
 - `scripts/test/dag-control-pad.ts`: focused zero-data DAG authoring flow
+- `scripts/test/dag-network-build.ts`: canonical zero-data end-to-end DAG interaction flow across 2D workplane CRUD and 3D DAG CRUD
+- `scripts/test/onboarding-walkthrough.ts`: first-run hosted onboarding proof from an empty root to the final twelve-workplane 3D DAG
 - `scripts/test/dag-rank-fanout.ts`: focused zero-data twelve-workplane rank-fanout authoring flow
 - `scripts/test/dag-zoom-journey.ts`: screenshot-backed DAG zoom-band and 3D-to-2D return proof
 - `scripts/test-dag-static.ts`: focused static DAG command entry point

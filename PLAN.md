@@ -61,14 +61,37 @@ Research snapshot: 2026-04-15
   - added deploy-ready `/codex/` coverage through `scripts/test/codex-page-smoke.ts`, `scripts/test-codex-bridge.ts`, `server/index.ts`, and `build:pages`
   - green commands: `npm run lint`, `npm run build:pages`, `npm run test:browser:boot`, `npm run test:browser:codex`, `npm run test:browser:dag-rank-fanout`, and `npm run test:codex:bridge`
   - invariant: the repo now builds and boots around the twelve-workplane DAG as the primary path, and the static `/codex/` route is deployable alongside the main GitHub Pages site
+- `Slice 11` complete:
+  - added `src/codex/CodexBridgePolicy.ts`
+  - updated `src/codex/CodexTerminalPage.ts` to defer bridge probes until an unlock token exists
+  - tightened `scripts/test/codex-page-smoke.ts` and `scripts/test/unit.ts`
+  - green commands: `npm run test:browser:codex`, `npm run test:dag:static`, and `npm run lint`
+  - invariant: the locked `/codex/` route now renders cleanly without probing `/api/codex/*` or `/codex-bridge` before unlock, so GitHub Pages can load the terminal shell even when the bridge or tunnel is offline
+- `Slice 12` complete:
+  - added safe leaf-DAG delete behavior in `src/plane-stack.ts`, `src/stage-panels.ts`, and `src/app.ts`
+  - added the first canonical zero-data browser flow in `scripts/test/dag-network-build.ts`
+  - registered the new flow in `scripts/test.ts` and `package.json`
+  - tightened `scripts/test/unit.ts` and `scripts/test/boot.ts`
+  - green commands: `npm run test:browser -- --flow dag-network-build`, `npm run test:browser:boot`, `npm run test:dag:static`, `npm run lint`, and `npm run build:pages`
+  - invariant: starting from `demoPreset=dag-empty`, the browser test can now build up local labels and a multi-workplane DAG using only clicks, typing, and hotkeys, and it can safely delete leaf DAG workplanes without breaking DAG validity
+- `Slice 13` complete:
+  - added hosted first-run onboarding detection in `src/stage-config.ts`
+  - added the `onboard-panel` shell in `src/stage-chrome.ts` and `src/style.css`
+  - added the scripted empty-root walkthrough in `src/app.ts` and exported onboarding datasets in `src/stage-snapshot.ts`
+  - added workplane-id reuse after deleting the highest-numbered leaf in `src/plane-stack.ts` with static coverage in `scripts/test/unit.ts`
+  - added focused browser proof `scripts/test/onboarding-walkthrough.ts` plus live-smoke assertions in `scripts/test/smoke.ts` and `scripts/test-live.ts`
+  - green commands: `npm run test:browser:onboarding`, `npm run test:browser:dag-network-build`, `npm run test:dag:static`, `npm run build:pages`, and `npm run test:browser`
+  - invariant: a first-run GitHub Pages visit can now start from an empty root, replace the stats strip with the `onboard-panel`, author the full `1-4-4-3` DAG through visible controls, and finish on the root-focused 3D overview
 
 Current limitation to keep explicit:
 
 - the current DAG browser proof is still fixture-seeded with `openRouteWithBootState(...)`
 - the first button-only DAG authoring proof still exists through `demoPreset=dag-empty` and `scripts/test/dag-control-pad.ts`; it remains the small-slice control test
 - the new `scripts/test/dag-rank-fanout.ts` flow proves the larger twelve-workplane `1-4-4-3` build, but it is still a shape-only authoring proof rather than the canonical named network scenario
-- there is not yet a canonical `dag-network-build` browser test covering workplane naming, local content authoring, dependency editing beyond parent-child spawn, style switches, and screenshot capture in one flow
-- GitHub Pages still needs a post-push verification pass on both `/` and `/codex/` whenever the default DAG boot path or codex bridge client changes
+- the new `dag-network-build` flow now covers zero-data local-label CRUD, workplane add/delete, strategy switches, and 2D/3D mode transitions in one tab, but it still does not cover direct 3D picking or explicit DAG edge create/remove between already-existing workplanes
+- the hosted onboarding intro is now green locally and in the production Pages bundle, but every publish still needs the explicit live pass `npm run test:live -- --url https://timcash.github.io/linker/ --expect-onboarding`
+- the live `/codex/` page now fails gracefully while locked, but it is not yet interactive on GitHub Pages because this machine still lacks the real `.env.codex.local` tunnel and password configuration
+- GitHub Pages still needs a post-push verification pass on both `/` with onboarding and `/codex/` whenever the default DAG boot path or codex bridge client changes
 
 ## DAG Domain Language
 
@@ -82,15 +105,67 @@ Current limitation to keep explicit:
 - use `rank/lane/depth` in UI copy, tests, and prompts even if internal helpers still use `column/row/layer`
 - avoid `workplane-layer` in UX because `layer` already means a local authored label layer inside one workplane
 
+## Hosted Onboarding Checklist
+
+- `[x]` a first-run GitHub Pages visit boots from one empty root workplane instead of the authored DAG overview
+- `[x]` the `onboard-panel` replaces the top stats strip while the guided run is active
+- `[x]` the guided run types into the label input and clicks the visible control-pad buttons instead of seeding a hidden document
+- `[x]` the guided run demonstrates local label CRUD, DAG CRUD, `rank/lane/depth`, stage mode changes, workplane navigation, and style changes
+- `[x]` the guided run finishes on the twelve-workplane `1-4-4-3` 3D DAG overview with the root reselected
+- `[x]` `onboarding=1` forces a replay and `onboarding=0` bypasses the intro
+
+## Zero-Data Interaction Checklist
+
+### 2D Workplane View
+
+- `[x]` boot one empty root workplane from `demoPreset=dag-empty`
+- `[x]` create a local label stack from a ghost slot with the visible `Select/Create` button
+- `[x]` create a local label stack from a ghost slot with the `Enter` hotkey
+- `[x]` rename the focused label by typing into the label input and saving
+- `[x]` move the local cursor across labels and ghost slots with arrow-key navigation
+- `[x]` toggle ranked selection with both the button path and the `Enter` hotkey
+- `[x]` create a local link between selected labels
+- `[x]` remove a local link from the keyboard path
+- `[x]` clear the local selection
+- `[x]` remove a local label stack
+- `[x]` switch between workplanes and prove local label text persists per workplane
+- `[ ]` create labels by clicking the ghost overlay directly instead of only using the control pad and hotkeys
+
+### 3D DAG View
+
+- `[x]` create child workplanes from zero data with both button and hotkey paths
+- `[x]` delete a leaf DAG workplane safely and keep the DAG valid
+- `[x]` focus the root workplane again after moving through the graph
+- `[x]` move workplanes across `rank`, `lane`, and `depth`
+- `[x]` insert a parent workplane into an existing dependency chain
+- `[x]` enter `3d-mode`
+- `[x]` move the 3D DAG camera with visible controls and keyboard controls
+- `[x]` switch selected workplanes while staying in `3d-mode`
+- `[x]` change line strategy in `3d-mode` with both button and hotkey paths
+- `[x]` change text strategy in `3d-mode` with both button and hotkey paths
+- `[x]` return from `3d-mode` to `2d-mode` and restore the root workplane
+- `[ ]` pick workplanes directly from the 3D scene with pointer interaction
+- `[ ]` create a DAG edge between two already-existing workplanes without using `spawn child` or `insert parent`
+- `[ ]` remove a DAG edge between already-existing workplanes
+- `[ ]` delete a non-leaf DAG workplane with explicit reconnect or repair semantics
+
 ## Immediate Next Slice
 
-- `Slice:` 11
-- `Intent:` promote the focused twelve-workplane rank-fanout proof into the canonical named network DAG build flow while keeping GitHub Pages smoke on `/` and `/codex/`
-- `Own Files:` optional new `scripts/test/dag-network-build.ts`, `scripts/test/dag-rank-fanout.ts`, `src/plane-stack.ts`, `src/stage-chrome.ts`, `src/stage-panels.ts`, `src/app.ts`, `src/stage-snapshot.ts`, `scripts/test/browser.ts`, `README.md`, and `PLAN.md`
-- `First Focused Command:` `npm run test:browser -- --flow dag-rank-fanout`
+- `Slice:` 14
+- `Intent:` finish the remaining zero-data DAG interaction gaps by adding direct 3D picking and explicit DAG edge CRUD between existing workplanes
+- `Own Files:` `src/app.ts`, `src/stage-chrome.ts`, `src/stage-panels.ts`, `src/plane-stack.ts`, `scripts/test/dag-network-build.ts`, `scripts/test/browser.ts`, `README.md`, and `PLAN.md`
+- `First Focused Command:` `npm run test:browser -- --flow dag-network-build`
+- `Hosted Intro Guardrail:` `npm run test:browser:onboarding`
+- `Bridge Guardrail Command:` `npm run test:browser:codex`
 - `Second Focused Command:` `npm run test:dag:static`
 - `Datasets:` boot through `demoPreset=dag-empty`; do not seed the DAG structure with `openRouteWithBootState(...)`
-- `Artifacts:` none yet; hold screenshot work until the twelve-workplane flow is stable enough to become the canonical product path
+- `Artifacts:` keep using the step screenshots emitted by `dag-network-build` and `onboarding-walkthrough` while the interaction checklist closes
+
+Operational follow-up that stays separate from Slice 13:
+
+- create the real `.env.codex.local`
+- start `npm run codex:daemon:start` or `npm run codex:tunnel`
+- verify the live GitHub Pages `/codex/` route can reach the bridge origin without CORS or `404` failures
 
 Loop alignment rule for this and later slices:
 
@@ -101,7 +176,7 @@ Loop alignment rule for this and later slices:
 - the `/tasks` route should stay readable as the loop source of truth for task status, run history, command checks, and monitor review evidence
 - the `/tasks` route should stay browser-smoke-tested so loop visibility does not drift from the real run artifacts
 
-Slice 6 through 9 working notes:
+Historical working notes:
 
 - pure helpers are now green:
   - `resolveWorkplaneLod(projectedPlaneSpanPx)`
@@ -133,26 +208,25 @@ Slice 6 through 9 working notes:
   - the larger layout now exports one stable twelve-workplane `dagLayoutFingerprint`
   - the same flow can now be run with `--keep-open` to leave Chrome open on the final `3d-mode` overview for manual inspection
 
-Current task ladder for Slice 11:
+Current task ladder for Slice 14:
 
-1. `promote-rank-fanout-to-dag-network-build`
-   - keep the flow in one browser tab
-   - reuse the green twelve-workplane authoring proof as the base route and navigation skeleton
-2. `settle-network-naming-and-local-content`
-   - name the authored workplanes and add the representative local labels needed for the network scenario
-   - keep the UX language and datasets on `rank/lane/depth`, `rank slice`, `child fanout`, and `autoplacement`
-3. `promote-to-canonical-build-flow`
-   - add the remaining dependency-edit, style, LOD, and screenshot coverage only after the authored network path is stable enough to become the source-of-truth product path
+1. `keep-onboarding-and-zero-data-green`
+   - keep `npm run test:browser:onboarding`, `npm run test:browser:dag-network-build`, and `npm run test:live -- --url https://timcash.github.io/linker/ --expect-onboarding` green while the next DAG interaction slice lands
+2. `direct-3d-picking`
+   - let the user pick a workplane directly from the 3D DAG scene instead of relying only on `Prev` and `Next`
+3. `explicit-dag-edge-crud`
+   - add create/remove edge operations between already-existing workplanes without using `spawn child` or `insert parent`
+4. `keep-codex-ops-separate`
+   - continue treating real live `/codex/` interactivity as an ops follow-up after the product DAG slice stays stable
 
-Remaining milestones after the focused Slice 10 cleanup and codex-deploy proof:
+Remaining milestones after Slice 13:
 
-1. `dag-12-workplane-build`
-   - keep the `1` root, `4`, `4`, `3` twelve-workplane authored shape green while the product language and placement rules settle
-2. `dag-network-build`
-   - promote the larger zero-data authoring flow into the canonical named network source-of-truth browser test
-   - keep it seeded only by the normal `demoPreset=dag-empty` route
-3. `dag-screenshot-sequence`
-   - capture the canonical artifacts only after the twelve-workplane flow and layout language are stable
+1. `direct-3d-picking`
+   - select workplanes directly inside the live DAG view with pointer input
+2. `explicit-edge-authoring`
+   - author and remove DAG edges between existing workplanes from the zero-data route
+3. `canonical-network-content`
+   - grow the current structural DAG proofs into the fully named network scenario with richer local labels and screenshot-ready content
 
 ## Goal
 
@@ -1174,6 +1248,7 @@ Already available today:
 
 - `npm run lint`
 - `npm run test:dag:static`
+- `npm run test:browser:onboarding`
 - `npm run test:browser -- --flow dag-control-pad`
 - `npm run test:browser -- --flow dag-rank-fanout`
 - `npm run test:browser:dag-rank-fanout:open`
@@ -1184,21 +1259,24 @@ Already available today:
 - `npm run test:codex:bridge`
 - `npm run build:pages`
 - `npm run test:browser`
+- `npm run test:live -- --url https://timcash.github.io/linker/ --expect-onboarding`
 
 Commands that should be added during the DAG migration:
 
-- `npm run test:browser -- --flow dag-network-build`
+- none right now; the current focused DAG and onboarding commands are already in place
 
 Recommended command ladder:
 
 1. pure DAG slices: `npm run test:dag:static` and `npm run lint`
-2. first DAG render slice: `npm run test:browser -- --flow dag-view-smoke`
-3. loop-visibility slice: `npm run test:browser:tasks`
-4. control-pad slice: `npm run test:browser -- --flow dag-control-pad`
-5. twelve-workplane rank-fanout slice: `npm run test:browser -- --flow dag-rank-fanout`
-6. visual inspection path: `npm run test:browser:dag-rank-fanout:open`
-7. canonical DAG flow slice: `npm run test:browser -- --flow dag-network-build`
-8. milestone pass: `npm run test:browser`
+2. hosted onboarding slice: `npm run test:browser:onboarding`
+3. first DAG render slice: `npm run test:browser -- --flow dag-view-smoke`
+4. loop-visibility slice: `npm run test:browser:tasks`
+5. control-pad slice: `npm run test:browser -- --flow dag-control-pad`
+6. twelve-workplane rank-fanout slice: `npm run test:browser -- --flow dag-rank-fanout`
+7. visual inspection path: `npm run test:browser:dag-rank-fanout:open`
+8. canonical DAG flow slice: `npm run test:browser -- --flow dag-network-build`
+9. live hosted verification: `npm run test:live -- --url https://timcash.github.io/linker/ --expect-onboarding`
+10. milestone pass: `npm run test:browser`
 
 The agent should prefer the most focused command possible until a milestone is complete.
 

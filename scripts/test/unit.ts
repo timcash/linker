@@ -2,6 +2,11 @@ import assert from 'node:assert/strict';
 
 import {Camera2D, type ScreenPoint, type ViewportSize} from '../../src/camera';
 import {
+  buildDeferredBridgeHealthSummary,
+  buildLockedBridgeStatus,
+  shouldProbeCodexBridge,
+} from '../../src/codex/CodexBridgePolicy';
+import {
   assertAcyclicDag,
   assertColumnsIncreaseAlongEdges,
   assertIntegerWorkplanePositions,
@@ -129,6 +134,7 @@ import {
 
 export function runStaticUnitTests(): void {
   runRouteAndSessionTests();
+  runCodexBridgePolicyTests();
   runDagDocumentTests();
   runDagLayoutTests();
   runDagViewTests();
@@ -138,6 +144,32 @@ export function runStaticUnitTests(): void {
   runLayoutAndLinkTests();
   runNavigationAndZoomTests();
   runDemoPresetGeometryTests();
+}
+
+function runCodexBridgePolicyTests(): void {
+  assert.equal(
+    shouldProbeCodexBridge(null),
+    false,
+    'The locked Codex page should defer bridge probes until a stored unlock token exists.',
+  );
+  assert.equal(
+    shouldProbeCodexBridge({
+      authToken: 'token',
+      expiresAt: Date.now() + 60_000,
+    }),
+    true,
+    'The Codex page should allow bridge probes once it has a stored unlock token to restore.',
+  );
+  assert.equal(
+    buildDeferredBridgeHealthSummary('auto', 'https://linker.dialtone.earth'),
+    'Health checks start after unlock. Auto mode will pick the best bridge route for this page. Current target: https://linker.dialtone.earth.',
+    'Deferred health copy should explain the locked-shell behavior and the chosen bridge target.',
+  );
+  assert.equal(
+    buildLockedBridgeStatus('bridge'),
+    'Enter the password to unlock bridge mode.',
+    'Locked status copy should mention the currently selected bridge mode.',
+  );
 }
 
 function runDagDocumentTests(): void {
@@ -862,6 +894,11 @@ function runPlaneStackStateTests(): void {
     false,
     'The root workplane should not advertise focus-root while it is already active.',
   );
+  assert.equal(
+    canDeleteActiveWorkplane(dagRootState),
+    false,
+    'The root DAG workplane should not be deletable.',
+  );
 
   const firstChildState = spawnDagChildWorkplane(dagRootState);
   assert.equal(firstChildState.session.activeWorkplaneId, 'wp-2', 'Spawning a DAG child should select the new child workplane.');
@@ -874,6 +911,44 @@ function runPlaneStackStateTests(): void {
     firstChildState.document.dag?.edges.length,
     1,
     'Spawning a DAG child should create one dependency edge from the active parent.',
+  );
+  assert.equal(
+    canDeleteActiveWorkplane(firstChildState),
+    true,
+    'Leaf DAG workplanes should be deletable once they are no longer the root.',
+  );
+
+  const deletedLeafState = deleteActiveWorkplane(firstChildState);
+  assert.equal(
+    deletedLeafState.session.activeWorkplaneId,
+    'wp-1',
+    'Deleting a leaf DAG workplane should select the nearest surviving workplane.',
+  );
+  assert.equal(
+    deletedLeafState.document.dag?.edges.length,
+    0,
+    'Deleting a leaf DAG workplane should remove its dependency edges.',
+  );
+  assert.equal(
+    deletedLeafState.document.dag?.positionsById['wp-2'],
+    undefined,
+    'Deleting a leaf DAG workplane should remove its rank/lane/depth placement.',
+  );
+  assert.equal(
+    validateDagDocument(createDagDocumentFromStageState(deletedLeafState)).valid,
+    true,
+    'Deleting a leaf DAG workplane should preserve the DAG invariants.',
+  );
+  const recycledChildState = spawnDagChildWorkplane(focusDagRootWorkplane(deletedLeafState));
+  assert.equal(
+    recycledChildState.session.activeWorkplaneId,
+    'wp-2',
+    'Deleting the highest-numbered DAG leaf should make that workplane id available again.',
+  );
+  assert.deepEqual(
+    recycledChildState.document.dag?.positionsById['wp-2'],
+    {column: 1, row: 0, layer: 0},
+    'Reusing the freed DAG workplane id should still place the child in the next deterministic slot.',
   );
 
   const secondChildState = spawnDagChildWorkplane(focusDagRootWorkplane(firstChildState));
@@ -938,6 +1013,11 @@ function runPlaneStackStateTests(): void {
     validateDagDocument(createDagDocumentFromStageState(insertedParentState)).valid,
     true,
     'DAG authoring mutations should preserve the core DAG invariants.',
+  );
+  assert.equal(
+    canDeleteActiveWorkplane(insertedParentState),
+    false,
+    'Inserted DAG parents should not be deletable while they still have children.',
   );
 
   const newRootState = insertDagParentWorkplane(dagRootState);

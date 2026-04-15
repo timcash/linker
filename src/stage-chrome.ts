@@ -12,6 +12,14 @@ export type StageChromeElements = {
   labelInputHint: HTMLParagraphElement;
   labelInputSubmitButton: HTMLButtonElement;
   launchBanner: HTMLDivElement;
+  onboardBody: HTMLParagraphElement;
+  onboardDetail: HTMLParagraphElement;
+  onboardDismissButton: HTMLButtonElement;
+  onboardPanel: HTMLElement;
+  onboardProgress: HTMLParagraphElement;
+  onboardReplayButton: HTMLButtonElement;
+  onboardSkipButton: HTMLButtonElement;
+  onboardTitle: HTMLHeadingElement;
   renderPanel: HTMLElement;
   selectionBox: HTMLDivElement;
   stage: HTMLDivElement;
@@ -50,8 +58,45 @@ export function createStageChrome(root: HTMLElement): StageChromeElements {
   statusPanel.className = 'status-panel';
   statusPanel.dataset.testid = 'status-panel';
   statusPanel.innerHTML = `
+    <section class="onboard-panel" data-testid="onboard-panel" hidden>
+      <div class="onboard-meta">
+        <p class="onboard-kicker">Onboard</p>
+        <p class="onboard-progress" data-testid="onboard-progress">Step 1 of 1</p>
+      </div>
+      <div class="onboard-copy">
+        <h2 class="onboard-title" data-testid="onboard-title">Linker walkthrough</h2>
+        <p class="onboard-body" data-testid="onboard-body"></p>
+        <p class="onboard-detail" data-testid="onboard-detail"></p>
+      </div>
+      <div class="onboard-actions">
+        <button type="button" class="control-button control-button--wide" data-onboard-action="skip" data-testid="onboard-skip">
+          Skip
+        </button>
+        <button type="button" class="control-button control-button--wide" data-onboard-action="replay" data-testid="onboard-replay" hidden>
+          Replay
+        </button>
+        <button type="button" class="control-button control-button--wide" data-onboard-action="dismiss" data-testid="onboard-dismiss" hidden>
+          Stats
+        </button>
+      </div>
+    </section>
     <div class="status-live-table" data-testid="status-stats"></div>
   `;
+  const onboardPanel = statusPanel.querySelector<HTMLElement>('[data-testid="onboard-panel"]');
+  const onboardProgress =
+    statusPanel.querySelector<HTMLParagraphElement>('[data-testid="onboard-progress"]');
+  const onboardTitle =
+    statusPanel.querySelector<HTMLHeadingElement>('[data-testid="onboard-title"]');
+  const onboardBody =
+    statusPanel.querySelector<HTMLParagraphElement>('[data-testid="onboard-body"]');
+  const onboardDetail =
+    statusPanel.querySelector<HTMLParagraphElement>('[data-testid="onboard-detail"]');
+  const onboardSkipButton =
+    statusPanel.querySelector<HTMLButtonElement>('[data-testid="onboard-skip"]');
+  const onboardReplayButton =
+    statusPanel.querySelector<HTMLButtonElement>('[data-testid="onboard-replay"]');
+  const onboardDismissButton =
+    statusPanel.querySelector<HTMLButtonElement>('[data-testid="onboard-dismiss"]');
   const stats = statusPanel.querySelector<HTMLDivElement>('[data-testid="status-stats"]');
 
   const launchBanner = document.createElement('div');
@@ -234,6 +279,14 @@ export function createStageChrome(root: HTMLElement): StageChromeElements {
     !labelInputHint ||
     !editorSelectionSummary ||
     !labelInputSubmitButton ||
+    !onboardBody ||
+    !onboardDetail ||
+    !onboardDismissButton ||
+    !onboardPanel ||
+    !onboardProgress ||
+    !onboardReplayButton ||
+    !onboardSkipButton ||
+    !onboardTitle ||
     !stats
   ) {
     throw new Error('Failed to build the stage chrome controls.');
@@ -268,6 +321,14 @@ export function createStageChrome(root: HTMLElement): StageChromeElements {
     labelInputHint,
     labelInputSubmitButton,
     launchBanner,
+    onboardBody,
+    onboardDetail,
+    onboardDismissButton,
+    onboardPanel,
+    onboardProgress,
+    onboardReplayButton,
+    onboardSkipButton,
+    onboardTitle,
     renderPanel,
     selectionBox,
     stage,
