@@ -43,6 +43,27 @@ body.codex-route {
     #050505;
 }
 
+.site-nav {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 18px;
+  font-size: 0.9rem;
+  letter-spacing: 0.02em;
+}
+
+.site-nav a {
+  color: #8f949b;
+  text-decoration: none;
+}
+
+.site-nav a:hover,
+.site-nav a:focus-visible,
+.site-nav a[aria-current="page"] {
+  color: #f1ede6;
+  text-decoration: underline;
+  text-underline-offset: 0.18em;
+}
+
 .codex-topbar {
   display: grid;
   gap: 12px;

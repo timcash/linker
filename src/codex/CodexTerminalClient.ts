@@ -23,7 +23,7 @@ const LOGIN_PATH = '/api/codex/auth/login';
 const LOGOUT_PATH = '/api/codex/auth/logout';
 const HEALTH_PATH = '/api/codex/health';
 const TERMINAL_SOCKET_PATH = '/codex-bridge';
-const DEFAULT_LOCAL_BRIDGE_ORIGIN = 'http://127.0.0.1:4186';
+export const DEFAULT_LOCAL_BRIDGE_ORIGIN = 'http://localhost:4186';
 
 export class CodexTerminalClient {
   private socket: WebSocket | null = null;
@@ -255,15 +255,14 @@ export class CodexTerminalClient {
   }
 
   private getBaseUrl() {
-    switch (this.bridgeMode) {
-      case 'dev':
-        return new URL(window.location.origin);
-      case 'bridge':
-        return new URL(resolveBridgeOrigin());
-      case 'auto':
-      default:
-        return new URL(resolveAutoOrigin());
-    }
+    return new URL(
+      resolveCodexBaseOrigin({
+        bridgeMode: this.bridgeMode,
+        configuredOrigin: import.meta.env.VITE_CODEX_BRIDGE_URL as string | undefined,
+        hostname: window.location.hostname,
+        locationOrigin: window.location.origin,
+      }),
+    );
   }
 }
 
@@ -283,29 +282,44 @@ async function parseErrorPayload(response: Response) {
   }
 }
 
-function resolveAutoOrigin() {
-  if (window.location.hostname.endsWith('github.io')) {
+export function resolveAutoOrigin(hostname: string, locationOrigin: string) {
+  if (hostname.endsWith('github.io')) {
     return DEFAULT_REMOTE_ORIGIN;
   }
 
-  return window.location.origin;
+  return locationOrigin;
 }
 
-function resolveBridgeOrigin() {
-  const configuredOrigin = import.meta.env.VITE_CODEX_BRIDGE_URL as string | undefined;
+export function resolveBridgeOrigin(
+  hostname: string,
+  configuredOrigin?: string,
+) {
   if (configuredOrigin) {
     return configuredOrigin;
   }
 
-  if (isLocalHostname(window.location.hostname)) {
+  if (isLocalHostname(hostname) || hostname.endsWith('github.io')) {
     return DEFAULT_LOCAL_BRIDGE_ORIGIN;
   }
 
-  if (window.location.hostname.endsWith('github.io')) {
-    return DEFAULT_REMOTE_ORIGIN;
-  }
+  return DEFAULT_REMOTE_ORIGIN;
+}
 
-  return window.location.origin;
+export function resolveCodexBaseOrigin(input: {
+  bridgeMode: CodexBridgeMode;
+  configuredOrigin?: string;
+  hostname: string;
+  locationOrigin: string;
+}) {
+  switch (input.bridgeMode) {
+    case 'dev':
+      return input.locationOrigin;
+    case 'bridge':
+      return resolveBridgeOrigin(input.hostname, input.configuredOrigin);
+    case 'auto':
+    default:
+      return resolveAutoOrigin(input.hostname, input.locationOrigin);
+  }
 }
 
 function isLocalHostname(hostname: string) {

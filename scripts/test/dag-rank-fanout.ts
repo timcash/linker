@@ -18,24 +18,24 @@ import {
 const RANK_ONE_LAYOUT_FINGERPRINT = [
   'wp-1:0:0:0',
   'wp-2:1:0:0',
-  'wp-3:1:1:0',
-  'wp-4:1:2:0',
-  'wp-5:1:3:0',
+  'wp-3:1:0:1',
+  'wp-4:1:1:0',
+  'wp-5:1:1:1',
 ].join('|');
 
 const RANK_TWO_LAYOUT_FINGERPRINT = [
   RANK_ONE_LAYOUT_FINGERPRINT,
   'wp-6:2:0:0',
-  'wp-7:2:1:0',
-  'wp-8:2:2:0',
-  'wp-9:2:3:0',
+  'wp-7:2:0:1',
+  'wp-8:2:1:0',
+  'wp-9:2:1:1',
 ].join('|');
 
 const TWELVE_WORKPLANE_LAYOUT_FINGERPRINT = [
   RANK_TWO_LAYOUT_FINGERPRINT,
   'wp-10:3:0:0',
-  'wp-11:3:1:0',
-  'wp-12:3:2:0',
+  'wp-11:3:0:1',
+  'wp-12:3:1:0',
 ].join('|');
 
 export async function runDagRankFanoutFlow(
@@ -52,9 +52,9 @@ export async function runDagRankFanoutFlow(
 
   for (const step of [
     {spawn: 'button', targetWorkplaneId: 'wp-2', planeCount: 2, position: {column: 1, row: 0, layer: 0}},
-    {spawn: 'key', targetWorkplaneId: 'wp-3', planeCount: 3, position: {column: 1, row: 1, layer: 0}},
-    {spawn: 'button', targetWorkplaneId: 'wp-4', planeCount: 4, position: {column: 1, row: 2, layer: 0}},
-    {spawn: 'key', targetWorkplaneId: 'wp-5', planeCount: 5, position: {column: 1, row: 3, layer: 0}},
+    {spawn: 'key', targetWorkplaneId: 'wp-3', planeCount: 3, position: {column: 1, row: 0, layer: 1}},
+    {spawn: 'button', targetWorkplaneId: 'wp-4', planeCount: 4, position: {column: 1, row: 1, layer: 0}},
+    {spawn: 'key', targetWorkplaneId: 'wp-5', planeCount: 5, position: {column: 1, row: 1, layer: 1}},
   ] as const) {
     await focusRootWorkplane(context.page, step.planeCount - 1);
 
@@ -87,9 +87,9 @@ export async function runDagRankFanoutFlow(
 
   for (const step of [
     {nextCountFromRoot: 1, parentWorkplaneId: 'wp-2', spawn: 'button', targetWorkplaneId: 'wp-6', planeCount: 6, position: {column: 2, row: 0, layer: 0}},
-    {nextCountFromRoot: 2, parentWorkplaneId: 'wp-3', spawn: 'key', targetWorkplaneId: 'wp-7', planeCount: 7, position: {column: 2, row: 1, layer: 0}},
-    {nextCountFromRoot: 3, parentWorkplaneId: 'wp-4', spawn: 'button', targetWorkplaneId: 'wp-8', planeCount: 8, position: {column: 2, row: 2, layer: 0}},
-    {nextCountFromRoot: 4, parentWorkplaneId: 'wp-5', spawn: 'key', targetWorkplaneId: 'wp-9', planeCount: 9, position: {column: 2, row: 3, layer: 0}},
+    {nextCountFromRoot: 2, parentWorkplaneId: 'wp-3', spawn: 'key', targetWorkplaneId: 'wp-7', planeCount: 7, position: {column: 2, row: 0, layer: 1}},
+    {nextCountFromRoot: 3, parentWorkplaneId: 'wp-4', spawn: 'button', targetWorkplaneId: 'wp-8', planeCount: 8, position: {column: 2, row: 1, layer: 0}},
+    {nextCountFromRoot: 4, parentWorkplaneId: 'wp-5', spawn: 'key', targetWorkplaneId: 'wp-9', planeCount: 9, position: {column: 2, row: 1, layer: 1}},
   ] as const) {
     await navigateFromRootToWorkplane(
       context.page,
@@ -127,8 +127,8 @@ export async function runDagRankFanoutFlow(
 
   for (const step of [
     {nextCountFromRoot: 5, parentWorkplaneId: 'wp-6', spawn: 'button', targetWorkplaneId: 'wp-10', planeCount: 10, position: {column: 3, row: 0, layer: 0}},
-    {nextCountFromRoot: 6, parentWorkplaneId: 'wp-7', spawn: 'key', targetWorkplaneId: 'wp-11', planeCount: 11, position: {column: 3, row: 1, layer: 0}},
-    {nextCountFromRoot: 7, parentWorkplaneId: 'wp-8', spawn: 'button', targetWorkplaneId: 'wp-12', planeCount: 12, position: {column: 3, row: 2, layer: 0}},
+    {nextCountFromRoot: 6, parentWorkplaneId: 'wp-7', spawn: 'key', targetWorkplaneId: 'wp-11', planeCount: 11, position: {column: 3, row: 0, layer: 1}},
+    {nextCountFromRoot: 7, parentWorkplaneId: 'wp-8', spawn: 'button', targetWorkplaneId: 'wp-12', planeCount: 12, position: {column: 3, row: 1, layer: 0}},
   ] as const) {
     await navigateFromRootToWorkplane(
       context.page,

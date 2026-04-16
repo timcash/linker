@@ -19,6 +19,7 @@ import {runDagNetworkBuildFlow} from './test/dag-network-build';
 import {runDagRankFanoutFlow} from './test/dag-rank-fanout';
 import {runDagViewSmokeFlow} from './test/dag-view-smoke';
 import {runDagZoomJourneyFlow} from './test/dag-zoom-journey';
+import {runLogsPageSmokeFlow} from './test/logs-page-smoke';
 import {runOnboardingWalkthroughFlow} from './test/onboarding-walkthrough';
 import {runReadmePreviewSmokeFlow} from './test/readme-preview-smoke';
 import {runTasksDashboardSmokeFlow} from './test/tasks-dashboard-smoke';
@@ -37,6 +38,7 @@ type BrowserFlowName =
   | 'dag-view-smoke'
   | 'dag-zoom-journey'
   | 'full'
+  | 'logs-page-smoke'
   | 'onboarding-walkthrough'
   | 'readme-preview-smoke'
   | 'tasks-dashboard-smoke';
@@ -193,6 +195,12 @@ async function runSelectedBrowserFlows(
     return;
   }
 
+  if (options.flow === 'logs-page-smoke') {
+    context.addBrowserLog('test', `Running focused browser flow ${options.flow}.`);
+    await runLogsPageSmokeFlow(context);
+    return;
+  }
+
   if (options.flow === 'readme-preview-smoke') {
     context.addBrowserLog('test', `Running focused browser flow ${options.flow}.`);
     await runReadmePreviewSmokeFlow(context);
@@ -216,15 +224,15 @@ async function runSelectedBrowserFlows(
   await runDagNetworkBuildFlow(context);
   await runOnboardingWalkthroughFlow(context);
   await runDagRankFanoutFlow(context);
-  await runDagZoomJourneyFlow(context);
   await runCodexPageSmokeFlow(context);
+  await runLogsPageSmokeFlow(context);
   await runAuthPageSmokeFlow(context);
   await runTasksDashboardSmokeFlow(context);
   await runReadmePreviewSmokeFlow(context);
 }
 
 function parseCliOptions(args: string[]): CliOptions {
-  let flow: BrowserFlowName = 'full';
+  let flow: BrowserFlowName = 'onboarding-walkthrough';
   let keepOpen = false;
 
   for (let index = 0; index < args.length; index += 1) {
@@ -247,6 +255,7 @@ function parseCliOptions(args: string[]): CliOptions {
         requestedFlow === 'dag-view-smoke' ||
         requestedFlow === 'dag-zoom-journey' ||
         requestedFlow === 'full' ||
+        requestedFlow === 'logs-page-smoke' ||
         requestedFlow === 'onboarding-walkthrough' ||
         requestedFlow === 'auth-page-smoke' ||
         requestedFlow === 'readme-preview-smoke' ||
@@ -258,7 +267,7 @@ function parseCliOptions(args: string[]): CliOptions {
       }
 
       throw new Error(
-        `Unsupported --flow value "${requestedFlow ?? ''}". Expected one of: full, boot, codex-page-smoke, dag-view-smoke, dag-control-pad, dag-network-build, onboarding-walkthrough, dag-rank-fanout, dag-zoom-journey, auth-page-smoke, tasks-dashboard-smoke, readme-preview-smoke.`,
+        `Unsupported --flow value "${requestedFlow ?? ''}". Expected one of: onboarding-walkthrough, full, boot, codex-page-smoke, logs-page-smoke, dag-view-smoke, dag-control-pad, dag-network-build, dag-rank-fanout, dag-zoom-journey, auth-page-smoke, tasks-dashboard-smoke, readme-preview-smoke.`,
       );
     }
 

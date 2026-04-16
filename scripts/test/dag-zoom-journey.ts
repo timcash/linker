@@ -4,7 +4,6 @@ import {
   assertOverlayShellPinned,
   captureInteractionScreenshot,
   clickControl,
-  clickControlRepeatedly,
   clickStageModeButton,
   clickWorkplaneButton,
   getCameraState,
@@ -49,12 +48,15 @@ export async function runDagZoomJourneyFlow(
 
   const overviewText = await getTextState(context.page);
   const overviewLine = await getLineState(context.page);
+  const overviewCamera = await getCameraState(context.page);
   assert.equal(overviewStage.dagGraphPointWorkplaneCount, 5, 'The far DAG overview should collapse all workplanes into graph-point nodes.');
   assert.equal(overviewStage.dagTitleOnlyWorkplaneCount, 0, 'The far DAG overview should not leave any title-only workplanes behind.');
   assert.equal(overviewStage.dagLabelPointWorkplaneCount, 0, 'The far DAG overview should not leave any label-point workplanes behind.');
   assert.equal(overviewStage.dagFullWorkplaneCount, 0, 'The far DAG overview should not leave any full workplanes behind.');
   assert.equal(overviewLine.lineVisibleLinkCount, overviewStage.dagVisibleEdgeCount, 'The far DAG overview should keep only DAG dependency lines visible.');
   assert.equal(overviewText.visibleLabelCount, overviewStage.planeCount, 'The far DAG overview should show one graph marker label per workplane.');
+  assert.equal(overviewCamera.canZoomOut, false, 'The far DAG overview should stop the discrete zoom-out button at the graph-point band.');
+  assert.equal(overviewCamera.canZoomIn, true, 'The far DAG overview should still allow a single-step zoom into the next DAG band.');
   await assertOverlayShellPinned(context.page, {
     expectedPage: 'navigate',
     label: 'dag zoom overview',
@@ -75,12 +77,15 @@ export async function runDagZoomJourneyFlow(
   const titleStage = await getStageState(context.page);
   const titleText = await getTextState(context.page);
   const titleLine = await getLineState(context.page);
+  const titleCamera = await getCameraState(context.page);
   assert.equal(titleStage.dagTitleOnlyWorkplaneCount, 5, 'Selecting the middle workplane should begin in the title-only DAG bucket.');
   assert.equal(titleStage.dagGraphPointWorkplaneCount, 0, 'The title-only view should be closer than the graph overview.');
   assert.equal(titleStage.dagLabelPointWorkplaneCount, 0, 'The title-only view should not yet show local label points.');
   assert.equal(titleStage.dagFullWorkplaneCount, 0, 'The title-only view should not yet show full workplanes.');
   assert.equal(titleLine.lineVisibleLinkCount, titleStage.dagVisibleEdgeCount, 'The title-only view should still keep only DAG dependency lines visible.');
   assert.equal(titleText.visibleLabelCount, titleStage.planeCount, 'The title-only view should show one title label per workplane.');
+  assert.equal(titleCamera.canZoomIn, true, 'The title-only band should allow one discrete zoom into the label-point band.');
+  assert.equal(titleCamera.canZoomOut, true, 'The title-only band should allow one discrete zoom back to the graph overview.');
   await assertOverlayShellPinned(context.page, {
     expectedPage: 'stage',
     label: 'dag zoom titles',
@@ -93,27 +98,23 @@ export async function runDagZoomJourneyFlow(
   );
   await waitForCameraSettled(context.page);
 
-  let labelPointStage = await getStageState(context.page);
-  let labelPointText = await getTextState(context.page);
-  let labelPointLine = await getLineState(context.page);
-  let labelPointStepCount = 0;
-
-  while (labelPointStage.dagLabelPointWorkplaneCount !== labelPointStage.planeCount) {
-    if (labelPointStepCount >= 8) {
-      throw new Error('Timed out waiting for the DAG label-point zoom state.');
-    }
-
-    await clickControlRepeatedly(context.page, 'zoom-in', 1);
-    await waitForCameraSettled(context.page);
-    labelPointStage = await getStageState(context.page);
-    labelPointText = await getTextState(context.page);
-    labelPointLine = await getLineState(context.page);
-    labelPointStepCount += 1;
-  }
-
+  const labelPointStage = await getStageState(context.page);
+  const labelPointText = await getTextState(context.page);
+  const labelPointLine = await getLineState(context.page);
+  const labelPointCamera = await getCameraState(context.page);
   assert.ok(
-    labelPointStage.dagLabelPointWorkplaneCount === labelPointStage.planeCount,
-    'Zooming toward the selected workplane should reveal local label markers across the whole visible DAG.',
+    labelPointStage.dagLabelPointWorkplaneCount > 0,
+    'One discrete zoom-in press from the title-only band should reveal local label markers.',
+  );
+  assert.equal(
+    labelPointStage.dagGraphPointWorkplaneCount,
+    0,
+    'The label-point band should stay closer than the graph overview.',
+  );
+  assert.equal(
+    labelPointStage.dagFullWorkplaneCount,
+    0,
+    'The label-point band should stop short of full local workplane detail.',
   );
   assert.ok(
     labelPointText.visibleLabelCount > titleText.visibleLabelCount,
@@ -128,34 +129,32 @@ export async function runDagZoomJourneyFlow(
     labelPointStage.dagVisibleEdgeCount,
     'The label-point DAG view should still keep local links hidden while dependency lines remain visible.',
   );
+  assert.equal(
+    labelPointCamera.canZoomIn,
+    true,
+    'The label-point band should allow one more discrete zoom-in press into readable workplane detail.',
+  );
+  assert.equal(
+    labelPointCamera.canZoomOut,
+    true,
+    'The label-point band should allow one discrete zoom-out press back to title-only.',
+  );
   await assertOverlayShellPinned(context.page, {
     expectedPage: 'navigate',
     label: 'dag zoom label points',
   });
   await captureInteractionScreenshot(context, 'dag-zoom-label-points');
 
-  let fullStage = labelPointStage;
-  let fullText = labelPointText;
-  let fullLine = labelPointLine;
-  let fullStepCount = 0;
+  await clickControl(context.page, 'zoom-in');
+  await context.page.waitForFunction(
+    () => document.body.dataset.cameraAnimating === 'true',
+  );
+  await waitForCameraSettled(context.page);
 
-  while (
-    fullStage.dagFullWorkplaneCount === 0 ||
-    fullLine.lineVisibleLinkCount <= fullStage.dagVisibleEdgeCount ||
-    fullText.visibleGlyphCount <= labelPointText.visibleGlyphCount
-  ) {
-    if (fullStepCount >= 8) {
-      throw new Error('Timed out waiting for the readable DAG full-workplane zoom state.');
-    }
-
-    await clickControlRepeatedly(context.page, 'zoom-in', 1);
-    await waitForCameraSettled(context.page);
-    fullStage = await getStageState(context.page);
-    fullText = await getTextState(context.page);
-    fullLine = await getLineState(context.page);
-    fullStepCount += 1;
-  }
-
+  const fullStage = await getStageState(context.page);
+  const fullText = await getTextState(context.page);
+  const fullLine = await getLineState(context.page);
+  const fullCamera = await getCameraState(context.page);
   assert.ok(fullStage.dagFullWorkplaneCount > 0, 'The closest DAG zoom should reveal at least one full workplane.');
   assert.ok(
     fullLine.lineVisibleLinkCount > fullStage.dagVisibleEdgeCount,
@@ -165,11 +164,79 @@ export async function runDagZoomJourneyFlow(
     fullText.visibleGlyphCount > labelPointText.visibleGlyphCount,
     'The closest DAG zoom should reveal more readable label text than the label-point view.',
   );
+  assert.equal(
+    fullCamera.canZoomIn,
+    false,
+    'The full-workplane band should stop the discrete zoom-in button at the readable local-detail state.',
+  );
+  assert.equal(
+    fullCamera.canZoomOut,
+    true,
+    'The full-workplane band should still allow a single-step zoom back out.',
+  );
   await assertOverlayShellPinned(context.page, {
     expectedPage: 'navigate',
     label: 'dag zoom full workplane',
   });
   await captureInteractionScreenshot(context, 'dag-zoom-full-workplane');
+
+  await clickControl(context.page, 'zoom-out');
+  await context.page.waitForFunction(
+    () => document.body.dataset.cameraAnimating === 'true',
+  );
+  await waitForCameraSettled(context.page);
+
+  const labelPointReturnStage = await getStageState(context.page);
+  assert.ok(
+    labelPointReturnStage.dagLabelPointWorkplaneCount > 0,
+    'One discrete zoom-out press from readable workplane detail should return to the label-point band.',
+  );
+  assert.equal(
+    labelPointReturnStage.dagFullWorkplaneCount,
+    0,
+    'Returning from readable workplane detail should leave the full-workplane band in one step.',
+  );
+
+  await clickControl(context.page, 'zoom-out');
+  await context.page.waitForFunction(
+    () => document.body.dataset.cameraAnimating === 'true',
+  );
+  await waitForCameraSettled(context.page);
+
+  const titleReturnStage = await getStageState(context.page);
+  assert.ok(
+    titleReturnStage.dagTitleOnlyWorkplaneCount > 0,
+    'One more discrete zoom-out press should return to the title-only band.',
+  );
+  assert.equal(
+    titleReturnStage.dagLabelPointWorkplaneCount,
+    0,
+    'Returning to the title-only band should hide label markers again.',
+  );
+
+  await clickControl(context.page, 'zoom-out');
+  await context.page.waitForFunction(
+    () => document.body.dataset.cameraAnimating === 'true',
+  );
+  await waitForCameraSettled(context.page);
+
+  const graphReturnStage = await getStageState(context.page);
+  const graphReturnCamera = await getCameraState(context.page);
+  assert.equal(
+    graphReturnStage.dagGraphPointWorkplaneCount,
+    graphReturnStage.planeCount,
+    'One final discrete zoom-out press should return to the graph-point overview.',
+  );
+  assert.equal(
+    graphReturnStage.dagTitleOnlyWorkplaneCount,
+    0,
+    'Returning to the graph overview should leave the title-only band in one step.',
+  );
+  assert.equal(
+    graphReturnCamera.canZoomOut,
+    false,
+    'The graph overview should disable further zoom-out once the far DAG band is reached again.',
+  );
 
   await clickStageModeButton(context.page, '2d-mode');
   await context.page.waitForFunction(

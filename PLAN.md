@@ -88,31 +88,74 @@ Research snapshot: 2026-04-15
   - tightened the onboarding proof in `scripts/test/onboarding-walkthrough.ts` and aligned the README preview smoke in `scripts/test/readme-preview-smoke.ts`
   - green commands: `npm run lint`, `npm run test:dag:static`, `npm run test:browser:onboarding`, and `npm run test:browser`
   - invariant: the hosted first-run experience now begins on a real menu hub, demonstrates the named control pads and mixed DAG LOD bands, hands off from 3D graph context into 2D workplane detail, and returns to the root-focused 3D overview with the menu reopened
+- `Slice 15` complete:
+  - exported shared DAG LOD thresholds in `src/dag-view.ts`
+  - replaced factor-based 3D `Zoom +` and `Zoom -` behavior in `src/app.ts` with reachable discrete DAG zoom bands driven by the active workplane projection
+  - tightened `scripts/test/dag-zoom-journey.ts` so one press now proves one band transition in each direction and button disablement at the band ends
+  - green commands: `npm run test:browser -- --flow dag-zoom-journey`, `npm run test:browser:onboarding`, `npm run test:browser -- --flow dag-network-build`, `npm run test:dag:static`, and `npm run lint`
+  - invariant: in `3d-mode`, the visible `Zoom +` and `Zoom -` controls plus their mirrored hotkeys now advance exactly one reachable DAG LOD band at a time and stop cleanly at the near and far ends of the current scene
+- `Slice 16` complete:
+  - promoted rendering choices into a dedicated `View` pad in `src/stage-chrome.ts`, `src/stage-panels.ts`, `src/app.ts`, and `scripts/test/browser.ts`
+  - restored `CRUD` to the strict input-grid shape and removed the extra strategy stack that had overflowed the panel
+  - tightened `scripts/test/dag-network-build.ts` and the hosted onboarding flow so both now prove that style changes live on `View`
+  - green commands: `npm run test:browser -- --flow dag-network-build`, `npm run test:browser:onboarding`, `npm run test:dag:static`, and `npm run lint`
+  - invariant: every active bottom-panel interaction now fits a `3x3` grid or the dedicated `CRUD` input-grid, and text or line strategies no longer spill below the edit controls
+- `Slice 17` complete:
+  - added eased 3D orbit-target transitions in `src/projector.ts`
+  - changed `src/app.ts` to seed animated camera handoffs when workplane selection changes in `2d-mode` or `3d-mode`
+  - tightened `scripts/test/dag-network-build.ts` and `scripts/test/unit.ts` so the browser flow and the static projector coverage both prove the new motion behavior
+  - green commands: `npm run test:browser -- --flow dag-network-build`, `npm run test:browser:onboarding`, `npm run test:dag:static`, `npm run lint`, and `npm run build:pages`
+  - invariant: moving between workplanes now produces a smooth camera transition in plane-focus view and a smooth orbit-target handoff in the 3D DAG view
+- `Slice 18` complete:
+  - promoted onboarding to the default browser proof by changing `npm run test:browser` and the `scripts/test.ts` default flow to `onboarding-walkthrough`
+  - added the published `/logs/` route through `logs/index.html`, `src/logs-page.ts`, `src/logs/log-model.ts`, `src/logs/log-store.ts`, `src/logs/LogsTerminalPage.ts`, and `src/logs/LogsTerminalView.ts`
+  - added focused browser proof `scripts/test/logs-page-smoke.ts` plus static log-model coverage in `scripts/test/unit.ts`
+  - added the explicit suite alias `npm run test:browser:suite` and kept `dag-zoom-journey` as a separate focused diagnostic while its zoom-band expectation is recalibrated
+  - green commands: `npm run test:dag:static`, `npm run lint`, `npm run test:browser`, `npm run test:browser:logs`, `npm run test:browser:suite`, and `npm run build:pages`
+  - invariant: the default browser test path now proves the hosted onboarding walkthrough, while `/logs/` ships as a real GitHub Pages route with timestamped log history, source-line filtering, and xterm.js CLI controls
+- `Slice 19` complete:
+  - tightened the onboarding-first visual system in `src/dag-view.ts`, `src/projector.ts`, `src/stage-editor.ts`, `src/stack-view.ts`, `src/stage-chrome.ts`, and `src/style.css`
+  - split the deepest onboarding zoom into a readable 3D `full-workplane` step plus the final `plane-focus` handoff in `src/app.ts`
+  - added ordered step-artifact coverage in `scripts/test/onboarding-walkthrough.ts` so every onboarding step now writes a screenshot into `artifacts/test-screenshots/`
+  - green commands: `npm run test:browser:onboarding`, `npm run test:browser -- --flow dag-network-build`, `npm run test:dag:static`, and `npm run lint`
+  - invariant: the onboarding walkthrough now teaches `Local Link` versus `Child Link` and `Parent Link`, stays in a strict black-and-white visual language, auto-centers the selected workplane in 3D, and leaves behind one screenshot artifact per onboarding step from `intro` through `complete`
+- `Slice 20` complete:
+  - changed DAG child autoplacement in `src/plane-stack.ts` so downstream children fill a deterministic two-depth rank-slice autogrid instead of one long flat lane
+  - updated the default twelve-workplane dataset in `src/data/dag-rank-fanout.ts` to match the same rank-slice grid shape used by the zero-data authoring flows
+  - tightened `scripts/test/dag-control-pad.ts`, `scripts/test/dag-network-build.ts`, `scripts/test/dag-rank-fanout.ts`, `scripts/test/unit.ts`, and `scripts/test/boot.ts`
+  - green commands: `npm run test:dag:static`, `npm run test:browser -- --flow dag-rank-fanout`, `npm run test:browser -- --flow dag-network-build`, `npm run test:browser:onboarding`, `npm run test:browser:logs`, `npm run test:browser:boot`, `npm run lint`, and `npm run build:pages`
+  - invariant: the live default DAG boot and the zero-data onboarding build now share the same visible `rank slice` grid shape, so each downstream rank reads as a real 3D `lane x depth` fanout instead of a single flat strip
 
 Current limitation to keep explicit:
 
-- the current DAG browser proof is still fixture-seeded with `openRouteWithBootState(...)`
+- the compatibility DAG smoke proof is still fixture-seeded with `openRouteWithBootState(...)`
 - the first button-only DAG authoring proof still exists through `demoPreset=dag-empty` and `scripts/test/dag-control-pad.ts`; it remains the small-slice control test
-- the new `scripts/test/dag-rank-fanout.ts` flow proves the larger twelve-workplane `1-4-4-3` build, but it is still a shape-only authoring proof rather than the canonical named network scenario
+- the new `scripts/test/dag-rank-fanout.ts` flow now proves the larger twelve-workplane `1-4-4-3` build with a visible rank-slice grid, but it is still a shape-only authoring proof rather than the canonical named network scenario
 - the new `dag-network-build` flow now covers zero-data local-label CRUD, workplane add/delete, strategy switches, and 2D/3D mode transitions in one tab, but it still does not cover direct 3D picking or explicit DAG edge create/remove between already-existing workplanes
 - the hosted onboarding intro is now green locally and in the production Pages bundle, but every publish still needs the explicit live pass `npm run test:live -- --url https://timcash.github.io/linker/ --expect-onboarding`
-- the hosted onboarding intro now relies on the new menu-first pad vocabulary, so `README.md`, `/readme`, and browser flows must stay aligned on `Menu`, `Map`, `Stage`, `DAG`, and `CRUD`
+- the hosted onboarding intro now relies on the new menu-first pad vocabulary, so `README.md`, `/readme`, and browser flows must stay aligned on `Menu`, `Map`, `Stage`, `DAG`, `CRUD`, and `View`
+- the deepest reachable 3D zoom band still depends on the current DAG geometry and active workplane; larger scenes can top out at `label-points` before the product hands off to `2d-mode`
+- the focused `dag-zoom-journey` browser flow is currently outside the shared suite because its five-workplane fixture now stops at the `label-point` band earlier than the old assertion expects
 - the live `/codex/` page now fails gracefully while locked, but it is not yet interactive on GitHub Pages because this machine still lacks the real `.env.codex.local` tunnel and password configuration
+- the new `/logs/` page is green locally and in the Pages bundle, but it still needs an explicit post-push live pass on `https://timcash.github.io/linker/logs/`
 - GitHub Pages still needs a post-push verification pass on both `/` with onboarding and `/codex/` whenever the default DAG boot path or codex bridge client changes
 
 ## DAG Domain Language
 
 - `workplane node`: one workplane treated as a DAG node in global `3d-mode`
-- `menu pad`: the bottom control hub that routes the user into `Map`, `Stage`, `DAG`, or `CRUD`
+- `menu pad`: the bottom control hub that routes the user into `Map`, `Stage`, `DAG`, `CRUD`, or `View`
 - `map controls`: the user-facing name for the camera and cursor pad; the internal page key remains `navigate`
 - `crud controls`: the user-facing name for the label typing and edit pad; the internal page key remains `edit`
+- `view controls`: the user-facing name for the rendering-style pad for text and line strategies
 - `rank`: the left-to-right dependency stage for a workplane node; the UX term for global DAG `column`
 - `lane`: the top-to-bottom slot inside a rank; the UX term for global DAG `row`
 - `depth`: the front-to-back slot inside a rank; the UX term for global DAG `layer`
 - `rank slice`: the shared placement surface for all workplane nodes in one rank
+- `rank-slice autogrid`: the deterministic downstream fill order that places new DAG children across a fixed `lane x depth` grid within one rank slice
 - `child fanout`: the set of direct child workplanes spread across the next rank slice
-- `autoplacement`: the deterministic rule that assigns the next lane and depth slot for a newly created child inside the downstream rank slice
-- use `Menu`, `Map`, `Stage`, `DAG`, and `CRUD` in UI copy and prompts even if internal helpers still use `navigate` and `edit`
+- `autoplacement`: the deterministic rule that assigns the next lane and depth slot for a newly created child inside the downstream rank slice; the current product path fills two depth rails before opening a new lane
+- `zoom band`: one discrete 3D DAG level of detail used by the `Zoom +` and `Zoom -` controls: `graph-point`, `title-only`, `label-points`, or `full-workplane`
+- use `Menu`, `Map`, `Stage`, `DAG`, `CRUD`, and `View` in UI copy and prompts even if internal helpers still use `navigate` and `edit`
 - use `rank/lane/depth` in UI copy, tests, and prompts even if internal helpers still use `column/row/layer`
 - avoid `workplane-layer` in UX because `layer` already means a local authored label layer inside one workplane
 
@@ -121,11 +164,13 @@ Current limitation to keep explicit:
 - `[x]` a first-run GitHub Pages visit boots from one empty root workplane instead of the authored DAG overview
 - `[x]` the `onboard-panel` replaces the top stats strip while the guided run is active
 - `[x]` the guided run begins from the bottom `Menu` hub instead of landing inside one control pad directly
+- `[x]` the guided run exposes a dedicated `View` pad so rendering choices no longer overflow the `CRUD` panel
 - `[x]` the guided run types into the label input and clicks the visible control-pad buttons instead of seeding a hidden document
 - `[x]` the guided run demonstrates local label CRUD, DAG CRUD, `rank/lane/depth`, stage mode changes, workplane navigation, and style changes
-- `[x]` the guided run shows the workplane progression through `graph-point`, `title-only`, `label-point`, and deep `plane-focus` detail
+- `[x]` the guided run shows the workplane progression through `graph-point`, `title-only`, `label-point`, readable 3D `full-workplane`, and deep `plane-focus` detail
 - `[x]` the guided run finishes on the twelve-workplane `1-4-4-3` 3D DAG overview with the root reselected
 - `[x]` `onboarding=1` forces a replay and `onboarding=0` bypasses the intro
+- `[x]` the onboarding proof writes one ordered screenshot per step into `artifacts/test-screenshots/`
 
 ## Zero-Data Interaction Checklist
 
@@ -133,6 +178,7 @@ Current limitation to keep explicit:
 
 - `[x]` boot one empty root workplane from `demoPreset=dag-empty`
 - `[x]` open the `CRUD` pad from the `Menu` hub
+- `[x]` keep the `CRUD` pad in the `input + save` plus `2x3` action-grid shape
 - `[x]` create a local label stack from a ghost slot with the visible `Select/Create` button
 - `[x]` create a local label stack from a ghost slot with the `Enter` hotkey
 - `[x]` rename the focused label by typing into the label input and saving
@@ -143,21 +189,25 @@ Current limitation to keep explicit:
 - `[x]` clear the local selection
 - `[x]` remove a local label stack
 - `[x]` switch between workplanes and prove local label text persists per workplane
+- `[x]` animate 2D workplane-to-workplane camera handoff instead of snapping between identical saved views
 - `[ ]` create labels by clicking the ghost overlay directly instead of only using the control pad and hotkeys
 
 ### 3D DAG View
 
-- `[x]` open the `Map`, `Stage`, and `DAG` pads from the `Menu` hub
+- `[x]` open the `Map`, `Stage`, `DAG`, and `View` pads from the `Menu` hub
 - `[x]` create child workplanes from zero data with both button and hotkey paths
+- `[x]` autogrid new child workplanes across a visible `lane x depth` rank slice instead of one flat downstream lane
 - `[x]` delete a leaf DAG workplane safely and keep the DAG valid
 - `[x]` focus the root workplane again after moving through the graph
 - `[x]` move workplanes across `rank`, `lane`, and `depth`
 - `[x]` insert a parent workplane into an existing dependency chain
 - `[x]` enter `3d-mode`
 - `[x]` move the 3D DAG camera with visible controls and keyboard controls
+- `[x]` step the 3D DAG through discrete reachable `zoom bands` with the visible zoom controls and mirrored hotkeys
 - `[x]` switch selected workplanes while staying in `3d-mode`
-- `[x]` change line strategy in `3d-mode` with both button and hotkey paths
-- `[x]` change text strategy in `3d-mode` with both button and hotkey paths
+- `[x]` animate the 3D DAG camera handoff when workplane selection changes
+- `[x]` change line strategy in `3d-mode` from the dedicated `View` pad with both button and hotkey paths
+- `[x]` change text strategy in `3d-mode` from the dedicated `View` pad with both button and hotkey paths
 - `[x]` return from `3d-mode` to `2d-mode` and restore the root workplane
 - `[ ]` pick workplanes directly from the 3D scene with pointer interaction
 - `[ ]` create a DAG edge between two already-existing workplanes without using `spawn child` or `insert parent`
@@ -166,17 +216,17 @@ Current limitation to keep explicit:
 
 ## Immediate Next Slice
 
-- `Slice:` 15
-- `Intent:` finish the remaining zero-data DAG interaction gaps by adding direct 3D picking and explicit DAG edge CRUD between existing workplanes
-- `Own Files:` `src/app.ts`, `src/stage-chrome.ts`, `src/stage-panels.ts`, `src/plane-stack.ts`, `scripts/test/dag-network-build.ts`, `scripts/test/browser.ts`, `README.md`, and `PLAN.md`
+- `Slice:` 21
+- `Intent:` add direct 3D DAG picking and explicit DAG-edge CRUD so the zero-data browser proof and onboarding can teach external graph editing on top of the new rank-slice grid layout
+- `Own Files:` `src/app.ts`, `src/dag-view.ts`, `src/stage-editor-overlay.ts`, `src/stage-chrome.ts`, `scripts/test/dag-network-build.ts`, `scripts/test/onboarding-walkthrough.ts`, `README.md`, and `PLAN.md`
 - `First Focused Command:` `npm run test:browser -- --flow dag-network-build`
-- `Hosted Intro Guardrail:` `npm run test:browser:onboarding`
-- `Bridge Guardrail Command:` `npm run test:browser:codex`
+- `Primary Product Proof:` `npm run test:browser`
+- `Logs Guardrail Command:` `npm run test:browser:logs`
 - `Second Focused Command:` `npm run test:dag:static`
-- `Datasets:` boot through `demoPreset=dag-empty`; do not seed the DAG structure with `openRouteWithBootState(...)`
-- `Artifacts:` keep using the step screenshots emitted by `dag-network-build` and `onboarding-walkthrough` while the interaction checklist closes
+- `Datasets:` keep using `demoPreset=dag-empty` for the canonical zero-data DAG build plus `demoPreset=dag-rank-fanout` for the live default boot
+- `Artifacts:` keep using the ordered onboarding screenshots under `artifacts/test-screenshots/` and extend them only when the new 3D picking or edge-CRUD steps are proven
 
-Operational follow-up that stays separate from Slice 14:
+Operational follow-up that stays separate from Slice 16:
 
 - create the real `.env.codex.local`
 - start `npm run codex:daemon:start` or `npm run codex:tunnel`
@@ -223,7 +273,7 @@ Historical working notes:
   - the larger layout now exports one stable twelve-workplane `dagLayoutFingerprint`
   - the same flow can now be run with `--keep-open` to leave Chrome open on the final `3d-mode` overview for manual inspection
 
-Current task ladder for Slice 15:
+Current task ladder for Slice 16:
 
 1. `keep-onboarding-and-zero-data-green`
    - keep `npm run test:browser:onboarding`, `npm run test:browser:dag-network-build`, and `npm run test:live -- --url https://timcash.github.io/linker/ --expect-onboarding` green while the next DAG interaction slice lands
@@ -234,7 +284,7 @@ Current task ladder for Slice 15:
 4. `keep-codex-ops-separate`
    - continue treating real live `/codex/` interactivity as an ops follow-up after the product DAG slice stays stable
 
-Remaining milestones after Slice 14:
+Remaining milestones after Slice 15:
 
 1. `direct-3d-picking`
    - select workplanes directly inside the live DAG view with pointer input
@@ -1264,6 +1314,8 @@ Already available today:
 - `npm run lint`
 - `npm run test:dag:static`
 - `npm run test:browser:onboarding`
+- `npm run test:browser:logs`
+- `npm run test:browser:suite`
 - `npm run test:browser -- --flow dag-control-pad`
 - `npm run test:browser -- --flow dag-rank-fanout`
 - `npm run test:browser:dag-rank-fanout:open`
@@ -1283,15 +1335,16 @@ Commands that should be added during the DAG migration:
 Recommended command ladder:
 
 1. pure DAG slices: `npm run test:dag:static` and `npm run lint`
-2. hosted onboarding slice: `npm run test:browser:onboarding`
-3. first DAG render slice: `npm run test:browser -- --flow dag-view-smoke`
-4. loop-visibility slice: `npm run test:browser:tasks`
-5. control-pad slice: `npm run test:browser -- --flow dag-control-pad`
-6. twelve-workplane rank-fanout slice: `npm run test:browser -- --flow dag-rank-fanout`
-7. visual inspection path: `npm run test:browser:dag-rank-fanout:open`
-8. canonical DAG flow slice: `npm run test:browser -- --flow dag-network-build`
-9. live hosted verification: `npm run test:live -- --url https://timcash.github.io/linker/ --expect-onboarding`
-10. milestone pass: `npm run test:browser`
+2. hosted onboarding slice: `npm run test:browser`
+3. logs route slice: `npm run test:browser:logs`
+4. first DAG render slice: `npm run test:browser -- --flow dag-view-smoke`
+5. loop-visibility slice: `npm run test:browser:tasks`
+6. control-pad slice: `npm run test:browser -- --flow dag-control-pad`
+7. twelve-workplane rank-fanout slice: `npm run test:browser -- --flow dag-rank-fanout`
+8. visual inspection path: `npm run test:browser:dag-rank-fanout:open`
+9. canonical DAG flow slice: `npm run test:browser -- --flow dag-network-build`
+10. live hosted verification: `npm run test:live -- --url https://timcash.github.io/linker/ --expect-onboarding`
+11. broader browser matrix: `npm run test:browser:suite`
 
 The agent should prefer the most focused command possible until a milestone is complete.
 

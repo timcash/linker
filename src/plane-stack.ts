@@ -26,6 +26,7 @@ export const DEFAULT_STAGE_MODE: StageMode = '2d-mode';
 export const INITIAL_WORKPLANE_ID: WorkplaneId = 'wp-1';
 export const INITIAL_NEXT_WORKPLANE_NUMBER = 2;
 export const MAX_WORKPLANE_COUNT = 12;
+const DAG_AUTOGRID_DEPTH_SLOTS_PER_RANK = 2;
 
 export type WorkplaneDocumentState = {
   labelTextOverrides: Record<string, string>;
@@ -294,6 +295,10 @@ export function spawnDagChildWorkplane(state: StageSystemState): StageSystemStat
   const activeDocument = getActiveWorkplaneDocument(state);
   const activeView = getActiveWorkplaneView(state);
   const workplaneId: WorkplaneId = `wp-${state.document.nextWorkplaneNumber}`;
+  const nextAutogridPosition = getNextAvailableDagRankSlicePosition(
+    dag.positionsById,
+    activePosition.column + 1,
+  );
   const nextDag: PlaneStackDagState = {
     edges: [
       ...dag.edges,
@@ -307,8 +312,8 @@ export function spawnDagChildWorkplane(state: StageSystemState): StageSystemStat
       ...dag.positionsById,
       [workplaneId]: {
         column: activePosition.column + 1,
-        row: getNextAvailableDagRow(dag.positionsById, activePosition.column + 1),
-        layer: activePosition.layer,
+        row: nextAutogridPosition.row,
+        layer: nextAutogridPosition.layer,
       },
     },
     rootWorkplaneId: dag.rootWorkplaneId,
@@ -1003,19 +1008,22 @@ function deriveDagWorkplaneOrder(
   return Object.keys(dag.positionsById).sort(compareWorkplaneIds) as WorkplaneId[];
 }
 
-function getNextAvailableDagRow(
+function getNextAvailableDagRankSlicePosition(
   positionsById: Record<WorkplaneId, WorkplaneDagPosition>,
   column: number,
-): number {
-  let maxRow = -1;
+): Pick<WorkplaneDagPosition, 'layer' | 'row'> {
+  let occupantCount = 0;
 
   for (const position of Object.values(positionsById)) {
     if (position.column === column) {
-      maxRow = Math.max(maxRow, position.row);
+      occupantCount += 1;
     }
   }
 
-  return maxRow + 1;
+  return {
+    layer: occupantCount % DAG_AUTOGRID_DEPTH_SLOTS_PER_RANK,
+    row: Math.floor(occupantCount / DAG_AUTOGRID_DEPTH_SLOTS_PER_RANK),
+  };
 }
 
 function deriveNextWorkplaneNumber(

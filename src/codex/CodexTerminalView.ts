@@ -60,7 +60,7 @@ export class CodexTerminalView {
           <div class="codex-topbar-copy">
             <p class="codex-eyebrow">Codex Terminal</p>
             <h1 class="codex-title">Local Codex CLI, unlocked for short browser sessions.</h1>
-            <p class="codex-lede">This page is a thin xterm.js client for a local PTY-backed Codex daemon running on this machine or through the <code>linker.dialtone.earth</code> tunnel. If that tunnel is protected by Cloudflare Access, authorize on the <a href="../auth/">Auth</a> page first.</p>
+            <p class="codex-lede">This page is a thin xterm.js client for a local PTY-backed Codex daemon. Use <code>Bridge</code> to talk to the local bridge on this computer, or use the <code>linker.dialtone.earth</code> tunnel when it is live. If that tunnel is protected by Cloudflare Access, authorize on the <a href="../auth/">Auth</a> page first.</p>
           </div>
         </header>
 
@@ -396,5 +396,5 @@ const phaseLabelMap: Record<CodexTerminalViewPhase, string> = {
 const bridgeModeCopy: Record<CodexBridgeMode, string> = {
   auto: 'Auto chooses the local dev server on localhost and the tunnel route on GitHub Pages.',
   dev: 'Dev uses the current page origin so localhost Vite can proxy the Codex bridge.',
-  bridge: 'Bridge targets the direct bridge endpoint instead of the local dev proxy.'
+  bridge: 'Bridge targets the direct local bridge on this computer instead of the local dev proxy.'
 };

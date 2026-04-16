@@ -31,12 +31,14 @@ import {
 const PROJECTOR_BASE_PIXELS_PER_WORLD_UNIT = 56;
 const PLANE_FOCUS_FOV_Y_RADIANS = Math.PI / 3;
 const STACK_CAMERA_FOV_Y_RADIANS = Math.PI / 3.3;
-const STACK_CAMERA_PADDING = 1.18;
+const STACK_CAMERA_PADDING = 1.08;
 const STACK_CAMERA_NEAR = 0.1;
 const STACK_CAMERA_FORWARD_FALLBACK: SceneVector3D = {x: 0, y: 0, z: -1};
 const STACK_CAMERA_UP: SceneVector3D = {x: 0, y: 1, z: 0};
-const STACK_CAMERA_SCREEN_PADDING_X_PX = 32;
-const STACK_CAMERA_SCREEN_PADDING_Y_PX = 112;
+const STACK_CAMERA_SCREEN_PADDING_X_PX = 24;
+const STACK_CAMERA_SCREEN_PADDING_Y_PX = 84;
+const STACK_CAMERA_ORBIT_TARGET_FOLLOW_RATE = 10;
+const STACK_CAMERA_ORBIT_TARGET_EPSILON = 0.0001;
 
 export type StageWorldPoint = {
   x: number;
@@ -159,7 +161,7 @@ export class PlaneFocusProjector implements StageProjector {
 
 export class StackCameraProjector implements StageProjector {
   readonly kind = 'stack-camera' as const;
-  private orbitTarget: ScenePoint3D = {x: 0, y: 0, z: 0};
+  private currentOrbitTarget: ScenePoint3D = {x: 0, y: 0, z: 0};
   private sceneBounds: SceneBounds3D = {
     minX: -1,
     maxX: 1,
@@ -173,13 +175,18 @@ export class StackCameraProjector implements StageProjector {
     height: 800,
   };
   private stackCamera: StackCameraState = cloneStackCameraState(DEFAULT_STACK_CAMERA_STATE);
+  private targetOrbitTarget: ScenePoint3D = {x: 0, y: 0, z: 0};
+
+  get isAnimating(): boolean {
+    return !matchesScenePoint3D(this.currentOrbitTarget, this.targetOrbitTarget);
+  }
 
   get centerX(): number {
-    return this.orbitTarget.x;
+    return this.currentOrbitTarget.x;
   }
 
   get centerY(): number {
-    return this.orbitTarget.y;
+    return this.currentOrbitTarget.y;
   }
 
   get pixelsPerWorldUnit(): number {
@@ -198,11 +205,18 @@ export class StackCameraProjector implements StageProjector {
 
   setSceneBounds(sceneBounds: SceneBounds3D): void {
     this.sceneBounds = normalizeSceneBounds(sceneBounds);
-    this.orbitTarget = clampOrbitTargetToSceneBounds(this.orbitTarget, this.sceneBounds);
+    this.currentOrbitTarget = clampOrbitTargetToSceneBounds(this.currentOrbitTarget, this.sceneBounds);
+    this.targetOrbitTarget = clampOrbitTargetToSceneBounds(this.targetOrbitTarget, this.sceneBounds);
   }
 
-  setOrbitTarget(orbitTarget: ScenePoint3D): void {
-    this.orbitTarget = clampOrbitTargetToSceneBounds(orbitTarget, this.sceneBounds);
+  setOrbitTarget(orbitTarget: ScenePoint3D, options?: {immediate?: boolean}): void {
+    const nextOrbitTarget = clampOrbitTargetToSceneBounds(orbitTarget, this.sceneBounds);
+
+    this.targetOrbitTarget = nextOrbitTarget;
+
+    if (options?.immediate) {
+      this.currentOrbitTarget = nextOrbitTarget;
+    }
   }
 
   setViewport(viewport: ViewportSize): void {
@@ -218,6 +232,30 @@ export class StackCameraProjector implements StageProjector {
 
   getStackCamera(): StackCameraState {
     return cloneStackCameraState(this.stackCamera);
+  }
+
+  advance(deltaMs: number): boolean {
+    if (!this.isAnimating) {
+      return false;
+    }
+
+    const safeDeltaMs = Number.isFinite(deltaMs) && deltaMs > 0 ? deltaMs : 16.67;
+    const alpha = 1 - Math.exp((-safeDeltaMs * STACK_CAMERA_ORBIT_TARGET_FOLLOW_RATE) / 1000);
+
+    this.currentOrbitTarget = clampOrbitTargetToSceneBounds(
+      {
+        x: lerp(this.currentOrbitTarget.x, this.targetOrbitTarget.x, alpha),
+        y: lerp(this.currentOrbitTarget.y, this.targetOrbitTarget.y, alpha),
+        z: lerp(this.currentOrbitTarget.z, this.targetOrbitTarget.z, alpha),
+      },
+      this.sceneBounds,
+    );
+
+    if (matchesScenePoint3D(this.currentOrbitTarget, this.targetOrbitTarget)) {
+      this.currentOrbitTarget = this.targetOrbitTarget;
+    }
+
+    return true;
   }
 
   getVisibleWorldBounds(viewport: ViewportSize): WorldBounds {
@@ -299,7 +337,7 @@ export class StackCameraProjector implements StageProjector {
   ): PerspectiveCameraState {
     const aspect = getSafeAspectRatio(viewport);
     const target = clampOrbitTargetToSceneBounds(
-      targetOverride ?? this.orbitTarget,
+      targetOverride ?? this.currentOrbitTarget,
       this.sceneBounds,
     );
     const cameraBasis = getPerspectiveCameraBasis(
@@ -510,6 +548,21 @@ function getPerspectiveCameraBasis(
 
 function getSafeAspectRatio(viewport: ViewportSize): number {
   return Math.max(0.0001, viewport.width / Math.max(1, viewport.height));
+}
+
+function matchesScenePoint3D(
+  currentPoint: ScenePoint3D,
+  targetPoint: ScenePoint3D,
+): boolean {
+  return (
+    Math.abs(currentPoint.x - targetPoint.x) <= STACK_CAMERA_ORBIT_TARGET_EPSILON &&
+    Math.abs(currentPoint.y - targetPoint.y) <= STACK_CAMERA_ORBIT_TARGET_EPSILON &&
+    Math.abs(currentPoint.z - targetPoint.z) <= STACK_CAMERA_ORBIT_TARGET_EPSILON
+  );
+}
+
+function lerp(start: number, end: number, alpha: number): number {
+  return start + (end - start) * alpha;
 }
 
 function clamp(value: number, min: number, max: number): number {

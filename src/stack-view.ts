@@ -19,11 +19,11 @@ const STACK_PLANE_BASIS_X: LabelPlaneBasis = {x: 1, y: 0, z: 0};
 const STACK_PLANE_BASIS_Y: LabelPlaneBasis = {x: 0, y: -1, z: 0};
 const STACK_PLANE_PADDING = 1.8;
 const STACK_PLANE_OFFSET_RATIO = 0.36;
-const INACTIVE_PLANE_ALPHA_SCALE = 0.68;
-const ACTIVE_BACKPLATE_FILL: RgbaColor = [0.08, 0.12, 0.18, 0.82];
-const ACTIVE_BACKPLATE_OUTLINE: RgbaColor = [0.66, 0.82, 1, 0.94];
-const INACTIVE_BACKPLATE_FILL: RgbaColor = [0.04, 0.06, 0.09, 0.58];
-const INACTIVE_BACKPLATE_OUTLINE: RgbaColor = [0.19, 0.24, 0.32, 0.72];
+const INACTIVE_PLANE_ALPHA_SCALE = 0.82;
+const ACTIVE_BACKPLATE_FILL: RgbaColor = [0.02, 0.02, 0.02, 0.96];
+const ACTIVE_BACKPLATE_OUTLINE: RgbaColor = [1, 1, 1, 1];
+const INACTIVE_BACKPLATE_FILL: RgbaColor = [0.01, 0.01, 0.01, 0.84];
+const INACTIVE_BACKPLATE_OUTLINE: RgbaColor = [0.78, 0.78, 0.78, 0.88];
 
 export type StackBackplate = {
   corners: [ScenePoint3D, ScenePoint3D, ScenePoint3D, ScenePoint3D];

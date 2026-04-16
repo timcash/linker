@@ -4,6 +4,7 @@ import '@fontsource/space-grotesk/700.css';
 import '@fontsource/space-mono/400.css';
 import '@fontsource/space-mono/700.css';
 
+import {installBrowserLogCapture, recordBrowserLog} from './logs/log-store';
 import './style.css';
 
 const root = document.createElement('div');
@@ -11,11 +12,15 @@ root.id = 'app';
 document.body.append(root);
 
 const route = resolveRoute(window.location.pathname);
+installBrowserLogCapture(route);
+recordBrowserLog('info', `Bootstrapping the ${route} route.`);
 const app =
   route === 'auth'
     ? await import('./auth-page').then(({startAuthPage}) => startAuthPage(root))
     : route === 'codex'
     ? await import('./codex-page').then(({startCodexPage}) => startCodexPage(root))
+    : route === 'logs'
+    ? await import('./logs-page').then(({startLogsPage}) => startLogsPage(root))
     : route === 'tasks'
     ? await import('./tasks-page').then(({startTasksPage}) => startTasksPage(root))
     : route === 'readme'
@@ -28,7 +33,7 @@ if (import.meta.hot) {
   });
 }
 
-function resolveRoute(pathname: string): 'app' | 'auth' | 'codex' | 'readme' | 'tasks' {
+function resolveRoute(pathname: string): 'app' | 'auth' | 'codex' | 'logs' | 'readme' | 'tasks' {
   const segments = pathname.split('/').filter((segment) => segment.length > 0);
   const lastSegment = segments[segments.length - 1];
 
@@ -38,6 +43,10 @@ function resolveRoute(pathname: string): 'app' | 'auth' | 'codex' | 'readme' | '
 
   if (lastSegment === 'codex') {
     return 'codex';
+  }
+
+  if (lastSegment === 'logs') {
+    return 'logs';
   }
 
   if (lastSegment === 'tasks') {

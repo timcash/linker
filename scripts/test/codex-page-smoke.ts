@@ -73,6 +73,25 @@ export async function runCodexPageSmokeFlow(
       [],
       `The locked Codex route should not probe bridge endpoints before unlock: ${bridgeRequests.join('\n')}`,
     );
+
+    await page.click('[data-codex-mode-button="bridge"]');
+
+    const bridgeModeState = await page.evaluate(() => ({
+      bridgeText: document.querySelector<HTMLElement>('[data-codex-bridge]')?.textContent?.trim() ?? '',
+      modeSummary:
+        document.querySelector<HTMLElement>('[data-codex-mode]')?.textContent?.trim() ?? '',
+    }));
+
+    assert.match(
+      bridgeModeState.modeSummary,
+      /local bridge on this computer/i,
+      'Bridge mode copy should explain the direct local-bridge path.',
+    );
+    assert.match(
+      bridgeModeState.bridgeText,
+      /localhost:4186/i,
+      'Bridge mode should target the direct local Codex bridge endpoint.',
+    );
   } finally {
     page.off('request', requestListener);
   }

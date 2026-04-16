@@ -27,29 +27,37 @@ import type {LabelDefinition, LabelPlaneBasis, RgbaColor} from './text/types';
 const STACK_PLANE_BASIS_X: LabelPlaneBasis = {x: 1, y: 0, z: 0};
 const STACK_PLANE_BASIS_Y: LabelPlaneBasis = {x: 0, y: -1, z: 0};
 const STACK_PLANE_PADDING = 1.8;
-const INACTIVE_PLANE_ALPHA_SCALE = 0.68;
-const ACTIVE_BACKPLATE_FILL: RgbaColor = [0.08, 0.12, 0.18, 0.82];
-const ACTIVE_BACKPLATE_OUTLINE: RgbaColor = [0.66, 0.82, 1, 0.94];
-const INACTIVE_BACKPLATE_FILL: RgbaColor = [0.04, 0.06, 0.09, 0.58];
-const INACTIVE_BACKPLATE_OUTLINE: RgbaColor = [0.19, 0.24, 0.32, 0.72];
-const DAG_EDGE_COLOR: RgbaColor = [0.86, 0.9, 1, 0.82];
-const DAG_TITLE_ACTIVE_COLOR: RgbaColor = [0.96, 0.98, 1, 1];
-const DAG_TITLE_INACTIVE_COLOR: RgbaColor = [0.82, 0.88, 0.98, 0.92];
-const DAG_POINT_COLOR: RgbaColor = [0.92, 0.96, 1, 0.96];
-const DAG_TITLE_LABEL_SIZE = 1.12;
-const DAG_GRAPH_POINT_LABEL_SIZE = 0.6;
-const DAG_LABEL_POINT_MARKER_SIZE = 0.38;
+const INACTIVE_PLANE_ALPHA_SCALE = 0.82;
+const ACTIVE_BACKPLATE_FILL: RgbaColor = [0.02, 0.02, 0.02, 0.97];
+const ACTIVE_BACKPLATE_OUTLINE: RgbaColor = [1, 1, 1, 1];
+const INACTIVE_BACKPLATE_FILL: RgbaColor = [0.01, 0.01, 0.01, 0.88];
+const INACTIVE_BACKPLATE_OUTLINE: RgbaColor = [0.78, 0.78, 0.78, 0.9];
+const DAG_EDGE_COLOR: RgbaColor = [1, 1, 1, 0.96];
+const DAG_TITLE_ACTIVE_COLOR: RgbaColor = [1, 1, 1, 1];
+const DAG_TITLE_INACTIVE_COLOR: RgbaColor = [0.88, 0.88, 0.88, 0.97];
+const DAG_POINT_COLOR: RgbaColor = [1, 1, 1, 1];
+const DAG_TITLE_LABEL_SIZE = 1.72;
+const DAG_OVERVIEW_TITLE_LABEL_SIZE = 3.1;
+const DAG_GRAPH_POINT_LABEL_SIZE = 1.6;
+const DAG_LABEL_POINT_MARKER_SIZE = 0.86;
+export const DAG_TITLE_ONLY_MIN_PROJECTED_SPAN_PX = 32;
+export const DAG_LABEL_POINTS_MIN_PROJECTED_SPAN_PX = 92;
+export const DAG_FULL_WORKPLANE_MIN_PROJECTED_SPAN_PX = 150;
 const DAG_ALWAYS_VISIBLE_ZOOM_LEVEL = 0;
 const DAG_ALWAYS_VISIBLE_ZOOM_RANGE = 40;
 const DEFAULT_DAG_VIEWPORT: ViewportSize = {width: 393, height: 852};
-const DAG_FULL_LABEL_SIZE_SCALE = 2.2;
-const DAG_FULL_MIN_LABEL_SIZE = 0.44;
-const DAG_FULL_LINE_WIDTH_SCALE = 1.35;
-const DAG_CAMERA_BASE_AZIMUTH_MIN = -0.96;
-const DAG_CAMERA_BASE_AZIMUTH_MAX = -0.44;
-const DAG_CAMERA_BASE_AZIMUTH_STEP = 0.08;
-const DAG_CAMERA_BASE_ELEVATION_MIN = -0.28;
-const DAG_CAMERA_BASE_ELEVATION_MAX = -0.04;
+const DAG_FULL_LABEL_SIZE_SCALE = 2.3;
+const DAG_FULL_MIN_LABEL_SIZE = 0.48;
+const DAG_FULL_LINE_WIDTH_SCALE = 1.45;
+const DAG_LABEL_POINT_LINE_ALPHA_SCALE = 0.82;
+const DAG_LABEL_POINT_LINE_WIDTH_SCALE = 1.08;
+const DAG_CAMERA_BASE_AZIMUTH_MIN = -0.9;
+const DAG_CAMERA_BASE_AZIMUTH_MAX = -0.58;
+const DAG_CAMERA_BASE_AZIMUTH_PREFERRED = -0.72;
+const DAG_CAMERA_BASE_AZIMUTH_STEP = 0.06;
+const DAG_CAMERA_BASE_ELEVATION_MIN = -0.36;
+const DAG_CAMERA_BASE_ELEVATION_MAX = -0.16;
+const DAG_CAMERA_BASE_ELEVATION_PREFERRED = -0.24;
 const DAG_CAMERA_BASE_ELEVATION_STEP = 0.04;
 
 type ScenePlaneBounds = {
@@ -103,15 +111,15 @@ export function resolveWorkplaneLod(projectedPlaneSpanPx: number): WorkplaneLod 
     return 'graph-point';
   }
 
-  if (projectedPlaneSpanPx >= 180) {
+  if (projectedPlaneSpanPx >= DAG_FULL_WORKPLANE_MIN_PROJECTED_SPAN_PX) {
     return 'full-workplane';
   }
 
-  if (projectedPlaneSpanPx >= 72) {
+  if (projectedPlaneSpanPx >= DAG_LABEL_POINTS_MIN_PROJECTED_SPAN_PX) {
     return 'label-points';
   }
 
-  if (projectedPlaneSpanPx >= 22) {
+  if (projectedPlaneSpanPx >= DAG_TITLE_ONLY_MIN_PROJECTED_SPAN_PX) {
     return 'title-only';
   }
 
@@ -263,7 +271,7 @@ export function createDagStackViewState(
       lod === 'full-workplane' ? node.contentPlaneBounds : node.layout.planeBounds,
     );
 
-    if (lod === 'full-workplane' || lod === 'label-points') {
+    if (lod !== 'graph-point') {
       backplates.push({
         corners: backplateCorners,
         fillColor: isActive ? ACTIVE_BACKPLATE_FILL : INACTIVE_BACKPLATE_FILL,
@@ -285,13 +293,13 @@ export function createDagStackViewState(
         );
         break;
       case 'label-points':
-        appendLabelPointNodeScene(node, isActive, alphaScale, labels);
+        appendLabelPointNodeScene(node, isActive, alphaScale, labels, links);
         break;
       case 'title-only':
         appendTitleOnlyNodeScene(node, isActive, alphaScale, labels);
         break;
       case 'graph-point':
-        appendGraphPointNodeScene(node, alphaScale, labels);
+        appendGraphPointNodeScene(node, isActive, alphaScale, labels);
         break;
     }
   }
@@ -363,11 +371,16 @@ function appendLabelPointNodeScene(
   isActive: boolean,
   alphaScale: number,
   labels: LabelDefinition[],
+  links: LinkDefinition[],
 ): void {
   labels.push(createWorkplaneTitleLabel(node, isActive, alphaScale));
 
   for (const label of node.workplane.scene.labels) {
     labels.push(createWorkplanePointMarkerLabel(label, node.translation, alphaScale));
+  }
+
+  for (const link of node.workplane.scene.links) {
+    links.push(createWorldLabelPointLink(link, node.translation, alphaScale));
   }
 }
 
@@ -377,15 +390,20 @@ function appendTitleOnlyNodeScene(
   alphaScale: number,
   labels: LabelDefinition[],
 ): void {
-  labels.push(createWorkplaneTitleLabel(node, isActive, alphaScale));
+  labels.push(createWorkplaneOverviewLabel(node, isActive, alphaScale));
 }
 
 function appendGraphPointNodeScene(
   node: DagProjectedNode,
+  isActive: boolean,
   alphaScale: number,
   labels: LabelDefinition[],
 ): void {
-  labels.push(createWorkplaneGraphPointLabel(node, alphaScale));
+  labels.push(createWorkplaneGraphPointLabel(node, isActive, alphaScale));
+
+  if (isActive) {
+    labels.push(createWorkplaneTitleLabel(node, true, Math.min(1, alphaScale + 0.08)));
+  }
 }
 
 function createWorldLabel(
@@ -424,6 +442,22 @@ function createWorldLink(
   };
 }
 
+function createWorldLabelPointLink(
+  link: LinkDefinition,
+  translation: ScenePoint3D,
+  alphaScale: number,
+): LinkDefinition {
+  return {
+    ...link,
+    color: scaleColorAlpha(link.color, alphaScale * DAG_LABEL_POINT_LINE_ALPHA_SCALE),
+    inputLocation: projectWorkplanePointToScene(link.inputLocation, translation),
+    lineWidth: Math.max(2.2, link.lineWidth * DAG_LABEL_POINT_LINE_WIDTH_SCALE),
+    outputLocation: projectWorkplanePointToScene(link.outputLocation, translation),
+    zoomLevel: DAG_ALWAYS_VISIBLE_ZOOM_LEVEL,
+    zoomRange: DAG_ALWAYS_VISIBLE_ZOOM_RANGE,
+  };
+}
+
 function createWorkplaneTitleLabel(
   node: DagProjectedNode,
   isActive: boolean,
@@ -440,7 +474,29 @@ function createWorkplaneTitleLabel(
     planeBasisX: {...STACK_PLANE_BASIS_X},
     planeBasisY: {...STACK_PLANE_BASIS_Y},
     size: DAG_TITLE_LABEL_SIZE,
-    text: node.workplane.workplaneId,
+    text: resolveWorkplaneDisplayTitle(node.workplane),
+    zoomLevel: DAG_ALWAYS_VISIBLE_ZOOM_LEVEL,
+    zoomRange: DAG_ALWAYS_VISIBLE_ZOOM_RANGE,
+  };
+}
+
+function createWorkplaneOverviewLabel(
+  node: DagProjectedNode,
+  isActive: boolean,
+  alphaScale: number,
+): LabelDefinition {
+  return {
+    color: scaleColorAlpha(
+      isActive ? DAG_TITLE_ACTIVE_COLOR : DAG_TITLE_INACTIVE_COLOR,
+      alphaScale,
+    ),
+    inputLinkKeys: [],
+    location: {...node.layout.origin},
+    outputLinkKeys: [],
+    planeBasisX: {...STACK_PLANE_BASIS_X},
+    planeBasisY: {...STACK_PLANE_BASIS_Y},
+    size: DAG_OVERVIEW_TITLE_LABEL_SIZE,
+    text: resolveWorkplaneDisplayTitle(node.workplane),
     zoomLevel: DAG_ALWAYS_VISIBLE_ZOOM_LEVEL,
     zoomRange: DAG_ALWAYS_VISIBLE_ZOOM_RANGE,
   };
@@ -448,17 +504,21 @@ function createWorkplaneTitleLabel(
 
 function createWorkplaneGraphPointLabel(
   node: DagProjectedNode,
+  isActive: boolean,
   alphaScale: number,
 ): LabelDefinition {
   return {
-    color: scaleColorAlpha(DAG_POINT_COLOR, alphaScale),
+    color: scaleColorAlpha(
+      isActive ? DAG_TITLE_ACTIVE_COLOR : DAG_POINT_COLOR,
+      alphaScale,
+    ),
     inputLinkKeys: [],
     location: {...node.layout.origin},
     outputLinkKeys: [],
     planeBasisX: {...STACK_PLANE_BASIS_X},
     planeBasisY: {...STACK_PLANE_BASIS_Y},
     size: DAG_GRAPH_POINT_LABEL_SIZE,
-    text: node.workplane.workplaneId.slice(3),
+    text: '+',
     zoomLevel: DAG_ALWAYS_VISIBLE_ZOOM_LEVEL,
     zoomRange: DAG_ALWAYS_VISIBLE_ZOOM_RANGE,
   };
@@ -532,12 +592,13 @@ function createDagProjectionContext(
     ? measureProjectedPlaneSpanPx(activeNode.layout, referenceProjector, viewport)
     : 0;
   const focusAlpha = smoothstep(
-    inverseLerp(20, 180, activeProjectedPlaneSpanPx),
+    inverseLerp(12, 140, activeProjectedPlaneSpanPx),
   );
+  const orbitTargetBlend = clamp(0.18 + focusAlpha * 0.82, 0, 1);
   const orbitTarget = lerpScenePoint(
     scaffold.graphCenter,
     scaffold.activeOrbitTarget,
-    focusAlpha,
+    orbitTargetBlend,
   );
   const projector = new StackCameraProjector();
   projector.setSceneBounds(scaffold.sceneBounds);
@@ -708,7 +769,7 @@ function createDagEdgeLinkDefinition(
     inputLinkPoint: 'left-center',
     inputLocation: {...edge.input},
     linkKey: `bridge:dag:${edge.edgeKey}`,
-    lineWidth: 2.4,
+    lineWidth: 3,
     outputLabelKey: `dag:${edge.fromWorkplaneId}:output`,
     outputLinkPoint: 'right-center',
     outputLocation: {...edge.output},
@@ -758,6 +819,21 @@ function measureSceneBounds(scene: StageScene): ScenePlaneBounds {
   }
 
   return {maxX, maxY, minX, minY};
+}
+
+function resolveWorkplaneDisplayTitle(
+  workplane: StageSystemState['document']['workplanesById'][WorkplaneId],
+): string {
+  const rootLabel = workplane.scene.labels.find((label) => label.navigation?.layer === 1) ?? null;
+  const rootLabelText = rootLabel?.text.trim() ?? '';
+  const normalizedLabelText =
+    rootLabelText.length > 0 && rootLabelText !== rootLabel?.navigation?.key
+      ? rootLabelText
+      : '';
+
+  return normalizedLabelText.length > 0
+    ? `${workplane.workplaneId} ${normalizedLabelText}`
+    : workplane.workplaneId;
 }
 
 function expandSceneBounds(bounds: ScenePlaneBounds, padding: number): ScenePlaneBounds {
@@ -920,12 +996,16 @@ function resolveDagBaseCameraOrientation(
 
       const width = maxX - minX;
       const height = maxY - minY;
+      const orientationPenalty =
+        Math.abs(azimuthRadians - DAG_CAMERA_BASE_AZIMUTH_PREFERRED) * 28 +
+        Math.abs(elevationRadians - DAG_CAMERA_BASE_ELEVATION_PREFERRED) * 36;
       const score =
         minDistance +
         width * 0.18 +
         height * 0.12 +
         (Number.isFinite(minDepthSeparation) ? minDepthSeparation * 0.35 : 0) -
-        orderPenalty;
+        orderPenalty -
+        orientationPenalty;
 
       if (!bestCandidate || score > bestCandidate.score) {
         bestCandidate = {
@@ -989,13 +1069,13 @@ function resolveDagNodeAlphaScale(
 
   const safeDistance = Number.isFinite(graphDistance) ? graphDistance : 4;
   const distanceAlphaBoost =
-    safeDistance <= 1 ? 0.08 : safeDistance === 2 ? 0.02 : 0;
-  const baseAlpha = INACTIVE_PLANE_ALPHA_SCALE - Math.min(0.1, (safeDistance - 1) * 0.06);
+    safeDistance <= 1 ? 0.14 : safeDistance === 2 ? 0.08 : 0.04;
+  const baseAlpha = INACTIVE_PLANE_ALPHA_SCALE - Math.min(0.06, Math.max(0, safeDistance - 1) * 0.03);
 
   return clamp(
-    baseAlpha + distanceAlphaBoost - focusAlpha * Math.min(0.34, 0.12 + safeDistance * 0.08),
-    0.24,
-    INACTIVE_PLANE_ALPHA_SCALE,
+    baseAlpha + distanceAlphaBoost - focusAlpha * Math.min(0.2, 0.05 + safeDistance * 0.04),
+    0.44,
+    0.98,
   );
 }
 
@@ -1008,9 +1088,9 @@ function resolveDagEdgeAlphaScale(
     Number.isFinite(fromDistance) ? fromDistance : 4,
     Number.isFinite(toDistance) ? toDistance : 4,
   );
-  const baseAlpha = safeDistance <= 1 ? 1 : safeDistance === 2 ? 0.82 : 0.68;
+  const baseAlpha = safeDistance <= 1 ? 1 : safeDistance === 2 ? 0.94 : 0.86;
 
-  return clamp(baseAlpha - focusAlpha * (safeDistance <= 1 ? 0.1 : 0.22), 0.3, 1);
+  return clamp(baseAlpha - focusAlpha * (safeDistance <= 1 ? 0.04 : 0.1), 0.58, 1);
 }
 
 function lerpScenePoint(

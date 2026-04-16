@@ -15,7 +15,7 @@ export function buildLockedBridgeStatus(mode: CodexBridgeMode): string {
 
 const bridgeModeCopy: Record<CodexBridgeMode, string> = {
   auto: 'Auto mode will pick the best bridge route for this page.',
-  bridge: 'Bridge mode will use the direct bridge endpoint.',
+  bridge: 'Bridge mode will use the direct local bridge on this computer.',
   dev: 'Dev mode will use the current page origin and local proxy.',
 };
 

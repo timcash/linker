@@ -15,8 +15,13 @@ import {
   type LayoutStrategy,
 } from './data/labels';
 import {
+  DAG_FULL_WORKPLANE_MIN_PROJECTED_SPAN_PX,
+  DAG_LABEL_POINTS_MIN_PROJECTED_SPAN_PX,
+  DAG_TITLE_ONLY_MIN_PROJECTED_SPAN_PX,
   bucketVisibleDagNodes,
   createProjectedDagVisibleNodes,
+  resolveWorkplaneLod,
+  type WorkplaneLod,
 } from './dag-view';
 import {GridLayer} from './grid';
 import {
@@ -139,6 +144,7 @@ import {
   StackCameraAnimator,
   cloneStackCameraState,
   isStackCameraAtDefault,
+  normalizeStackCameraState,
   orbitStackCamera,
   scaleStackCameraDistance,
   type StackCameraState,
@@ -205,10 +211,22 @@ const DEMO_DEEP_ZOOM_STEP = GRID_LAYER_ZOOM_STEP;
 const STACK_CAMERA_CONTROL_AZIMUTH_STEP_RADIANS = Math.PI / 18;
 const STACK_CAMERA_CONTROL_ELEVATION_STEP_RADIANS = Math.PI / 24;
 const STACK_CAMERA_DRAG_RADIANS_PER_PIXEL = 0.0055;
-const STACK_CAMERA_ZOOM_IN_FACTOR = 0.9;
-const STACK_CAMERA_ZOOM_OUT_FACTOR = 1 / STACK_CAMERA_ZOOM_IN_FACTOR;
 const STACK_CAMERA_WHEEL_ZOOM_EXPONENT = 0.0015;
 const MAX_RENDER_FRAME_DELTA_MS = 33.34;
+const DAG_ZOOM_BAND_ORDER: WorkplaneLod[] = [
+  'graph-point',
+  'title-only',
+  'label-points',
+  'full-workplane',
+];
+const DAG_ZOOM_ACTIVE_SPAN_TARGET_PX: Record<WorkplaneLod, number> = {
+  'full-workplane': DAG_FULL_WORKPLANE_MIN_PROJECTED_SPAN_PX + 4,
+  'graph-point': DAG_TITLE_ONLY_MIN_PROJECTED_SPAN_PX * 0.5,
+  'label-points': DAG_LABEL_POINTS_MIN_PROJECTED_SPAN_PX + 8,
+  'title-only':
+    (DAG_TITLE_ONLY_MIN_PROJECTED_SPAN_PX + DAG_LABEL_POINTS_MIN_PROJECTED_SPAN_PX) * 0.5,
+};
+const DAG_ZOOM_DISTANCE_SEARCH_ITERATIONS = 14;
 
 type AppState = 'loading' | 'ready' | 'unsupported' | 'error';
 
@@ -385,7 +403,7 @@ class LumaStageController {
     this.stackBackplates = stackViewState?.backplates ?? [];
     if (stackViewState) {
       this.stackProjector.setSceneBounds(stackViewState.sceneBounds);
-      this.stackProjector.setOrbitTarget(stackViewState.orbitTarget);
+      this.stackProjector.setOrbitTarget(stackViewState.orbitTarget, {immediate: true});
     }
     this.stackCameraAnimator.setView(initialState.session.stackCamera);
     this.stackProjector.setStackCamera(this.stackCameraAnimator.getSnapshot());
@@ -568,12 +586,15 @@ class LumaStageController {
       this.lastFrameAt = frameStartedAt;
       const planeCameraAnimating = this.camera.advance(deltaMs);
       const stackCameraAnimating = this.stackCameraAnimator.advance(deltaMs);
+      let orbitTargetAnimating = false;
       const viewport = this.getViewportSize();
       if (this.state.session.stageMode === '3d-mode') {
         this.syncRenderSceneFromState(undefined, {
+          immediateOrbitTarget: false,
           stackCamera: this.stackCameraAnimator.getSnapshot(),
           viewport,
         });
+        orbitTargetAnimating = this.stackProjector.advance(deltaMs);
       }
       const stageProjector = this.getActiveProjector(viewport);
       const activeLabelNode = this.workplaneSyncPending || this.state.session.stageMode === '3d-mode'
@@ -677,7 +698,14 @@ class LumaStageController {
       this.frameTelemetry?.endCpuDraw();
       this.frameTelemetry?.endCpuFrame();
       this.updateStatus();
-      if (planeCameraAnimating || stackCameraAnimating || this.camera.isAnimating || this.stackCameraAnimator.isAnimating) {
+      if (
+        planeCameraAnimating ||
+        stackCameraAnimating ||
+        orbitTargetAnimating ||
+        this.camera.isAnimating ||
+        this.stackCameraAnimator.isAnimating ||
+        this.stackProjector.isAnimating
+      ) {
         this.requestRender();
       } else {
         this.lastFrameAt = 0;
@@ -851,16 +879,12 @@ class LumaStageController {
         );
         break;
       case 'zoom-in':
-        nextStackCamera = scaleStackCameraDistance(
-          stackCamera,
-          STACK_CAMERA_ZOOM_IN_FACTOR,
-        );
+        nextStackCamera = this.resolveDagZoomStepStackCamera('zoom-in')
+          ?? scaleStackCameraDistance(stackCamera, 0.9);
         break;
       case 'zoom-out':
-        nextStackCamera = scaleStackCameraDistance(
-          stackCamera,
-          STACK_CAMERA_ZOOM_OUT_FACTOR,
-        );
+        nextStackCamera = this.resolveDagZoomStepStackCamera('zoom-out')
+          ?? scaleStackCameraDistance(stackCamera, 1 / 0.9);
         break;
       case 'reset-camera':
         nextStackCamera = cloneStackCameraState(DEFAULT_STACK_CAMERA_STATE);
@@ -868,6 +892,176 @@ class LumaStageController {
     }
 
     return this.applyStackCameraState(nextStackCamera, {persist: true});
+  }
+
+  private resolveDagZoomStepStackCamera(
+    action: 'zoom-in' | 'zoom-out',
+  ): StackCameraState | null {
+    if (!this.state.document.dag) {
+      return null;
+    }
+
+    const currentBand = this.getActiveDagZoomBand(this.state.session.stackCamera);
+    const reachableBands = this.getReachableDagZoomBands();
+
+    if (!currentBand || reachableBands.length === 0) {
+      return null;
+    }
+
+    const currentIndex = reachableBands.indexOf(currentBand);
+
+    if (currentIndex < 0) {
+      return null;
+    }
+
+    const nextIndex = clamp(
+      action === 'zoom-in' ? currentIndex + 1 : currentIndex - 1,
+      0,
+      reachableBands.length - 1,
+    );
+
+    if (nextIndex === currentIndex) {
+      return cloneStackCameraState(this.state.session.stackCamera);
+    }
+
+    const targetBand = reachableBands[nextIndex];
+    const targetDistanceScale = this.resolveDagZoomDistanceScaleForBand(targetBand);
+
+    if (targetDistanceScale === null) {
+      return null;
+    }
+
+    return {
+      azimuthRadians: this.state.session.stackCamera.azimuthRadians,
+      distanceScale: targetDistanceScale,
+      elevationRadians: this.state.session.stackCamera.elevationRadians,
+    };
+  }
+
+  private getReachableDagZoomBands(): WorkplaneLod[] {
+    const farBand = this.getActiveDagZoomBand({
+      azimuthRadians: this.state.session.stackCamera.azimuthRadians,
+      distanceScale: STACK_CAMERA_DISTANCE_SCALE_MAX,
+      elevationRadians: this.state.session.stackCamera.elevationRadians,
+    });
+    const nearBand = this.getActiveDagZoomBand({
+      azimuthRadians: this.state.session.stackCamera.azimuthRadians,
+      distanceScale: STACK_CAMERA_DISTANCE_SCALE_MIN,
+      elevationRadians: this.state.session.stackCamera.elevationRadians,
+    });
+
+    if (!farBand || !nearBand) {
+      return [];
+    }
+
+    const startIndex = DAG_ZOOM_BAND_ORDER.indexOf(farBand);
+    const endIndex = DAG_ZOOM_BAND_ORDER.indexOf(nearBand);
+
+    if (startIndex < 0 || endIndex < 0) {
+      return [];
+    }
+
+    return DAG_ZOOM_BAND_ORDER.slice(
+      Math.min(startIndex, endIndex),
+      Math.max(startIndex, endIndex) + 1,
+    );
+  }
+
+  private resolveDagZoomDistanceScaleForBand(
+    targetBand: WorkplaneLod,
+  ): number | null {
+    const targetSpanPx = DAG_ZOOM_ACTIVE_SPAN_TARGET_PX[targetBand];
+    const minScale = STACK_CAMERA_DISTANCE_SCALE_MIN;
+    const maxScale = STACK_CAMERA_DISTANCE_SCALE_MAX;
+    const minSpanPx = this.measureActiveDagProjectedPlaneSpanPx(
+      minScale,
+      this.state.session.stackCamera,
+    );
+    const maxSpanPx = this.measureActiveDagProjectedPlaneSpanPx(
+      maxScale,
+      this.state.session.stackCamera,
+    );
+
+    if (
+      minSpanPx === null ||
+      maxSpanPx === null ||
+      !Number.isFinite(minSpanPx) ||
+      !Number.isFinite(maxSpanPx)
+    ) {
+      return null;
+    }
+
+    if (targetSpanPx >= minSpanPx) {
+      return minScale;
+    }
+
+    if (targetSpanPx <= maxSpanPx) {
+      return maxScale;
+    }
+
+    let lowScale = minScale;
+    let highScale = maxScale;
+    let lowSpanPx = minSpanPx;
+    let highSpanPx = maxSpanPx;
+
+    for (let iteration = 0; iteration < DAG_ZOOM_DISTANCE_SEARCH_ITERATIONS; iteration += 1) {
+      const midScale = (lowScale + highScale) * 0.5;
+      const midSpanPx = this.measureActiveDagProjectedPlaneSpanPx(
+        midScale,
+        this.state.session.stackCamera,
+      );
+
+      if (midSpanPx === null || !Number.isFinite(midSpanPx)) {
+        return null;
+      }
+
+      if (midSpanPx > targetSpanPx) {
+        lowScale = midScale;
+        lowSpanPx = midSpanPx;
+      } else {
+        highScale = midScale;
+        highSpanPx = midSpanPx;
+      }
+    }
+
+    return Math.abs(lowSpanPx - targetSpanPx) <= Math.abs(highSpanPx - targetSpanPx)
+      ? lowScale
+      : highScale;
+  }
+
+  private getActiveDagZoomBand(
+    stackCamera: StackCameraState,
+  ): WorkplaneLod | null {
+    const activeProjectedSpanPx = this.measureActiveDagProjectedPlaneSpanPx(
+      stackCamera.distanceScale,
+      stackCamera,
+    );
+
+    return activeProjectedSpanPx === null
+      ? null
+      : resolveWorkplaneLod(activeProjectedSpanPx);
+  }
+
+  private measureActiveDagProjectedPlaneSpanPx(
+    distanceScale: number,
+    baseStackCamera: StackCameraState,
+  ): number | null {
+    const activeWorkplaneId = this.state.session.activeWorkplaneId;
+    const projectedNodes = createProjectedDagVisibleNodes(
+      this.state,
+      this.getViewportSize(),
+      {
+        stackCamera: {
+          azimuthRadians: baseStackCamera.azimuthRadians,
+          distanceScale,
+          elevationRadians: baseStackCamera.elevationRadians,
+        },
+      },
+    );
+    const activeProjectedNode =
+      projectedNodes.find((node) => node.layout.workplaneId === activeWorkplaneId) ?? null;
+
+    return activeProjectedNode?.projectedPlaneSpanPx ?? null;
   }
 
   private applyStackCameraOrbitDelta(
@@ -1990,10 +2184,10 @@ class LumaStageController {
       dagControlAvailability,
       canSpawnWorkplane: canSpawnWorkplane(this.state),
       controlPadPage: this.controlPadPage,
+      editPanel: this.chrome.editPanel,
       labelSetKind: this.config.labelSetKind,
       lineStrategy: this.lineStrategy,
       planeCount: getPlaneCount(this.state),
-      renderPanel: this.chrome.renderPanel,
       stageMode: this.state.session.stageMode,
       strategyModePanel: this.chrome.strategyModePanel,
       strategyPanelMode: this.strategyPanelMode,
@@ -2193,7 +2387,7 @@ class LumaStageController {
 
   private async startOnboardingWalkthrough(): Promise<void> {
     const runId = ++this.onboardingRunId;
-    const totalSteps = 25;
+    const totalSteps = 26;
 
     this.onboardingPhase = 'running';
     this.setOnboardingStepState({
@@ -2208,6 +2402,7 @@ class LumaStageController {
     this.updateStatus();
 
     try {
+      await this.waitOnboardingDelay(runId, ONBOARDING_FRAME_SETTLE_MS);
       await this.waitForOnboardingIdle(runId, {waitForCamera: false});
       await this.runOnboardingWalkthrough(runId, totalSteps);
 
@@ -2276,13 +2471,14 @@ class LumaStageController {
     await this.showOnboardingControlPadPage('menu', runId);
     await step({
       body: 'The bottom control pad now opens as a menu, so new users can jump straight into the right button set instead of cycling blindly.',
-      detail: 'Linker uses four pad names here: Map, Stage, DAG, and CRUD.',
+      detail: 'Linker uses five pad names here: Map, Stage, DAG, CRUD, and View.',
       stepId: 'menu-intro',
       targetSelectors: [
         'button[data-control-pad-target="navigate"]',
         'button[data-control-pad-target="stage"]',
         'button[data-control-pad-target="dag"]',
         'button[data-control-pad-target="edit"]',
+        'button[data-control-pad-target="view"]',
       ],
       title: 'Open the menu and choose a pad',
     });
@@ -2399,7 +2595,7 @@ class LumaStageController {
     await this.clickOnboardingButton('button[data-editor-action="remove-label"]', runId);
 
     await step({
-      body: 'Child, Parent, and Delete also support temporary graph surgery before the main fanout begins.',
+      body: 'The DAG pad creates workplane-to-workplane links, not local label links. Child Link grows a downstream node, Parent Link inserts an upstream node, and Delete removes a leaf safely.',
       detail: 'A short extra chain is created off the root, then removed again, so the final twelve-node build still lands on the clean canonical ids.',
       stepId: 'dag-crud',
       targetSelectors: [
@@ -2467,16 +2663,20 @@ class LumaStageController {
     }
 
     await step({
-      body: 'Before the camera tour, Linker adds real local labels and links onto several workplanes so the deeper zoom bands reveal meaningful content.',
-      detail: 'This keeps the walkthrough zero-data at boot while still showing text and local lines later in 3D.',
+      body: 'Before the camera tour, Linker stitches meaningful local content into multiple workplanes so the later 3D zoom bands reveal readable text and internal links instead of empty planes.',
+      detail: 'This keeps the walkthrough zero-data at boot while still showing real label and link structure later in 3D.',
       stepId: 'label-seed',
       targetSelectors: ['button[data-editor-shortcut="toggle-selection-or-create"]'],
       title: 'Populate several workplanes',
     });
+    await this.navigateToWorkplaneByButtons('wp-3', runId);
+    await this.authorOnboardingLinkedPair(runId, ['Policy', 'Mirror']);
     await this.navigateToWorkplaneByButtons('wp-2', runId);
     await this.authorOnboardingLinkedPair(runId, ['Ingress', 'Mirror']);
     await this.navigateToWorkplaneByButtons('wp-6', runId);
     await this.authorOnboardingLinkedPair(runId, ['Policy', 'Audit']);
+    await this.navigateToWorkplaneByButtons('wp-7', runId);
+    await this.authorOnboardingLinkedPair(runId, ['Rules', 'Relay']);
     await this.navigateToWorkplaneByButtons('wp-10', runId);
     await this.authorOnboardingLinkedPair(runId, ['Deploy', 'Alarm']);
 
@@ -2500,8 +2700,8 @@ class LumaStageController {
     await this.clickOnboardingButton('button[data-dag-action="move-depth-out"]', runId);
 
     await step({
-      body: 'Now the walkthrough leaves 2D and lifts the finished graph into the global stack view.',
-      detail: 'The Stage pad keeps 2D, 3D, and workplane switching in one place.',
+      body: 'Now the walkthrough leaves 2D and lifts the finished graph into the global 3D DAG view, which is Linker’s root visualization.',
+      detail: 'The Stage pad keeps 2D, 3D, root focus, and workplane switching in one place.',
       stepId: 'stage-3d',
       targetSelectors: ['button[data-stage-mode-action="set-3d-mode"]'],
       title: 'Enter 3D mode',
@@ -2514,8 +2714,8 @@ class LumaStageController {
 
     await this.zoomOnboardingDagToGraphOverview(runId);
     await step({
-      body: 'At the far zoom, every workplane collapses to one graph point so the whole dependency shape fits in view.',
-      detail: 'This is the widest LOD band: graph markers plus DAG links only.',
+      body: 'At the far zoom, every workplane collapses to one bright graph marker so the whole dependency shape fits in view.',
+      detail: 'This is the widest LOD band: graph markers plus global DAG links only.',
       stepId: 'graph-overview',
       targetSelectors: ['button[data-control="zoom-out"]'],
       title: 'See the far DAG overview',
@@ -2524,8 +2724,8 @@ class LumaStageController {
     await this.navigateToWorkplaneByButtons('wp-6', runId);
     await this.zoomOnboardingDagToTitleOnly(runId);
     await step({
-      body: 'One zoom band closer, the graph still fits in view but each workplane now reads as a title card.',
-      detail: 'This title-only LOD is the bridge between the abstract DAG and the local plane content.',
+      body: 'One zoom band closer, the camera auto-centers the selected workplane in an isometric view and every nearby workplane becomes a readable title card.',
+      detail: 'This title-only LOD is the bridge between the abstract DAG shape and the local plane content.',
       stepId: 'title-only',
       targetSelectors: ['button[data-control="zoom-in"]'],
       title: 'Reveal workplane titles',
@@ -2533,8 +2733,8 @@ class LumaStageController {
 
     await this.zoomOnboardingDagToLabelPoint(runId);
     await step({
-      body: 'Closer again, local label markers appear across the visible DAG so you can see which planes actually contain authored content.',
-      detail: 'This label-point LOD keeps the scene light while previewing where the real work lives.',
+      body: 'Closer again, local label markers and simplified local links appear across the visible DAG so you can see which workplanes already carry authored content.',
+      detail: 'This label-point LOD keeps the scene light while previewing where the real 2D work lives.',
       stepId: 'label-point',
       targetSelectors: ['button[data-control="zoom-in"]'],
       title: 'Reveal label points',
@@ -2542,16 +2742,25 @@ class LumaStageController {
 
     await this.zoomOnboardingDagToFullWorkplane(runId);
     await step({
-      body: 'At the deepest detail level, Linker hands the selected node off to the 2D plane-focus view so local labels and links become fully readable.',
-      detail: 'This is the graph-to-workplane transition: the DAG gets you there, then the workplane editor takes over.',
+      body: 'At the closest 3D zoom, the selected workplane becomes a readable plane with visible text, local links, and a clear place in the wider graph.',
+      detail: 'This is the last pure 3D LOD band before Linker hands the view off to plane-focus detail.',
       stepId: 'full-workplane',
+      targetSelectors: ['button[data-control="zoom-in"]'],
+      title: 'Read one workplane in 3D',
+    });
+
+    await this.openOnboardingPlaneFocus(runId);
+    await step({
+      body: 'One more step drops straight into the same workplane in 2D so the local labels and local links become fully readable and editable.',
+      detail: 'This is the DAG-to-workplane handoff: 3D gets you there, then plane-focus takes over for detailed CRUD.',
+      stepId: 'plane-focus',
       targetSelectors: ['button[data-stage-mode-action="set-2d-mode"]'],
-      title: 'Open the focused workplane',
+      title: 'Hand off into plane-focus',
     });
 
     await step({
       body: 'The Stage pad can lift that same workplane back into 3D, and Next plus Prev still move around the DAG after the return.',
-      detail: 'This keeps the jump between plane-focus and stack view feeling like one continuous map.',
+      detail: 'The camera keeps the active workplane centered so the jump between plane-focus and stack view feels like one continuous map.',
       stepId: 'stage-next-prev',
       targetSelectors: [
         'button[data-stage-mode-action="set-3d-mode"]',
@@ -2568,7 +2777,7 @@ class LumaStageController {
     await this.clickOnboardingButton('button[data-workplane-action="select-previous-workplane"]', runId);
 
     await step({
-      body: 'The CRUD pad still controls 3D rendering style, and then Menu returns the user to the four main pads at the end of the tour.',
+      body: 'The View pad controls 3D text and line style, and then Menu returns the user to the five main pads at the end of the tour.',
       detail: 'After the style pass, Root and Reset bring the guided intro back to the clean title-only overview.',
       stepId: 'styles-finish',
       targetSelectors: [
@@ -2578,7 +2787,7 @@ class LumaStageController {
       ],
       title: 'Change styles and reopen the menu',
     });
-    await this.showOnboardingControlPadPage('edit', runId);
+    await this.showOnboardingControlPadPage('view', runId);
     await this.clickOnboardingButton('button[data-line-strategy="arc-links"]', runId);
     await this.clickOnboardingButton('button[data-line-strategy="rounded-step-links"]', runId);
     await this.clickOnboardingButton('button[data-text-strategy="sdf-soft"]', runId);
@@ -2762,10 +2971,7 @@ class LumaStageController {
         return;
       }
 
-      const action =
-        dagSnapshot && dagSnapshot.fullWorkplaneCount > 0
-          ? 'zoom-out'
-          : 'zoom-in';
+      const action = 'zoom-in';
 
       await this.clickOnboardingButton(`button[data-control="${action}"]`, runId, {
         waitForCamera: true,
@@ -2776,6 +2982,51 @@ class LumaStageController {
   }
 
   private async zoomOnboardingDagToFullWorkplane(runId: number): Promise<void> {
+    await this.showOnboardingControlPadPage('navigate', runId);
+    let redirectedToDetailLeaf = false;
+
+    for (let attempt = 0; attempt < 16; attempt += 1) {
+      const dagSnapshot = this.getDagSnapshotState(true);
+      const lineVisibleLinkCount = this.lineLayer?.getStats().lineVisibleLinkCount ?? 0;
+      const visibleGlyphCount = this.textLayer?.getStats().visibleGlyphCount ?? 0;
+
+      if (
+        this.state.session.stageMode === '3d-mode' &&
+        dagSnapshot &&
+        dagSnapshot.fullWorkplaneCount > 0 &&
+        lineVisibleLinkCount > dagSnapshot.visibleEdgeCount &&
+        visibleGlyphCount > dagSnapshot.visibleWorkplaneCount
+      ) {
+        if (!this.getEffectiveCameraAvailability().canZoomIn) {
+          return;
+        }
+      }
+
+      const action =
+        dagSnapshot && dagSnapshot.fullWorkplaneCount > 0
+          ? 'zoom-out'
+          : 'zoom-in';
+
+      if (action === 'zoom-in' && !this.getEffectiveCameraAvailability().canZoomIn) {
+        if (!redirectedToDetailLeaf) {
+          redirectedToDetailLeaf = true;
+          await this.navigateToWorkplaneByButtons('wp-10', runId);
+          await this.showOnboardingControlPadPage('navigate', runId);
+          continue;
+        }
+
+        break;
+      }
+
+      await this.clickOnboardingButton(`button[data-control="${action}"]`, runId, {
+        waitForCamera: true,
+      });
+    }
+
+    throw new Error('Timed out while waiting for the onboarding 3D full workplane detail view.');
+  }
+
+  private async openOnboardingPlaneFocus(runId: number): Promise<void> {
     await this.showOnboardingControlPadPage('stage', runId);
     await this.clickOnboardingButton('button[data-stage-mode-action="set-2d-mode"]', runId, {
       waitForCamera: true,
@@ -2796,7 +3047,7 @@ class LumaStageController {
       await this.waitOnboardingDelay(runId, 80);
     }
 
-    throw new Error('Timed out while waiting for the onboarding full workplane detail view.');
+    throw new Error('Timed out while waiting for the onboarding plane-focus detail view.');
   }
 
   private async clickOnboardingButton(
@@ -2929,13 +3180,13 @@ class LumaStageController {
       ...this.chrome.strategyModePanel.querySelectorAll<HTMLButtonElement>('[data-stage-mode-action]'),
     );
     this.textStrategyButtons.push(
-      ...this.chrome.renderPanel.querySelectorAll<HTMLButtonElement>('[data-text-strategy]'),
+      ...this.chrome.strategyModePanel.querySelectorAll<HTMLButtonElement>('[data-text-strategy]'),
     );
     this.lineStrategyButtons.push(
-      ...this.chrome.renderPanel.querySelectorAll<HTMLButtonElement>('[data-line-strategy]'),
+      ...this.chrome.strategyModePanel.querySelectorAll<HTMLButtonElement>('[data-line-strategy]'),
     );
     this.layoutStrategyButtons.push(
-      ...this.chrome.renderPanel.querySelectorAll<HTMLButtonElement>('[data-layout-strategy]'),
+      ...this.chrome.strategyModePanel.querySelectorAll<HTMLButtonElement>('[data-layout-strategy]'),
     );
     this.workplaneActionButtons.push(
       ...this.chrome.strategyModePanel.querySelectorAll<HTMLButtonElement>('[data-workplane-action]'),
@@ -3323,6 +3574,7 @@ class LumaStageController {
     nextState: StageSystemState,
     options?: {forceLabelInput?: boolean; syncQuery?: boolean},
   ): void {
+    const previousState = this.state;
     const nextStackViewState =
       nextState.session.stageMode === '3d-mode'
         ? createStackViewState(nextState, {
@@ -3338,7 +3590,7 @@ class LumaStageController {
     }
 
     this.state = nextState;
-    this.applyActiveWorkplaneRuntime(options, nextStackViewState);
+    this.applyActiveWorkplaneRuntime(options, nextStackViewState, previousState);
   }
 
   private getRenderSceneForState(
@@ -3355,6 +3607,7 @@ class LumaStageController {
   private syncRenderSceneFromState(
     stackViewState?: StackViewState,
     options?: {
+      immediateOrbitTarget?: boolean;
       stackCamera?: StackCameraState;
       viewport?: ViewportSize;
     },
@@ -3372,7 +3625,9 @@ class LumaStageController {
     this.stackBackplates = nextStackViewState?.backplates ?? [];
     if (nextStackViewState) {
       this.stackProjector.setSceneBounds(nextStackViewState.sceneBounds);
-      this.stackProjector.setOrbitTarget(nextStackViewState.orbitTarget);
+      this.stackProjector.setOrbitTarget(nextStackViewState.orbitTarget, {
+        immediate: options?.immediateOrbitTarget ?? false,
+      });
     }
     this.stackProjector.setStackCamera(
       nextStackViewState?.projectorStackCamera ??
@@ -3406,14 +3661,16 @@ class LumaStageController {
   private applyActiveWorkplaneRuntime(options?: {
     forceLabelInput?: boolean;
     syncQuery?: boolean;
-  }, stackViewState?: StackViewState): void {
+  }, stackViewState?: StackViewState, previousState?: StageSystemState): void {
     const view = getActiveWorkplaneView(this.state);
     const activeWorkplaneId = this.state.session.activeWorkplaneId;
 
     if (this.state.session.stageMode === '3d-mode') {
-      this.stackCameraAnimator.setView(this.state.session.stackCamera);
+      this.seedStackCameraTransition(previousState);
+      this.stackCameraAnimator.setTargetView(this.state.session.stackCamera);
     }
     this.syncRenderSceneFromState(stackViewState, {
+      immediateOrbitTarget: false,
       stackCamera: this.stackCameraAnimator.getSnapshot(),
       viewport: this.getViewportSize(),
     });
@@ -3429,7 +3686,8 @@ class LumaStageController {
       this.editorWorkplaneId = null;
       this.labelFocusedCamera = null;
     }
-    this.camera.setView(view.camera.centerX, view.camera.centerY, view.camera.zoom);
+    this.seedWorkplaneTransitionCamera(previousState, view.camera);
+    this.camera.setTargetView(view.camera.centerX, view.camera.centerY, view.camera.zoom);
     this.lineLayer?.setLinks(this.renderScene.links);
     this.textLayer?.setLayoutLabels(this.renderScene.labels);
 
@@ -3451,8 +3709,9 @@ class LumaStageController {
     options?: {forceLabelInput?: boolean; syncQuery?: boolean},
   ): Promise<void> {
     if (!this.device || !this.textLayer) {
+      const previousState = this.state;
       this.state = nextState;
-      this.applyActiveWorkplaneRuntime(options, nextStackViewState);
+      this.applyActiveWorkplaneRuntime(options, nextStackViewState, previousState);
       return;
     }
 
@@ -3482,12 +3741,15 @@ class LumaStageController {
 
       const view = getActiveWorkplaneView(nextState);
       const previousTextLayer = this.textLayer;
+      const previousState = this.state;
 
-      this.state = nextState;
+        this.state = nextState;
       if (this.state.session.stageMode === '3d-mode') {
-        this.stackCameraAnimator.setView(this.state.session.stackCamera);
+        this.seedStackCameraTransition(previousState);
+        this.stackCameraAnimator.setTargetView(this.state.session.stackCamera);
       }
       this.syncRenderSceneFromState(nextStackViewState, {
+        immediateOrbitTarget: false,
         stackCamera: this.stackCameraAnimator.getSnapshot(),
         viewport: this.getViewportSize(),
       });
@@ -3503,7 +3765,8 @@ class LumaStageController {
         this.editorWorkplaneId = null;
         this.labelFocusedCamera = null;
       }
-      this.camera.setView(view.camera.centerX, view.camera.centerY, view.camera.zoom);
+      this.seedWorkplaneTransitionCamera(previousState, view.camera);
+      this.camera.setTargetView(view.camera.centerX, view.camera.centerY, view.camera.zoom);
       this.lineLayer?.setLinks(this.renderScene.links);
       this.textLayer = nextTextLayer;
       this.textLayerCharacterSet = new Set(nextTextCharacterSet);
@@ -3531,6 +3794,137 @@ class LumaStageController {
         this.syncLabelInputPanel({forceValue: true});
       }
     }
+  }
+
+  private seedWorkplaneTransitionCamera(
+    previousState: StageSystemState | undefined,
+    targetCamera: WorkplaneCameraView,
+  ): void {
+    if (!previousState || this.state.session.stageMode !== '2d-mode') {
+      return;
+    }
+
+    const previousStageMode = previousState.session.stageMode;
+    const previousWorkplaneId = previousState.session.activeWorkplaneId;
+    const nextWorkplaneId = this.state.session.activeWorkplaneId;
+    const currentCamera = this.camera.getSnapshot();
+
+    if (
+      previousStageMode === '2d-mode' &&
+      previousWorkplaneId === nextWorkplaneId &&
+      !this.matchesWorkplaneCamera(currentCamera, targetCamera)
+    ) {
+      return;
+    }
+
+    if (
+      previousStageMode === '2d-mode' &&
+      previousWorkplaneId === nextWorkplaneId &&
+      this.matchesWorkplaneCamera(currentCamera, targetCamera)
+    ) {
+      return;
+    }
+
+    if (
+      previousStageMode === '2d-mode' &&
+      previousWorkplaneId !== nextWorkplaneId &&
+      !this.matchesWorkplaneCamera(currentCamera, targetCamera)
+    ) {
+      return;
+    }
+
+    const transitionCamera = this.createWorkplaneTransitionCamera(previousState, targetCamera);
+    this.camera.setView(
+      transitionCamera.centerX,
+      transitionCamera.centerY,
+      transitionCamera.zoom,
+    );
+  }
+
+  private seedStackCameraTransition(previousState: StageSystemState | undefined): void {
+    if (!previousState || previousState.session.stageMode !== '3d-mode') {
+      return;
+    }
+
+    const previousWorkplaneId = previousState.session.activeWorkplaneId;
+    const nextWorkplaneId = this.state.session.activeWorkplaneId;
+
+    if (previousWorkplaneId === nextWorkplaneId || this.stackCameraAnimator.isAnimating) {
+      return;
+    }
+
+    const previousIndex = getWorkplaneIndex(previousState, previousWorkplaneId);
+    const nextIndex = getWorkplaneIndex(this.state, nextWorkplaneId);
+    const previousDagPosition = previousState.document.dag?.positionsById[previousWorkplaneId] ?? null;
+    const nextDagPosition = this.state.document.dag?.positionsById[nextWorkplaneId] ?? null;
+    const indexDelta = nextIndex - previousIndex;
+    const rankDelta =
+      (nextDagPosition?.column ?? 0) - (previousDagPosition?.column ?? 0);
+    const laneDelta =
+      (nextDagPosition?.row ?? 0) - (previousDagPosition?.row ?? 0);
+    const depthDelta =
+      (nextDagPosition?.layer ?? 0) - (previousDagPosition?.layer ?? 0);
+    const targetStackCamera = this.state.session.stackCamera;
+    const azimuthOffset = Math.sign(rankDelta || depthDelta || indexDelta || 1) * 0.075;
+    const elevationOffset =
+      laneDelta === 0
+        ? (depthDelta === 0 ? 0.025 : Math.sign(depthDelta) * 0.03)
+        : -Math.sign(laneDelta) * 0.045;
+    const seededStackCamera = normalizeStackCameraState({
+      azimuthRadians: targetStackCamera.azimuthRadians + azimuthOffset,
+      distanceScale: targetStackCamera.distanceScale * 1.08,
+      elevationRadians: targetStackCamera.elevationRadians + elevationOffset,
+    });
+
+    this.stackCameraAnimator.setView(seededStackCamera);
+  }
+
+  private createWorkplaneTransitionCamera(
+    previousState: StageSystemState,
+    targetCamera: WorkplaneCameraView,
+  ): WorkplaneCameraView {
+    const previousWorkplaneId = previousState.session.activeWorkplaneId;
+    const nextWorkplaneId = this.state.session.activeWorkplaneId;
+    const previousIndex = getWorkplaneIndex(previousState, previousWorkplaneId);
+    const nextIndex = getWorkplaneIndex(this.state, nextWorkplaneId);
+    const previousDagPosition = previousState.document.dag?.positionsById[previousWorkplaneId] ?? null;
+    const nextDagPosition = this.state.document.dag?.positionsById[nextWorkplaneId] ?? null;
+    const indexDelta = nextIndex - previousIndex;
+    const rankDelta =
+      (nextDagPosition?.column ?? 0) - (previousDagPosition?.column ?? 0);
+    const laneDelta =
+      (nextDagPosition?.row ?? 0) - (previousDagPosition?.row ?? 0);
+    const depthDelta =
+      (nextDagPosition?.layer ?? 0) - (previousDagPosition?.layer ?? 0);
+    let offsetX = rankDelta * 0.9 + depthDelta * 0.28;
+    let offsetY = -laneDelta * 0.9;
+
+    if (Math.abs(offsetX) + Math.abs(offsetY) <= 0.001) {
+      offsetX = Math.sign(indexDelta || 1) * 0.72;
+      offsetY = previousState.session.stageMode === '3d-mode' ? -0.48 : 0;
+    }
+
+    if (previousState.session.stageMode === '3d-mode') {
+      offsetX *= 1.22;
+      offsetY = offsetY === 0 ? -0.56 : offsetY * 1.14;
+    }
+
+    return {
+      centerX: targetCamera.centerX - offsetX,
+      centerY: targetCamera.centerY - offsetY,
+      zoom: clamp(targetCamera.zoom - (previousState.session.stageMode === '3d-mode' ? 0.42 : 0.24), 0, 40),
+    };
+  }
+
+  private matchesWorkplaneCamera(
+    camera: Pick<ReturnType<Camera2D['getSnapshot']>, 'centerX' | 'centerY' | 'zoom'>,
+    targetCamera: WorkplaneCameraView,
+  ): boolean {
+    return (
+      Math.abs(camera.centerX - targetCamera.centerX) <= 0.0001 &&
+      Math.abs(camera.centerY - targetCamera.centerY) <= 0.0001 &&
+      Math.abs(camera.zoom - targetCamera.zoom) <= 0.0001
+    );
   }
 
   private requiresTextLayerRebuildForScene(scene: StageScene): boolean {
@@ -3605,7 +3999,10 @@ class LumaStageController {
       activeWorkplaneIndex:
         getWorkplaneIndex(this.state, this.state.session.activeWorkplaneId) + 1,
       activeWorkplaneId: this.state.session.activeWorkplaneId,
-      cameraAnimating: this.camera.isAnimating || this.stackCameraAnimator.isAnimating,
+      cameraAnimating:
+        this.camera.isAnimating ||
+        this.stackCameraAnimator.isAnimating ||
+        this.stackProjector.isAnimating,
       cameraAvailability: this.getEffectiveCameraAvailability(),
       cameraSnapshot: this.camera.getSnapshot(),
       dag: this.getDagSnapshotState(isStackView),
@@ -3741,6 +4138,15 @@ class LumaStageController {
   private getEffectiveCameraAvailability() {
     if (this.state.session.stageMode === '3d-mode') {
       const stackCamera = this.state.session.stackCamera;
+      const dagZoomBand = this.state.document.dag
+        ? this.getActiveDagZoomBand(stackCamera)
+        : null;
+      const reachableDagZoomBands = dagZoomBand
+        ? this.getReachableDagZoomBands()
+        : [];
+      const farthestDagZoomBand = reachableDagZoomBands[0] ?? null;
+      const nearestDagZoomBand =
+        reachableDagZoomBands[reachableDagZoomBands.length - 1] ?? null;
 
       return {
         canMoveDown: stackCamera.elevationRadians < STACK_CAMERA_ELEVATION_MAX_RADIANS - 0.0001,
@@ -3748,8 +4154,12 @@ class LumaStageController {
         canMoveRight: true,
         canMoveUp: stackCamera.elevationRadians > STACK_CAMERA_ELEVATION_MIN_RADIANS + 0.0001,
         canReset: !isStackCameraAtDefault(stackCamera),
-        canZoomIn: stackCamera.distanceScale > STACK_CAMERA_DISTANCE_SCALE_MIN + 0.0001,
-        canZoomOut: stackCamera.distanceScale < STACK_CAMERA_DISTANCE_SCALE_MAX - 0.0001,
+        canZoomIn: dagZoomBand
+          ? dagZoomBand !== nearestDagZoomBand
+          : stackCamera.distanceScale > STACK_CAMERA_DISTANCE_SCALE_MIN + 0.0001,
+        canZoomOut: dagZoomBand
+          ? dagZoomBand !== farthestDagZoomBand
+          : stackCamera.distanceScale < STACK_CAMERA_DISTANCE_SCALE_MAX - 0.0001,
       };
     }
 
@@ -3853,6 +4263,10 @@ function getViewportCenter(viewport: ViewportSize): {x: number; y: number} {
     x: viewport.width / 2,
     y: viewport.height / 2,
   };
+}
+
+function clamp(value: number, min: number, max: number): number {
+  return Math.min(max, Math.max(min, value));
 }
 
 function isWebGPUUnavailableError(error: unknown): error is Error {

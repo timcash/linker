@@ -9,6 +9,7 @@ export default defineConfig({
       input: {
         auth: path.resolve(__dirname, 'auth/index.html'),
         codex: path.resolve(__dirname, 'codex/index.html'),
+        logs: path.resolve(__dirname, 'logs/index.html'),
         main: path.resolve(__dirname, 'index.html'),
         readme: path.resolve(__dirname, 'readme/index.html'),
         tasks: path.resolve(__dirname, 'tasks/index.html'),

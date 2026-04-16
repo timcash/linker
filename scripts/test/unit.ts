@@ -7,6 +7,17 @@ import {
   shouldProbeCodexBridge,
 } from '../../src/codex/CodexBridgePolicy';
 import {
+  filterBrowserLogs,
+  parseLogsCommand,
+  resolveBrowserLogSource,
+  type BrowserLogEntry,
+} from '../../src/logs/log-model';
+import {
+  DEFAULT_LOCAL_BRIDGE_ORIGIN,
+  resolveBridgeOrigin,
+  resolveCodexBaseOrigin,
+} from '../../src/codex/CodexTerminalClient';
+import {
   assertAcyclicDag,
   assertColumnsIncreaseAlongEdges,
   assertIntegerWorkplanePositions,
@@ -101,6 +112,9 @@ import {
 } from '../../src/stack-camera';
 import {createStackViewState} from '../../src/stack-view';
 import {
+  DAG_FULL_WORKPLANE_MIN_PROJECTED_SPAN_PX,
+  DAG_LABEL_POINTS_MIN_PROJECTED_SPAN_PX,
+  DAG_TITLE_ONLY_MIN_PROJECTED_SPAN_PX,
   bucketVisibleDagNodes,
   createDagEdgeCurves,
   createDagNodeLayouts,
@@ -135,6 +149,7 @@ import {
 export function runStaticUnitTests(): void {
   runRouteAndSessionTests();
   runCodexBridgePolicyTests();
+  runBrowserLogModelTests();
   runDagDocumentTests();
   runDagLayoutTests();
   runDagViewTests();
@@ -166,9 +181,106 @@ function runCodexBridgePolicyTests(): void {
     'Deferred health copy should explain the locked-shell behavior and the chosen bridge target.',
   );
   assert.equal(
+    buildDeferredBridgeHealthSummary('bridge', DEFAULT_LOCAL_BRIDGE_ORIGIN),
+    `Health checks start after unlock. Bridge mode will use the direct local bridge on this computer. Current target: ${DEFAULT_LOCAL_BRIDGE_ORIGIN}.`,
+    'Deferred health copy should explain the direct local bridge path.',
+  );
+  assert.equal(
     buildLockedBridgeStatus('bridge'),
     'Enter the password to unlock bridge mode.',
     'Locked status copy should mention the currently selected bridge mode.',
+  );
+  assert.equal(
+    resolveBridgeOrigin('timcash.github.io'),
+    DEFAULT_LOCAL_BRIDGE_ORIGIN,
+    'Hosted GitHub Pages bridge mode should target the direct local bridge on this computer.',
+  );
+  assert.equal(
+    resolveBridgeOrigin('localhost'),
+    DEFAULT_LOCAL_BRIDGE_ORIGIN,
+    'Local bridge mode should target the direct local bridge endpoint.',
+  );
+  assert.equal(
+    resolveCodexBaseOrigin({
+      bridgeMode: 'auto',
+      hostname: 'timcash.github.io',
+      locationOrigin: 'https://timcash.github.io',
+    }),
+    'https://linker.dialtone.earth',
+    'Hosted auto mode should still prefer the public bridge origin when available.',
+  );
+  assert.equal(
+    resolveCodexBaseOrigin({
+      bridgeMode: 'bridge',
+      hostname: 'timcash.github.io',
+      locationOrigin: 'https://timcash.github.io',
+    }),
+    DEFAULT_LOCAL_BRIDGE_ORIGIN,
+    'Hosted bridge mode should provide a direct local-machine path for the GitHub Pages client.',
+  );
+}
+
+function runBrowserLogModelTests(): void {
+  const nowMs = Date.UTC(2026, 3, 15, 12, 0, 0);
+  const entries: BrowserLogEntry[] = [
+    createBrowserLogEntry({
+      id: 'entry-1',
+      level: 'info',
+      message: 'boot route',
+      source: '/src/main.ts:12:3',
+      timestamp: nowMs - 5 * 60_000,
+    }),
+    createBrowserLogEntry({
+      id: 'entry-2',
+      level: 'warn',
+      message: 'onboarding warning',
+      source: '/src/app.ts:2429:7',
+      timestamp: nowMs - 2 * 60_000,
+    }),
+    createBrowserLogEntry({
+      id: 'entry-3',
+      level: 'warn',
+      message: 'logs smoke follow row',
+      source: '/src/logs-page.ts:18:5',
+      timestamp: nowMs - 15_000,
+    }),
+  ];
+
+  assert.deepEqual(
+    filterBrowserLogs(entries, {
+      level: 'warn',
+      query: 'logs smoke',
+      sinceMinutes: 1,
+      source: 'logs-page',
+    }, nowMs).map((entry) => entry.id),
+    ['entry-3'],
+    'Browser log filtering should apply level, grep, source, and since filters together.',
+  );
+  assert.equal(
+    resolveBrowserLogSource(
+      [
+        'Error',
+        '    at recordBrowserLog (http://127.0.0.1:4173/src/logs/log-store.ts:10:2)',
+        '    at handleClick (http://127.0.0.1:4173/src/app.ts?t=123:1996:17)',
+      ].join('\n'),
+    ),
+    '/src/app.ts:1996:17',
+    'Browser log source resolution should skip wrapper frames and keep the caller source line.',
+  );
+  assert.deepEqual(
+    [
+      parseLogsCommand('level warn'),
+      parseLogsCommand('since all'),
+      parseLogsCommand('show 12'),
+      parseLogsCommand('history 5'),
+    ],
+    [
+      {kind: 'level', level: 'warn'},
+      {kind: 'since', minutes: null},
+      {kind: 'show', count: 12},
+      {kind: 'history', count: 5},
+    ],
+    'The logs terminal command parser should normalize the supported CLI commands.',
   );
 }
 
@@ -376,12 +488,12 @@ function runDagViewTests(): void {
 
   assert.deepEqual(
     [
-      resolveWorkplaneLod(180),
-      resolveWorkplaneLod(179.999),
-      resolveWorkplaneLod(72),
-      resolveWorkplaneLod(22),
+      resolveWorkplaneLod(DAG_FULL_WORKPLANE_MIN_PROJECTED_SPAN_PX),
+      resolveWorkplaneLod(DAG_FULL_WORKPLANE_MIN_PROJECTED_SPAN_PX - 0.001),
+      resolveWorkplaneLod(DAG_LABEL_POINTS_MIN_PROJECTED_SPAN_PX),
+      resolveWorkplaneLod(DAG_TITLE_ONLY_MIN_PROJECTED_SPAN_PX),
       resolveWorkplaneLod(Number.NaN),
-      resolveWorkplaneLod(21.99),
+      resolveWorkplaneLod(DAG_TITLE_ONLY_MIN_PROJECTED_SPAN_PX - 0.01),
     ],
     [
       'full-workplane',
@@ -954,8 +1066,8 @@ function runPlaneStackStateTests(): void {
   const secondChildState = spawnDagChildWorkplane(focusDagRootWorkplane(firstChildState));
   assert.deepEqual(
     secondChildState.document.dag?.positionsById['wp-3'],
-    {column: 1, row: 1, layer: 0},
-    'A second child from the root should stack into the next available lane of the same rank.',
+    {column: 1, row: 0, layer: 1},
+    'A second child from the root should fill the next available depth slot of the same rank slice.',
   );
 
   const rankMoveState = moveActiveDagWorkplaneByRank(
@@ -1119,7 +1231,7 @@ function runCameraAndProjectionTests(): void {
   const stackProjector = new StackCameraProjector();
 
   stackProjector.setSceneBounds(stackViewState.sceneBounds);
-  stackProjector.setOrbitTarget(stackViewState.orbitTarget);
+  stackProjector.setOrbitTarget(stackViewState.orbitTarget, {immediate: true});
   stackProjector.setViewport(viewport);
 
   const visibleBounds = stackProjector.getVisibleWorldBounds(viewport);
@@ -1166,6 +1278,24 @@ function runCameraAndProjectionTests(): void {
     getStackCameraForward(DEFAULT_STACK_CAMERA_STATE),
     'StackCameraProjector should boot with the default stack-camera orbit.',
   );
+  stackProjector.setOrbitTarget(
+    {
+      x: stackViewState.orbitTarget.x + 2,
+      y: stackViewState.orbitTarget.y - 1,
+      z: stackViewState.orbitTarget.z,
+    },
+  );
+  assert.equal(
+    stackProjector.isAnimating,
+    true,
+    'StackCameraProjector should animate orbit-target changes instead of snapping immediately.',
+  );
+  stackProjector.advance(16.67);
+  assert.ok(
+    stackProjector.centerX > sceneCenter.x,
+    'StackCameraProjector should ease its orbit target toward the next active workplane.',
+  );
+  stackProjector.setOrbitTarget(stackViewState.orbitTarget, {immediate: true});
 
   const orbitedStackCamera = orbitStackCamera(
     stackProjector.getStackCamera(),
@@ -2047,5 +2177,15 @@ function createDagDocumentFromStageState(
       }),
     ) as DagDocumentState['nodesById'],
     rootWorkplaneId: dag.rootWorkplaneId,
+  };
+}
+
+function createBrowserLogEntry(
+  entry: Partial<BrowserLogEntry> & Pick<BrowserLogEntry, 'id' | 'level' | 'message' | 'source' | 'timestamp'>,
+): BrowserLogEntry {
+  return {
+    route: 'app',
+    sessionId: 'session-test',
+    ...entry,
   };
 }

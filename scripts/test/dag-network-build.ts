@@ -25,6 +25,7 @@ import {
   pressStageModeKey,
   pressStrategyKey,
   submitFocusedLabelInput,
+  waitForCameraSettled,
   waitForStageWorkplane,
   type BrowserTestContext,
 } from './shared';
@@ -160,8 +161,8 @@ export async function runDagNetworkBuildFlow(
       layer: stage.dagActiveWorkplaneLayer,
       row: stage.dagActiveWorkplaneRow,
     },
-    {column: 1, layer: 0, row: 1},
-    'The second root child should occupy the next lane of rank 1.',
+    {column: 1, layer: 1, row: 0},
+    'The second root child should occupy the next depth slot of rank 1.',
   );
 
   await clickEditorShortcut(context.page, 'toggle-selection-or-create');
@@ -169,6 +170,10 @@ export async function runDagNetworkBuildFlow(
 
   await pressPlaneStackKey(context.page, 'select-previous-workplane');
   await waitForStageWorkplane(context.page, {activeWorkplaneId: 'wp-2', planeCount: 3});
+  await assertPlaneFocusTransition(
+    context.page,
+    'Selecting the previous workplane in 2d mode should animate the workplane camera.',
+  );
   assert.equal(
     await readLabelInputValue(context.page),
     CORE_NAME,
@@ -177,6 +182,10 @@ export async function runDagNetworkBuildFlow(
 
   await clickWorkplaneButton(context.page, 'select-next-workplane');
   await waitForStageWorkplane(context.page, {activeWorkplaneId: 'wp-3', planeCount: 3});
+  await assertPlaneFocusTransition(
+    context.page,
+    'Selecting the next workplane in 2d mode should animate the workplane camera.',
+  );
   assert.equal(
     await readLabelInputValue(context.page),
     STORAGE_NAME,
@@ -193,7 +202,7 @@ export async function runDagNetworkBuildFlow(
       layer: stage.dagActiveWorkplaneLayer,
       row: stage.dagActiveWorkplaneRow,
     },
-    {column: 2, layer: 1, row: 2},
+    {column: 2, layer: 2, row: 1},
     'Rank, lane, and depth controls should reposition the active child inside the DAG rails.',
   );
 
@@ -227,8 +236,14 @@ export async function runDagNetworkBuildFlow(
       cameraAfterOrbit.stackCameraElevation !== cameraBeforeOrbit.stackCameraElevation,
     '3d camera controls should change the DAG camera azimuth or elevation.',
   );
+  await waitForCameraSettled(context.page);
 
   await clickWorkplaneButton(context.page, 'select-next-workplane');
+  await waitForStageWorkplane(context.page, {activeWorkplaneId: 'wp-2', planeCount: 4});
+  await assertDagCameraTransition(
+    context.page,
+    'Selecting the next workplane in 3d mode should animate the DAG camera handoff.',
+  );
   stage = await getStageState(context.page);
   assert.notEqual(
     stage.activeWorkplaneId,
@@ -237,10 +252,12 @@ export async function runDagNetworkBuildFlow(
   );
 
   await clickLineStrategyButton(context.page, 'arc-links');
+  stage = await getStageState(context.page);
+  assert.equal(stage.controlPadPage, 'view', 'The line strategy controls should now live on the dedicated View pad.');
   assert.equal(
     (await getLineState(context.page)).lineStrategy,
     'arc-links',
-    'The edit-page line strategy buttons should work while viewing the DAG in 3d mode.',
+    'The View-pad line strategy buttons should work while viewing the DAG in 3d mode.',
   );
   await pressStrategyKey(context.page, 'line');
   assert.equal(
@@ -250,10 +267,12 @@ export async function runDagNetworkBuildFlow(
   );
 
   await clickTextStrategyButton(context.page, 'sdf-soft');
+  stage = await getStageState(context.page);
+  assert.equal(stage.controlPadPage, 'view', 'The text strategy controls should stay on the dedicated View pad.');
   assert.equal(
     (await getTextState(context.page)).textStrategy,
     'sdf-soft',
-    'The edit-page text strategy buttons should work while viewing the DAG in 3d mode.',
+    'The View-pad text strategy buttons should work while viewing the DAG in 3d mode.',
   );
   await pressStrategyKey(context.page, 'text');
   assert.equal(
@@ -297,4 +316,37 @@ async function readLabelInputValue(
   return page.evaluate(() => {
     return document.querySelector<HTMLInputElement>('[data-testid="label-input-field"]')?.value ?? '';
   });
+}
+
+async function assertPlaneFocusTransition(
+  page: BrowserTestContext['page'],
+  failureMessage: string,
+): Promise<void> {
+  const transitionSample = await getCameraState(page);
+  await waitForCameraSettled(page);
+  const settledCamera = await getCameraState(page);
+  const cameraMoved =
+    transitionSample.animating ||
+    Math.abs(transitionSample.centerX - settledCamera.centerX) > 0.0001 ||
+    Math.abs(transitionSample.centerY - settledCamera.centerY) > 0.0001 ||
+    Math.abs(transitionSample.zoom - settledCamera.zoom) > 0.0001;
+
+  assert.equal(cameraMoved, true, failureMessage);
+}
+
+async function assertDagCameraTransition(
+  page: BrowserTestContext['page'],
+  failureMessage: string,
+): Promise<void> {
+  await page.waitForFunction(
+    () => document.body.dataset.cameraAnimating === 'true',
+    {timeout: 10_000},
+  );
+  await waitForCameraSettled(page);
+
+  const cameraSettled = await page.evaluate(
+    () => document.body.dataset.cameraAnimating === 'false',
+  );
+
+  assert.equal(cameraSettled, true, failureMessage);
 }

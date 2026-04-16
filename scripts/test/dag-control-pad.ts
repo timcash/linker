@@ -14,7 +14,7 @@ import {
 } from './shared';
 
 const DAG_CONTROL_LAYOUT_FINGERPRINT =
-  'wp-1:0:0:0|wp-2:3:1:1|wp-3:1:1:0|wp-4:2:1:1';
+  'wp-1:0:0:0|wp-2:3:1:1|wp-3:1:0:1|wp-4:2:1:1';
 
 export async function runDagControlPadFlow(
   context: BrowserTestContext,
@@ -72,8 +72,8 @@ export async function runDagControlPadFlow(
       layer: secondChildStage.dagActiveWorkplaneLayer,
       row: secondChildStage.dagActiveWorkplaneRow,
     },
-    {column: 1, layer: 0, row: 1},
-    'The second root child should stack into the next available lane of the same rank.',
+    {column: 1, layer: 1, row: 0},
+    'The second root child should fan across the next depth slot of the same rank slice.',
   );
 
   await clickWorkplaneButton(context.page, 'select-previous-workplane');

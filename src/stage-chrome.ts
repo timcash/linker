@@ -4,6 +4,7 @@ import {TEXT_STRATEGY_OPTIONS} from './text/types';
 export type StageChromeElements = {
   cameraPanel: HTMLElement;
   canvas: HTMLCanvasElement;
+  editPanel: HTMLElement;
   editorGhostLayer: HTMLDivElement;
   editorSelectionLayer: HTMLDivElement;
   editorSelectionSummary: HTMLParagraphElement;
@@ -20,7 +21,6 @@ export type StageChromeElements = {
   onboardReplayButton: HTMLButtonElement;
   onboardSkipButton: HTMLButtonElement;
   onboardTitle: HTMLHeadingElement;
-  renderPanel: HTMLElement;
   selectionBox: HTMLDivElement;
   stage: HTMLDivElement;
   statusPanel: HTMLElement;
@@ -125,20 +125,20 @@ export function createStageChrome(root: HTMLElement): StageChromeElements {
       <button type="button" class="control-button control-button--tile" data-control-pad-target="edit">
         CRUD
       </button>
+      <button type="button" class="control-button control-button--tile" data-control-pad-target="view">
+        View
+      </button>
+      <button type="button" class="control-button control-button--chip" disabled aria-disabled="true">
+        Local Links
+      </button>
+      <button type="button" class="control-button control-button--chip" disabled aria-disabled="true">
+        DAG Links
+      </button>
+      <button type="button" class="control-button control-button--chip" disabled aria-disabled="true">
+        2D <-> 3D
+      </button>
       <button type="button" class="control-button control-button--chip" disabled aria-disabled="true">
         Pan + Zoom
-      </button>
-      <button type="button" class="control-button control-button--chip" disabled aria-disabled="true">
-        2D + 3D
-      </button>
-      <button type="button" class="control-button control-button--chip" disabled aria-disabled="true">
-        Rank + Lane
-      </button>
-      <button type="button" class="control-button control-button--chip" disabled aria-disabled="true">
-        Type + Link
-      </button>
-      <button type="button" class="control-button control-button--menu" disabled aria-disabled="true">
-        Choose Pad
       </button>
     </div>
     <div class="control-page-grid" data-control-pad-page="navigate" data-testid="control-pad-page-navigate">
@@ -223,16 +223,16 @@ export function createStageChrome(root: HTMLElement): StageChromeElements {
         Depth In
       </button>
       <button type="button" class="control-button control-button--tile" data-dag-action="spawn-child-workplane">
-        Child
+        Child Link
       </button>
       <button type="button" class="control-button control-button--tile" data-dag-action="insert-parent-workplane">
-        Parent
+        Parent Link
       </button>
       <button type="button" class="control-button control-button--menu" data-control-pad-action="open-menu">
         Menu
       </button>
     </div>
-    <section class="edit-page" data-control-pad-page="edit" data-testid="render-panel" hidden>
+    <section class="edit-page" data-control-pad-page="edit" data-testid="edit-panel" hidden>
       <div class="edit-page-meta" data-testid="label-edit-panel">
         <p class="panel-meta" data-testid="label-input-hint">Label wp-1:1:1:1</p>
         <p class="panel-meta" data-testid="editor-selection-summary">0 selected</p>
@@ -253,7 +253,7 @@ export function createStageChrome(root: HTMLElement): StageChromeElements {
           Select/Create
         </button>
         <button type="button" class="control-button control-button--tile" data-editor-action="link-selection">
-          Link
+          Local Link
         </button>
         <button type="button" class="control-button control-button--tile" data-editor-action="remove-links">
           Unlink
@@ -268,30 +268,29 @@ export function createStageChrome(root: HTMLElement): StageChromeElements {
           Menu
         </button>
       </form>
-      <div class="strategy-group-stack" data-testid="strategy-group-stack">
-        <section class="strategy-group" data-testid="text-strategy-group" aria-label="Text strategy">
-          <div class="strategy-group-meta">
-            <p class="panel-meta">Text</p>
-            <p class="panel-meta">Shift+T</p>
-          </div>
-          <div class="strategy-button-row" data-testid="text-strategy-row">
-            ${renderStrategyButtons(TEXT_STRATEGY_OPTIONS, 'textStrategy')}
-          </div>
-        </section>
-        <section class="strategy-group" data-testid="line-strategy-group" aria-label="Line strategy">
-          <div class="strategy-group-meta">
-            <p class="panel-meta">Links</p>
-            <p class="panel-meta">Shift+L</p>
-          </div>
-          <div class="strategy-button-row" data-testid="line-strategy-row">
-            ${renderStrategyButtons(LINE_STRATEGY_OPTIONS, 'lineStrategy')}
-          </div>
-        </section>
-      </div>
     </section>
+    <div class="control-page-grid" data-control-pad-page="view" data-testid="control-pad-page-view" hidden>
+      ${renderStrategyButton(TEXT_STRATEGY_OPTIONS[0], 'textStrategy')}
+      ${renderStrategyButton(TEXT_STRATEGY_OPTIONS[1], 'textStrategy')}
+      <button type="button" class="control-button control-button--chip" disabled aria-disabled="true">
+        Shift+T
+      </button>
+      ${renderStrategyButton(LINE_STRATEGY_OPTIONS[0], 'lineStrategy')}
+      ${renderStrategyButton(LINE_STRATEGY_OPTIONS[1], 'lineStrategy')}
+      ${renderStrategyButton(LINE_STRATEGY_OPTIONS[2], 'lineStrategy')}
+      <button type="button" class="control-button control-button--chip" disabled aria-disabled="true">
+        Text
+      </button>
+      <button type="button" class="control-button control-button--chip" disabled aria-disabled="true">
+        Links
+      </button>
+      <button type="button" class="control-button control-button--menu" data-control-pad-action="open-menu">
+        Menu
+      </button>
+    </div>
   `;
 
-  const renderPanel = strategyModePanel.querySelector<HTMLElement>('[data-testid="render-panel"]');
+  const editPanel = strategyModePanel.querySelector<HTMLElement>('[data-testid="edit-panel"]');
   const labelInputField = strategyModePanel.querySelector<HTMLInputElement>('[data-testid="label-input-field"]');
   const labelInputForm = strategyModePanel.querySelector<HTMLFormElement>('[data-testid="label-input-form"]');
   const labelInputHint =
@@ -302,7 +301,7 @@ export function createStageChrome(root: HTMLElement): StageChromeElements {
     strategyModePanel.querySelector<HTMLButtonElement>('[data-testid="label-input-submit"]');
 
   if (
-    !renderPanel ||
+    !editPanel ||
     !labelInputField ||
     !labelInputForm ||
     !labelInputHint ||
@@ -342,6 +341,7 @@ export function createStageChrome(root: HTMLElement): StageChromeElements {
   return {
     cameraPanel: strategyModePanel,
     canvas,
+    editPanel,
     editorGhostLayer,
     editorSelectionLayer,
     editorSelectionSummary,
@@ -358,7 +358,6 @@ export function createStageChrome(root: HTMLElement): StageChromeElements {
     onboardReplayButton,
     onboardSkipButton,
     onboardTitle,
-    renderPanel,
     selectionBox,
     stage,
     statusPanel,
@@ -367,24 +366,24 @@ export function createStageChrome(root: HTMLElement): StageChromeElements {
   };
 }
 
-function renderStrategyButtons(
-  options: ReadonlyArray<{label: string; mode: string}>,
+function renderStrategyButton(
+  option: {label: string; mode: string} | undefined,
   datasetKey: 'lineStrategy' | 'textStrategy',
 ): string {
+  if (!option) {
+    return '';
+  }
+
   const attributeName = datasetKey === 'lineStrategy' ? 'line-strategy' : 'text-strategy';
 
-  return options
-    .map(
-      (option) => `
-        <button
-          type="button"
-          class="control-button control-button--wide"
-          data-${attributeName}="${option.mode}"
-          aria-pressed="false"
-        >
-          ${option.label}
-        </button>
-      `,
-    )
-    .join('');
+  return `
+    <button
+      type="button"
+      class="control-button control-button--tile"
+      data-${attributeName}="${option.mode}"
+      aria-pressed="false"
+    >
+      ${option.label}
+    </button>
+  `;
 }

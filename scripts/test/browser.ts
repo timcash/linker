@@ -1098,7 +1098,7 @@ export async function clickTextStrategyButton(
   page: Page,
   textStrategy: TextStrategy,
 ): Promise<void> {
-  await showControlPadPage(page, 'edit');
+  await showControlPadPage(page, 'view');
   const selector = `button[data-text-strategy="${textStrategy}"]`;
   const currentStrategy = await page.evaluate(
     () => (document.body.dataset.textStrategy ?? DEFAULT_TEXT_STRATEGY) as TextStrategy,
@@ -1117,7 +1117,7 @@ export async function clickLineStrategyButton(
   page: Page,
   lineStrategy: LineStrategy,
 ): Promise<void> {
-  await showControlPadPage(page, 'edit');
+  await showControlPadPage(page, 'view');
   const selector = `button[data-line-strategy="${lineStrategy}"]`;
   const currentStrategy = await page.evaluate(
     () => (document.body.dataset.lineStrategy ?? DEFAULT_LINE_STRATEGY) as LineStrategy,
@@ -1177,7 +1177,7 @@ export async function pressStrategyKey(
 
 export async function openControlPadMenu(page: Page): Promise<void> {
   const currentPage = await page.evaluate(
-    () => (document.body.dataset.controlPadPage ?? 'menu') as 'dag' | 'edit' | 'menu' | 'navigate' | 'stage',
+    () => (document.body.dataset.controlPadPage ?? 'menu') as 'dag' | 'edit' | 'menu' | 'navigate' | 'stage' | 'view',
   );
 
   if (currentPage === 'menu') {
@@ -1191,10 +1191,10 @@ export async function openControlPadMenu(page: Page): Promise<void> {
 
 export async function showControlPadPage(
   page: Page,
-  controlPadPage: 'dag' | 'edit' | 'menu' | 'navigate' | 'stage',
+  controlPadPage: 'dag' | 'edit' | 'menu' | 'navigate' | 'stage' | 'view',
 ): Promise<void> {
   const currentPage = await page.evaluate(
-    () => (document.body.dataset.controlPadPage ?? 'menu') as 'dag' | 'edit' | 'menu' | 'navigate' | 'stage',
+    () => (document.body.dataset.controlPadPage ?? 'menu') as 'dag' | 'edit' | 'menu' | 'navigate' | 'stage' | 'view',
   );
 
   if (currentPage === controlPadPage) {

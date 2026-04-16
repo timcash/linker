@@ -8,7 +8,7 @@ import type {LineStrategy} from './line/types';
 import type {TextStrategy} from './text/types';
 
 export type StrategyPanelMode = 'text' | 'line' | 'layout' | 'label-edit';
-export type ControlPadPage = 'dag' | 'edit' | 'menu' | 'navigate' | 'stage';
+export type ControlPadPage = 'dag' | 'edit' | 'menu' | 'navigate' | 'stage' | 'view';
 
 export function syncStageStrategyPanels(input: {
   activeWorkplaneIndex: number;
@@ -17,10 +17,10 @@ export function syncStageStrategyPanels(input: {
   dagControlAvailability: DagControlAvailability | null;
   canSpawnWorkplane: boolean;
   controlPadPage: ControlPadPage;
+  editPanel: HTMLElement;
   labelSetKind: LabelSetKind;
   lineStrategy: LineStrategy;
   planeCount: number;
-  renderPanel: HTMLElement;
   stageMode: StageMode;
   strategyModePanel: HTMLElement;
   strategyPanelMode: StrategyPanelMode;
@@ -33,10 +33,10 @@ export function syncStageStrategyPanels(input: {
     dagControlAvailability,
     canSpawnWorkplane,
     controlPadPage,
+    editPanel,
     labelSetKind,
     lineStrategy,
     planeCount,
-    renderPanel,
     stageMode,
     strategyModePanel,
     textStrategy,
@@ -135,11 +135,11 @@ export function syncStageStrategyPanels(input: {
     }
   }
 
-  for (const button of renderPanel.querySelectorAll<HTMLButtonElement>('[data-text-strategy]')) {
+  for (const button of strategyModePanel.querySelectorAll<HTMLButtonElement>('[data-text-strategy]')) {
     setButtonPressed(button, button.dataset.textStrategy === textStrategy);
   }
 
-  for (const button of renderPanel.querySelectorAll<HTMLButtonElement>('[data-line-strategy]')) {
+  for (const button of strategyModePanel.querySelectorAll<HTMLButtonElement>('[data-line-strategy]')) {
     setButtonPressed(button, button.dataset.lineStrategy === lineStrategy);
     button.disabled = labelSetKind !== 'demo';
   }
@@ -150,7 +150,7 @@ export function syncStageStrategyPanels(input: {
     strategyModePanel.querySelector<HTMLButtonElement>('[data-testid="stage-mode-chip"]');
   const stageWorkplaneChip =
     strategyModePanel.querySelector<HTMLButtonElement>('[data-testid="stage-workplane-chip"]');
-  const labelEditPanel = renderPanel.querySelector<HTMLElement>('[data-testid="label-edit-panel"]');
+  const labelEditPanel = editPanel.querySelector<HTMLElement>('[data-testid="label-edit-panel"]');
 
   if (navigateModeChip) {
     navigateModeChip.textContent = stageMode === '3d-mode' ? 'Orbit' : 'Grid';
