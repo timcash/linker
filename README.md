@@ -1,6 +1,6 @@
 # Linker
 
-Linker is a `luma.gl` + WebGPU DAG workplane viewer and editor with aligned `12x12x12` label grids, `rank/lane/depth` 3D navigation, a compact mobile-style menu-first control pad, a browser `/codex` terminal page that now uses a single Cloudflare Access unlock workflow with a one-screen mobile lock view and a fullscreen xterm terminal after unlock, and a browser `/logs` terminal page for timestamped history with source-line filters.
+Linker is a `luma.gl` + WebGPU DAG workplane viewer and editor with aligned `12x12x12` label grids, `rank/lane/depth` 3D navigation, a compact mobile-style menu-first control pad, a browser `/codex` mailboard that talks to the shared `gmail-agent` daemon through one Cloudflare Access unlock flow, and a browser `/logs` terminal page for timestamped history with source-line filters.
 
 ## 1. Live Onboarding
 
@@ -26,7 +26,7 @@ Current proven invariant:
 - `npm run test:browser` is green and now means the hosted-style onboarding proof
 - `npm run test:browser:onboarding` stays green as the explicit onboarding alias
 - `npm run test:browser:logs` is green for the xterm.js `/logs/` history and filter route
-- `npm run test:browser:codex` is green for the single-flow `/codex/` mobile lock view plus fullscreen terminal-mode screenshot proof
+- `npm run test:browser:codex` is green for the `/codex/` mailboard unlock, inbox filter, mark-read, reply, and compose screenshot proof
 - `npm run test:browser:dag-network-build` is green for the canonical zero-data 2D + 3D interaction proof
 - `npm run test:browser:suite` is green for the broader browser matrix around the onboarding-first product path
 - `npm run test:dag:static` is green for pure DAG validation, layout, edge, and model mutation rules
@@ -69,7 +69,7 @@ Current review queue:
 - the hosted onboarding screenshots under `artifacts/test-screenshots/` remain the visual contract for each guided step from empty root to finished `1-4-4-3` DAG
 - direct 3D workplane picking plus explicit DAG edge create/remove between already-existing workplanes are still the main product gaps
 - every publish should still end with a live pass over `/`, `/codex/`, `/readme/`, and `/logs/`
-- `/codex/` on GitHub Pages is expected to render as a locked shell until the hosted Cloudflare Access bridge is reachable from this machine
+- `/codex/` on GitHub Pages is expected to render as a locked mailboard until the hosted Cloudflare Access mail origin is reachable from this machine
 
 ## 2. Screenshot and Links
 
@@ -80,7 +80,7 @@ Current review queue:
     <td align="center"><a href="https://timcash.github.io/linker/"><img src="./readme/screenshots/boot-ready.png" alt="Linker default DAG boot on the twelve-workplane overview" width="220" /></a><br/><sub>Boot</sub></td>
     <td align="center"><a href="https://timcash.github.io/linker/?demoPreset=dag-rank-fanout&stageMode=3d-mode&workplane=wp-1&cameraLabel=wp-1%3A1%3A1%3A1"><img src="./readme/screenshots/dag-rank-fanout.png" alt="Linker twelve-workplane DAG overview" width="220" /></a><br/><sub>DAG Build</sub></td>
     <td align="center"><a href="https://timcash.github.io/linker/?demoPreset=dag-rank-fanout&stageMode=3d-mode&workplane=wp-10&cameraLabel=wp-10%3A1%3A1%3A1"><img src="./readme/screenshots/dag-zoom-detail.png" alt="Linker DAG zoom into readable workplane detail" width="220" /></a><br/><sub>Zoom Detail</sub></td>
-    <td align="center"><a href="https://timcash.github.io/linker/codex/"><img src="./readme/screenshots/codex-terminal.png" alt="Linker codex terminal route in its locked state" width="220" /></a><br/><sub>Codex</sub></td>
+    <td align="center"><a href="https://timcash.github.io/linker/codex/"><img src="./readme/screenshots/codex-mailboard.png" alt="Linker codex mailboard route" width="220" /></a><br/><sub>Codex</sub></td>
   </tr>
 </table>
 
@@ -114,21 +114,29 @@ Example:
 https://timcash.github.io/linker/?demoPreset=dag-rank-fanout&cameraLabel=wp-10:1:1:1
 ```
 
-`/codex/` on GitHub Pages stays static and now uses one Cloudflare Access unlock step instead of a second page-local password. For local development:
+`/codex/` on GitHub Pages stays static and now uses one Cloudflare Access unlock step to reach the shared `gmail-agent` mail API. For local development:
 
 ```bash
-Copy-Item .env.codex.local.example .env.codex.local
-npm run codex:bridge
+Copy-Item .env.codex.local.example .env.local
+cd ..\\gmail-agent
+npm run codex:daemon
+cd ..\\linker
 npm run dev -- --host 127.0.0.1
 ```
 
-If you want the browser route to reach this machine from GitHub Pages through Cloudflare, bring up the daemon or tunnel flow after setting the real env values:
+The Linker browser app now defaults to `http://127.0.0.1:4192` for `/codex/` in local development. To reach this machine from GitHub Pages through Cloudflare, the shared `gmail-agent` daemon needs to publish the mail API at the single public origin:
 
 ```bash
-npm run codex:daemon:start
-npm run codex:daemon:status
-npm run codex:tunnel
+https://codex.dialtone.earth
 ```
+
+To prove the shared mailbox sync from this repo itself, run:
+
+```bash
+npm run test:codex:mail-sync
+```
+
+That command checks the sibling `gmail-agent` auth state, starts the shared daemon if needed, calls the live `/api/mail/*` surface, and writes a proof artifact to `artifacts/codex-mail-sync-proof.json` when the local Gmail sync is healthy.
 
 ## 3. CLI Workflow
 
@@ -141,11 +149,10 @@ npm run build
 npm run build:pages
 npm run preview -- --host 127.0.0.1
 
-npm run codex:bridge
-npm run codex:daemon:start
-npm run codex:daemon:status
-npm run codex:daemon:stop
-npm run codex:tunnel
+cd ..\\gmail-agent
+npm run codex:daemon
+npm test
+cd ..\\linker
 
 npm run test:dag:static
 npm run test:browser:boot
@@ -163,7 +170,7 @@ npm run test:browser:readme
 npm run test:browser:suite
 npm run test:browser:tasks
 npm run test:browser:zero-data
-npm run test:codex:bridge
+npm run test:codex:mail-sync
 npm run test:browser
 npm run test:preview
 npm run test:live -- --url https://timcash.github.io/linker/
@@ -210,6 +217,11 @@ npm run perf:orbit-stutter -- --label-set benchmark --label-count 4096 --segment
 - `view controls`: the user-facing name for the rendering-style pad for text and line strategies
 - `status strip`: the compact live table at the top of the screen
 - `onboard panel`: the guided walkthrough panel that temporarily replaces the status strip on first-run GitHub Pages visits
+- `mailboard`: the `/codex/` mailbox UI backed by the shared `gmail-agent` daemon
+- `mail view`: the currently selected mailbox filter on the `/codex/` bottom pad
+- `thread row`: one visible mailbox summary in the `/codex/` list
+- `message pane`: the selected thread detail area on `/codex/`
+- `compose box`: the reply or new-mail text surface on `/codex/`
 
 ## 5. UI Panels
 
@@ -223,16 +235,21 @@ npm run perf:orbit-stutter -- --label-set benchmark --label-count 4096 --segment
 - `view controls`: the bottom 3x3 container for `Sharp`, `Soft`, `Step`, `Arc`, and `Orbit`
 - `menu button`: the bottom-right button on the active pads that returns the user to the `Menu` hub
 - `editor overlays`: the selection box, ranked-selection badges, and ghost-slot markers drawn over the canvas
+- `mail meta cards`: the `/codex/` top status cards for mailbox, health, and current mail view
+- `thread list`: the `/codex/` scrollable list of mailbox thread summaries
+- `message pane`: the `/codex/` conversation view with message text and task history
+- `compose panel`: the `/codex/` new-mail form that opens inside the message pane
+- `mail pad`: the `/codex/` bottom 3x3 pad for view switching plus `Refresh`, `Compose`, and `Mark Read`
 
 ## 6. Code Index
 
 - `src/main.ts`: app entry point
 - `src/auth-page.ts`: Cloudflare Access auth/status route modeled on the cad-pga Legion page
-- `src/codex-page.ts`: `/codex/` route shell that mounts the codex terminal UI inside the shared docs navigation
-- `src/codex/CodexBridgePolicy.ts`: locked-shell copy helpers for the single Cloudflare Access codex flow
-- `src/codex/CodexTerminalPage.ts`: codex route controller for Cloudflare Access unlock, bridge health, and terminal session lifecycle
-- `src/codex/CodexTerminalClient.ts`: browser bridge client for Cloudflare-gated HTTP health and WebSocket terminal traffic
-- `src/codex/CodexTerminalView.ts`: xterm.js-backed codex route DOM and the mobile-first single-column locked-shell surface
+- `src/codex-page.ts`: `/codex/` route shell that mounts the mailboard UI inside the shared docs navigation
+- `src/codex/CodexMailboardPage.ts`: codex route controller for Cloudflare Access unlock, mailbox loading, view switching, reply, and compose
+- `src/codex/CodexMailClient.ts`: browser client for the shared `gmail-agent` mail API
+- `src/codex/CodexMailboardView.ts`: mobile-first monochrome mailboard DOM, thread list, message pane, and bottom 3x3 mail pad
+- `src/codex/codexMailboard.css`: `/codex/` mailboard layout and mobile-to-desktop route styling
 - `src/logs-page.ts`: `/logs/` route shell that mounts the browser log terminal UI inside the shared docs navigation
 - `src/logs/log-model.ts`: browser log entry types, source-line parsing, CLI command parsing, and filter helpers
 - `src/logs/log-store.ts`: local browser log capture, console wrapping, localStorage history, and global store access
@@ -260,11 +277,7 @@ npm run perf:orbit-stutter -- --label-set benchmark --label-count 4096 --segment
 - `src/data/network-dag.ts`: canonical five-workplane DAG fixture data used by the seeded smoke and static DAG checks
 - `src/data/workplane-grid-stack.ts`: shared five-workplane `12x12x12` grid builder
 - `src/data/links.ts`: canonical link builders
-- `server/index.ts`: local codex bridge entry point for `/api/codex/*` and `/codex-bridge`
-- `server/codex/`: bridge auth, PTY session, executable resolution, and local env helpers
-- `server/daemon/`: optional Cloudflare-backed codex tunnel helpers
-- `shared/codex/CodexBridgeTypes.ts`: shared browser/server bridge protocol types
-- `.env.codex.local.example`: local example env for `/codex/` bridge and tunnel setup without a second page-local password
+- `.env.codex.local.example`: local example env for pointing Linker at the shared `gmail-agent` mail API
 - `src/text/layer.ts`: text visibility, glyph packing, and draw submission
 - `src/line/layer.ts`: line visibility and draw submission
 - `src/perf.ts`: CPU and GPU frame telemetry
@@ -277,7 +290,6 @@ npm run perf:orbit-stutter -- --label-set benchmark --label-count 4096 --segment
 - `scripts/test/dag-rank-fanout.ts`: focused zero-data twelve-workplane rank-fanout authoring flow
 - `scripts/test/dag-zoom-journey.ts`: screenshot-backed DAG zoom-band and 3D-to-2D return proof
 - `scripts/test-dag-static.ts`: focused static DAG command entry point
-- `scripts/test-codex-bridge.ts`: focused codex bridge HTTP auth and session test
 - `scripts/test-preview.ts`: production-bundle smoke test
 - `scripts/test-live.ts`: deployed-site smoke test
 - `scripts/test/dag-view-smoke.ts`: focused browser DAG render smoke flow

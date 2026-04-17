@@ -19,6 +19,7 @@
     "test": "tsx scripts/run-test.ts",
     "test:browser:boot": "tsx scripts/test.ts --flow boot",
     "test:browser:codex": "tsx scripts/test.ts --flow codex-page-smoke",
+    "test:browser:codex:live": "tsx scripts/test-codex-mail-ui.ts",
     "test:dag:static": "tsx scripts/test-dag-static.ts",
     "test:browser": "tsx scripts/test.ts",
     "test:browser:auth": "tsx scripts/test.ts --flow auth-page-smoke",
@@ -34,6 +35,7 @@
     "test:browser:tasks": "tsx scripts/test.ts --flow tasks-dashboard-smoke",
     "test:browser:zero-data": "tsx scripts/test.ts --flow onboarding-walkthrough",
     "test:codex:bridge": "tsx scripts/test-codex-bridge.ts",
+    "test:codex:mail-sync": "tsx scripts/test-codex-mail-sync.ts",
     "test:live": "tsx scripts/test-live.ts",
     "test:preview": "tsx scripts/test-preview.ts"
   },
