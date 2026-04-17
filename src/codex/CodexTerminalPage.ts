@@ -1,6 +1,10 @@
 import type { CodexBridgeServerMessage, TerminalSize } from '../../shared/codex/CodexBridgeTypes';
 import { CodexAuthStore } from './CodexAuthStore';
-import { buildDeferredBridgeHealthSummary, buildLockedBridgeStatus } from './CodexBridgePolicy';
+import {
+  buildDeferredBridgeHealthSummary,
+  buildLockedBridgeStatus,
+  shouldFallbackToCloudflareAuthorizeWindow,
+} from './CodexBridgePolicy';
 import { CodexAccessError, CodexTerminalClient, type CodexTerminalClientLifecycle } from './CodexTerminalClient';
 import { CodexTerminalView } from './CodexTerminalView';
 
@@ -297,7 +301,14 @@ export class CodexTerminalPage {
     try {
       return await this.client.fetchPublicConfig();
     } catch (error) {
-      if (error instanceof CodexAccessError) {
+      if (
+        error instanceof CodexAccessError ||
+        shouldFallbackToCloudflareAuthorizeWindow({
+          bridgeOrigin: this.client.getBridgeOrigin(),
+          error,
+          locationOrigin: window.location.origin,
+        })
+      ) {
         return null;
       }
 

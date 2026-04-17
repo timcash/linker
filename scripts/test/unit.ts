@@ -4,6 +4,7 @@ import {Camera2D, type ScreenPoint, type ViewportSize} from '../../src/camera';
 import {
   buildDeferredBridgeHealthSummary,
   buildLockedBridgeStatus,
+  shouldFallbackToCloudflareAuthorizeWindow,
 } from '../../src/codex/CodexBridgePolicy';
 import {
   filterBrowserLogs,
@@ -171,6 +172,24 @@ function runCodexBridgePolicyTests(): void {
     buildLockedBridgeStatus(),
     'Use Cloudflare Access to unlock the Codex terminal.',
     'Locked status copy should point to the Cloudflare-only unlock flow.',
+  );
+  assert.equal(
+    shouldFallbackToCloudflareAuthorizeWindow({
+      bridgeOrigin: 'https://linker.dialtone.earth',
+      error: new Error('Failed to fetch'),
+      locationOrigin: 'https://timcash.github.io',
+    }),
+    true,
+    'Hosted codex unlock should still launch Cloudflare Access when the first bridge probe fails cross-origin.',
+  );
+  assert.equal(
+    shouldFallbackToCloudflareAuthorizeWindow({
+      bridgeOrigin: 'http://127.0.0.1:4173',
+      error: new Error('Failed to fetch'),
+      locationOrigin: 'http://127.0.0.1:4173',
+    }),
+    false,
+    'Local codex unlock should not hide same-origin bridge failures behind the Cloudflare Access fallback.',
   );
   assert.equal(
     resolveCodexBaseOrigin({
