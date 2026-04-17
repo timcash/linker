@@ -1,7 +1,6 @@
 {
   "focusDocs": [
-    "README.md",
-    "PLAN.md"
+    "README.md"
   ],
   "workerWorkspaceRelativePath": ".codex-loop/workspaces/worker",
   "workerWorktreeRelativePath": ".codex-loop/worktrees/worker",
@@ -39,7 +38,6 @@
       ],
       "conditionalOwnedFiles": [
         "README.md",
-        "PLAN.md",
         "src/app.ts",
         "src/stage-snapshot.ts",
         "scripts/test/browser.ts"
@@ -66,12 +64,10 @@
             "src/app.ts",
             "src/stage-snapshot.ts",
             "scripts/test/browser.ts",
-            "README.md",
-            "PLAN.md"
+            "README.md"
           ],
           "contextFiles": [
             "README.md",
-            "PLAN.md",
             "src/app.ts",
             "src/stage-snapshot.ts",
             "scripts/test/browser.ts",
@@ -95,12 +91,10 @@
           "intent": "Tighten dag-view-smoke so it asserts exported root-overview and selected-workplane LOD buckets directly from browser data.",
           "allowedFiles": [
             "scripts/test/dag-view-smoke.ts",
-            "README.md",
-            "PLAN.md"
+            "README.md"
           ],
           "contextFiles": [
             "README.md",
-            "PLAN.md",
             "scripts/test/dag-view-smoke.ts",
             "scripts/test/browser.ts",
             "src/stage-snapshot.ts"
@@ -125,12 +119,10 @@
             "src/dag-view.ts",
             "scripts/test/unit.ts",
             "scripts/test/dag-view-smoke.ts",
-            "README.md",
-            "PLAN.md"
+            "README.md"
           ],
           "contextFiles": [
             "README.md",
-            "PLAN.md",
             "src/dag-view.ts",
             "scripts/test/unit.ts",
             "scripts/test/dag-view-smoke.ts",
@@ -141,7 +133,7 @@
           "expectedResult": "pass",
           "doneWhen": [
             "Static and smoke coverage prove label-points and full-workplane states in addition to graph-point and title-only.",
-            "README.md and PLAN.md record the broadened Slice 6 proof without claiming screenshot readiness."
+            "README.md records the broadened Slice 6 proof without claiming screenshot readiness."
           ],
           "notes": [
             "Only broaden after the exported bucket contract is already in place.",
@@ -173,12 +165,12 @@
       ],
       "datasets": [
         "README.md is the workflow source of truth.",
-        "PLAN.md is the slice and test ladder source of truth.",
+        "The current task packet and rubric carry the slice and test ladder.",
         "The canonical five-workplane network DAG fixture is already available and should be reused."
       ],
       "artifactsExpected": false,
       "monitorFocus": [
-        "Did the worker read README.md and PLAN.md first?",
+        "Did the worker read README.md first?",
         "Did the worker add or tighten the smallest relevant test before broadening implementation?",
         "Did the worker keep the diff inside the owned files?",
         "Do the check results actually prove the claimed new invariant?",

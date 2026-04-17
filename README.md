@@ -32,6 +32,7 @@ Current proven invariant:
 - `npm run build:pages` is green for the deployable GitHub Pages bundle
 - workplane switches now animate through a camera handoff in both `plane-focus view` and the 3D DAG overview
 - the default twelve-workplane DAG boot now uses the same deterministic rank-slice autogrid as zero-data authoring, so each downstream rank reads as a visible `lane x depth` grid in 3D
+- the regular `dag-rank-fanout` boot now reuses the same authored local labels and local links that the onboarding walkthrough leaves behind, so `?onboarding=0` and the finished walkthrough land on the same dataset
 - the onboarding proof now records `28` ordered screenshots, from `intro` through `complete`, in `artifacts/test-screenshots`
 
 Current focused diagnostic to keep explicit:
@@ -59,7 +60,15 @@ npm run build:pages
 npm run test:live -- --url https://timcash.github.io/linker/ --expect-onboarding
 ```
 
-Use [PLAN.md](PLAN.md) for the full slice ledger, the zero-data interaction checklist, the screenshot contract, and the next narrow DAG task.
+`README.md` is now the repo-level source of truth for the live product path, the working loop, the domain language, the UI panels, and the current open review notes.
+
+Current review queue:
+
+- the zero-data `dag-network-build` flow remains the clearest end-to-end CRUD proof for local labels, local links, workplane creation, leaf delete, `rank/lane/depth`, and 2D/3D mode handoff
+- the hosted onboarding screenshots under `artifacts/test-screenshots/` remain the visual contract for each guided step from empty root to finished `1-4-4-3` DAG
+- direct 3D workplane picking plus explicit DAG edge create/remove between already-existing workplanes are still the main product gaps
+- every publish should still end with a live pass over `/`, `/codex/`, `/readme/`, and `/logs/`
+- `/codex/` on GitHub Pages is expected to render as a locked shell until the real local bridge password and tunnel env are configured on this machine
 
 ## 2. Screenshot and Links
 
@@ -68,8 +77,8 @@ Use [PLAN.md](PLAN.md) for the full slice ledger, the zero-data interaction chec
 <table>
   <tr>
     <td align="center"><a href="https://timcash.github.io/linker/"><img src="./readme/screenshots/boot-ready.png" alt="Linker default DAG boot on the twelve-workplane overview" width="220" /></a><br/><sub>Boot</sub></td>
-    <td align="center"><a href="https://timcash.github.io/linker/?demoPreset=dag-rank-fanout&stageMode=3d-mode&workplane=wp-1&cameraLabel=wp-1%3A1%3A3%3A3"><img src="./readme/screenshots/dag-rank-fanout.png" alt="Linker twelve-workplane DAG overview" width="220" /></a><br/><sub>DAG Build</sub></td>
-    <td align="center"><a href="https://timcash.github.io/linker/?demoPreset=dag-rank-fanout&stageMode=3d-mode&workplane=wp-3&cameraLabel=wp-3%3A1%3A6%3A6"><img src="./readme/screenshots/dag-zoom-detail.png" alt="Linker DAG zoom into readable workplane detail" width="220" /></a><br/><sub>Zoom Detail</sub></td>
+    <td align="center"><a href="https://timcash.github.io/linker/?demoPreset=dag-rank-fanout&stageMode=3d-mode&workplane=wp-1&cameraLabel=wp-1%3A1%3A1%3A1"><img src="./readme/screenshots/dag-rank-fanout.png" alt="Linker twelve-workplane DAG overview" width="220" /></a><br/><sub>DAG Build</sub></td>
+    <td align="center"><a href="https://timcash.github.io/linker/?demoPreset=dag-rank-fanout&stageMode=3d-mode&workplane=wp-10&cameraLabel=wp-10%3A1%3A1%3A1"><img src="./readme/screenshots/dag-zoom-detail.png" alt="Linker DAG zoom into readable workplane detail" width="220" /></a><br/><sub>Zoom Detail</sub></td>
     <td align="center"><a href="https://timcash.github.io/linker/codex/"><img src="./readme/screenshots/codex-terminal.png" alt="Linker codex terminal route in its locked state" width="220" /></a><br/><sub>Codex</sub></td>
   </tr>
 </table>
@@ -101,7 +110,7 @@ cameraLabel=workplane-id:layer:row:column
 Example:
 
 ```text
-https://timcash.github.io/linker/?demoPreset=dag-rank-fanout&cameraLabel=wp-3:1:6:6
+https://timcash.github.io/linker/?demoPreset=dag-rank-fanout&cameraLabel=wp-10:1:1:1
 ```
 
 `/codex/` on GitHub Pages stays static and talks to the bridge origin selected by the page. For local development:
@@ -247,7 +256,7 @@ npm run perf:orbit-stutter -- --label-set benchmark --label-count 4096 --segment
 - `src/data/labels.ts`: classic grid dataset builders
 - `src/data/dag-rank-fanout.ts`: default twelve-workplane DAG dataset, now arranged as downstream rank-slice grids, plus layout fingerprint helpers
 - `src/data/editor-lab.ts`: large editor demo dataset
-- `src/data/network-dag.ts`: canonical five-workplane DAG fixture data from `PLAN.md`
+- `src/data/network-dag.ts`: canonical five-workplane DAG fixture data used by the seeded smoke and static DAG checks
 - `src/data/workplane-grid-stack.ts`: shared five-workplane `12x12x12` grid builder
 - `src/data/links.ts`: canonical link builders
 - `server/index.ts`: local codex bridge entry point for `/api/codex/*` and `/codex-bridge`

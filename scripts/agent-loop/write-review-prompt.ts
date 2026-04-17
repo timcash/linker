@@ -87,10 +87,10 @@ Review this worker run for the Linker repo.
 You must verify alignment with:
 
 - \`README.md\` as the workflow guide
-- \`PLAN.md\` as the upgrade and test ladder
+- the current task packet as the upgrade and test ladder
 - the rubric below
 
-The worker is required to update both \`README.md\` and \`PLAN.md\` in every real iteration to keep the docs in sync with the code and test loop. Treat missing doc updates as a failed docs-sync step unless the run was explicitly review-only.
+The worker is required to update \`README.md\` in every real iteration to keep the docs in sync with the code and test loop. Treat missing doc updates as a failed docs-sync step unless the run was explicitly review-only.
 
 ## Slice
 

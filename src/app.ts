@@ -15,6 +15,10 @@ import {
   type LayoutStrategy,
 } from './data/labels';
 import {
+  DAG_RANK_FANOUT_NODES,
+  DAG_RANK_FANOUT_ROOT_LABEL_TEXT,
+} from './data/dag-rank-fanout';
+import {
   DAG_FULL_WORKPLANE_MIN_PROJECTED_SPAN_PX,
   DAG_LABEL_POINTS_MIN_PROJECTED_SPAN_PX,
   DAG_TITLE_ONLY_MIN_PROJECTED_SPAN_PX,
@@ -2500,7 +2504,7 @@ class LumaStageController {
       targetSelectors: ['[data-testid="label-input-field"]', '[data-testid="label-input-submit"]'],
       title: 'Name the root label',
     });
-    await this.typeOnboardingFocusedLabel(runId, 'Root Router');
+    await this.typeOnboardingFocusedLabel(runId, DAG_RANK_FANOUT_ROOT_LABEL_TEXT);
 
     await this.showOnboardingControlPadPage('navigate', runId);
     await step({
@@ -2669,16 +2673,14 @@ class LumaStageController {
       targetSelectors: ['button[data-editor-shortcut="toggle-selection-or-create"]'],
       title: 'Populate several workplanes',
     });
-    await this.navigateToWorkplaneByButtons('wp-3', runId);
-    await this.authorOnboardingLinkedPair(runId, ['Policy', 'Mirror']);
-    await this.navigateToWorkplaneByButtons('wp-2', runId);
-    await this.authorOnboardingLinkedPair(runId, ['Ingress', 'Mirror']);
-    await this.navigateToWorkplaneByButtons('wp-6', runId);
-    await this.authorOnboardingLinkedPair(runId, ['Policy', 'Audit']);
-    await this.navigateToWorkplaneByButtons('wp-7', runId);
-    await this.authorOnboardingLinkedPair(runId, ['Rules', 'Relay']);
-    await this.navigateToWorkplaneByButtons('wp-10', runId);
-    await this.authorOnboardingLinkedPair(runId, ['Deploy', 'Alarm']);
+    for (const node of DAG_RANK_FANOUT_NODES) {
+      if (!node.localLabelTexts || node.localLabelTexts.length < 2) {
+        continue;
+      }
+
+      await this.navigateToWorkplaneByButtons(node.workplaneId, runId);
+      await this.authorOnboardingLinkedPair(runId, node.localLabelTexts as readonly [string, string]);
+    }
 
     await step({
       body: 'A leaf can slide along the DAG rails in rank, lane, and depth without changing its local 2D label coordinates.',

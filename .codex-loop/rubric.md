@@ -6,9 +6,9 @@
 - README Rule:
   - review `README.md` first so the repo workflow stays visible and current
   - update `README.md` in every worker cycle so workflow notes stay in sync with the latest loop behavior
-- PLAN Rule:
-  - review `PLAN.md` first and stay inside the current slice ladder
-  - update `PLAN.md` in every worker cycle so the current slice status and next test ladder stay current
+- Task Packet Rule:
+  - review the current task packet first and stay inside its slice ladder
+  - keep `README.md` aligned with the current slice status and next test ladder
 - Owned Files:
   - `src/dag-view.ts`
   - `scripts/test/unit.ts`

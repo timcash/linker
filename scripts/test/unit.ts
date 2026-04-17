@@ -33,6 +33,9 @@ import {layoutDagNode, resolveDagEdgeCurve} from '../../src/dag-layout';
 import {
   DAG_RANK_FANOUT_EDGE_COUNT,
   DAG_RANK_FANOUT_LAYOUT_FINGERPRINT,
+  DAG_RANK_FANOUT_ROOT_LABEL_TEXT,
+  DAG_RANK_FANOUT_TOTAL_LOCAL_LABEL_COUNT,
+  DAG_RANK_FANOUT_TOTAL_LOCAL_LINK_COUNT,
   DAG_RANK_FANOUT_WORKPLANE_ORDER,
   createDefaultDagRankFanoutState,
 } from '../../src/data/dag-rank-fanout';
@@ -1697,12 +1700,37 @@ function runDemoPresetGeometryTests(): void {
     );
   }
 
-  for (const workplaneId of defaultDagState.document.workplaneOrder) {
-    assertSceneUsesAlignedGrid(
-      defaultDagState.document.workplanesById[workplaneId].scene,
-      `Default DAG ${workplaneId}`,
-    );
-  }
+  assert.equal(
+    defaultDagState.document.workplanesById['wp-1'].scene.labels.find(
+      (label) => label.navigation?.key === buildLabelKey('wp-1', 1, 1, 1),
+    )?.text,
+    DAG_RANK_FANOUT_ROOT_LABEL_TEXT,
+    'The default twelve-workplane DAG preset should reuse the onboarding-authored root label.',
+  );
+  assert.equal(
+    defaultDagState.document.workplanesById['wp-2'].scene.links.length,
+    1,
+    'The default twelve-workplane DAG preset should reuse the onboarding-authored local links.',
+  );
+  assert.equal(
+    defaultDagState.document.workplanesById['wp-4'].scene.labels.length,
+    0,
+    'Unseeded onboarding workplanes should stay empty in the default twelve-workplane DAG preset.',
+  );
+  assert.equal(
+    defaultDagState.document.workplaneOrder.reduce((total, workplaneId) => {
+      return total + defaultDagState.document.workplanesById[workplaneId].scene.labels.length;
+    }, 0),
+    DAG_RANK_FANOUT_TOTAL_LOCAL_LABEL_COUNT,
+    'The default twelve-workplane DAG preset should keep the same total local label count as the onboarding result.',
+  );
+  assert.equal(
+    defaultDagState.document.workplaneOrder.reduce((total, workplaneId) => {
+      return total + defaultDagState.document.workplanesById[workplaneId].scene.links.length;
+    }, 0),
+    DAG_RANK_FANOUT_TOTAL_LOCAL_LINK_COUNT,
+    'The default twelve-workplane DAG preset should keep the same total local link count as the onboarding result.',
+  );
 
   const editorLabScene = getActiveWorkplaneDocument(editorLabState).scene;
   const editorLabStartState = createStageEditorState(

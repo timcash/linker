@@ -71,7 +71,7 @@ function detectTaskScopeViolations(
     return [];
   }
 
-  const allowed = new Set([...currentTask.allowedFiles, 'README.md', 'PLAN.md']);
+  const allowed = new Set([...currentTask.allowedFiles, 'README.md']);
 
   return changedFiles
     .map((entry) => entry.path)
