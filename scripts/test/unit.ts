@@ -4,7 +4,6 @@ import {Camera2D, type ScreenPoint, type ViewportSize} from '../../src/camera';
 import {
   buildDeferredBridgeHealthSummary,
   buildLockedBridgeStatus,
-  shouldProbeCodexBridge,
 } from '../../src/codex/CodexBridgePolicy';
 import {
   filterBrowserLogs,
@@ -13,8 +12,6 @@ import {
   type BrowserLogEntry,
 } from '../../src/logs/log-model';
 import {
-  DEFAULT_LOCAL_BRIDGE_ORIGIN,
-  resolveBridgeOrigin,
   resolveCodexBaseOrigin,
 } from '../../src/codex/CodexTerminalClient';
 import {
@@ -166,60 +163,31 @@ export function runStaticUnitTests(): void {
 
 function runCodexBridgePolicyTests(): void {
   assert.equal(
-    shouldProbeCodexBridge(null),
-    false,
-    'The locked Codex page should defer bridge probes until a stored unlock token exists.',
+    buildDeferredBridgeHealthSummary('https://linker.dialtone.earth'),
+    'Cloudflare Access unlock will verify the Codex bridge at https://linker.dialtone.earth before the terminal connects.',
+    'Deferred health copy should explain the single Cloudflare Access unlock flow and target origin.',
   );
   assert.equal(
-    shouldProbeCodexBridge({
-      authToken: 'token',
-      expiresAt: Date.now() + 60_000,
-    }),
-    true,
-    'The Codex page should allow bridge probes once it has a stored unlock token to restore.',
-  );
-  assert.equal(
-    buildDeferredBridgeHealthSummary('auto', 'https://linker.dialtone.earth'),
-    'Health checks start after unlock. Auto mode will pick the best bridge route for this page. Current target: https://linker.dialtone.earth.',
-    'Deferred health copy should explain the locked-shell behavior and the chosen bridge target.',
-  );
-  assert.equal(
-    buildDeferredBridgeHealthSummary('bridge', DEFAULT_LOCAL_BRIDGE_ORIGIN),
-    `Health checks start after unlock. Bridge mode will use the direct local bridge on this computer. Current target: ${DEFAULT_LOCAL_BRIDGE_ORIGIN}.`,
-    'Deferred health copy should explain the direct local bridge path.',
-  );
-  assert.equal(
-    buildLockedBridgeStatus('bridge'),
-    'Enter the password to unlock bridge mode.',
-    'Locked status copy should mention the currently selected bridge mode.',
-  );
-  assert.equal(
-    resolveBridgeOrigin('timcash.github.io'),
-    DEFAULT_LOCAL_BRIDGE_ORIGIN,
-    'Hosted GitHub Pages bridge mode should target the direct local bridge on this computer.',
-  );
-  assert.equal(
-    resolveBridgeOrigin('localhost'),
-    DEFAULT_LOCAL_BRIDGE_ORIGIN,
-    'Local bridge mode should target the direct local bridge endpoint.',
+    buildLockedBridgeStatus(),
+    'Use Cloudflare Access to unlock the Codex terminal.',
+    'Locked status copy should point to the Cloudflare-only unlock flow.',
   );
   assert.equal(
     resolveCodexBaseOrigin({
-      bridgeMode: 'auto',
       hostname: 'timcash.github.io',
       locationOrigin: 'https://timcash.github.io',
     }),
     'https://linker.dialtone.earth',
-    'Hosted auto mode should still prefer the public bridge origin when available.',
+    'Hosted GitHub Pages should prefer the public bridge origin.',
   );
   assert.equal(
     resolveCodexBaseOrigin({
-      bridgeMode: 'bridge',
-      hostname: 'timcash.github.io',
-      locationOrigin: 'https://timcash.github.io',
+      configuredOrigin: 'http://127.0.0.1:4186',
+      hostname: 'localhost',
+      locationOrigin: 'http://127.0.0.1:5173',
     }),
-    DEFAULT_LOCAL_BRIDGE_ORIGIN,
-    'Hosted bridge mode should provide a direct local-machine path for the GitHub Pages client.',
+    'http://127.0.0.1:4186',
+    'A configured codex bridge origin should override the default base-origin resolution.',
   );
 }
 

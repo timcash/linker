@@ -1,11 +1,8 @@
 import type {
-  CodexAuthLoginResponse,
-  CodexBridgeClientMessage,
   CodexBridgeHealth,
-  CodexBridgeMode,
   CodexBridgePublicConfig,
   CodexBridgeServerMessage,
-  TerminalSize
+  TerminalSize,
 } from '../../shared/codex/CodexBridgeTypes';
 
 export type CodexTerminalClientLifecycle = 'connecting' | 'connected' | 'disconnected' | 'error';
@@ -14,16 +11,13 @@ interface CodexTerminalClientOptions {
   sessionId: string;
   onMessage: (message: CodexBridgeServerMessage) => void;
   onLifecycleChange: (phase: CodexTerminalClientLifecycle, detail: string) => void;
-  onAuthExpired: (detail: string) => void;
+  onAccessRequired: (detail: string) => void;
 }
 
 const DEFAULT_REMOTE_ORIGIN = 'https://linker.dialtone.earth';
 const PUBLIC_CONFIG_PATH = '/api/codex/public-config';
-const LOGIN_PATH = '/api/codex/auth/login';
-const LOGOUT_PATH = '/api/codex/auth/logout';
 const HEALTH_PATH = '/api/codex/health';
 const TERMINAL_SOCKET_PATH = '/codex-bridge';
-export const DEFAULT_LOCAL_BRIDGE_ORIGIN = 'http://localhost:4186';
 
 export class CodexTerminalClient {
   private socket: WebSocket | null = null;
@@ -31,72 +25,46 @@ export class CodexTerminalClient {
   private readonly sessionId: string;
   private readonly onMessage: (message: CodexBridgeServerMessage) => void;
   private readonly onLifecycleChange: (phase: CodexTerminalClientLifecycle, detail: string) => void;
-  private readonly onAuthExpired: (detail: string) => void;
-  private bridgeMode: CodexBridgeMode = 'auto';
+  private readonly onAccessRequired: (detail: string) => void;
 
   constructor(options: CodexTerminalClientOptions) {
     this.sessionId = options.sessionId;
     this.onMessage = options.onMessage;
     this.onLifecycleChange = options.onLifecycleChange;
-    this.onAuthExpired = options.onAuthExpired;
+    this.onAccessRequired = options.onAccessRequired;
   }
 
   public getBridgeOrigin() {
     return this.getBaseUrl().origin;
   }
 
-  public getBridgeMode() {
-    return this.bridgeMode;
-  }
-
-  public setBridgeMode(mode: CodexBridgeMode) {
-    this.bridgeMode = mode;
+  public getAuthorizeUrl() {
+    const url = this.getBaseUrl();
+    url.pathname = '/codex/';
+    url.search = '';
+    return url.toString();
   }
 
   public async fetchPublicConfig() {
     return this.fetchJson<CodexBridgePublicConfig>(PUBLIC_CONFIG_PATH, {
-      method: 'GET'
+      method: 'GET',
     });
   }
 
-  public async login(password: string) {
-    return this.fetchJson<CodexAuthLoginResponse>(LOGIN_PATH, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json'
-      },
-      body: JSON.stringify({ password })
+  public async fetchHealth() {
+    return this.fetchJson<CodexBridgeHealth>(HEALTH_PATH, {
+      method: 'GET',
     });
   }
 
-  public async logout(authToken: string) {
-    await this.fetchJson<{ ok: true }>(
-      LOGOUT_PATH,
-      {
-        method: 'POST'
-      },
-      authToken
-    );
-  }
-
-  public async fetchHealth(authToken: string) {
-    return this.fetchJson<CodexBridgeHealth>(
-      HEALTH_PATH,
-      {
-        method: 'GET'
-      },
-      authToken
-    );
-  }
-
-  public connect(authToken: string) {
+  public connect() {
     if (this.socket && (this.socket.readyState === WebSocket.OPEN || this.socket.readyState === WebSocket.CONNECTING)) {
       return;
     }
 
     this.onLifecycleChange('connecting', 'Connecting to the Codex bridge...');
 
-    const socket = new WebSocket(this.buildWebSocketUrl(authToken));
+    const socket = new WebSocket(this.buildWebSocketUrl());
     this.socket = socket;
 
     socket.addEventListener('open', () => {
@@ -113,7 +81,7 @@ export class CodexTerminalClient {
       }
 
       if (event.code === 4401 || event.code === 4403) {
-        this.onAuthExpired(event.reason || 'Your unlock session expired.');
+        this.onAccessRequired(event.reason || 'Cloudflare Access is required.');
         return;
       }
 
@@ -133,7 +101,7 @@ export class CodexTerminalClient {
   public sendInput(data: string) {
     this.send({
       type: 'input',
-      data
+      data,
     });
   }
 
@@ -141,7 +109,7 @@ export class CodexTerminalClient {
     this.send({
       type: 'resize',
       cols: size.cols,
-      rows: size.rows
+      rows: size.rows,
     });
   }
 
@@ -149,17 +117,17 @@ export class CodexTerminalClient {
     this.send({
       type: 'restart',
       cols: size.cols,
-      rows: size.rows
+      rows: size.rows,
     });
   }
 
   public interrupt() {
     this.send({
-      type: 'interrupt'
+      type: 'interrupt',
     });
   }
 
-  private send(message: CodexBridgeClientMessage) {
+  private send(message: { type: 'input'; data: string } | { type: 'resize' | 'restart'; cols: number; rows: number } | { type: 'interrupt' }) {
     if (!this.socket || this.socket.readyState !== WebSocket.OPEN) {
       return;
     }
@@ -210,23 +178,20 @@ export class CodexTerminalClient {
     return null;
   }
 
-  private async fetchJson<T>(pathname: string, init: RequestInit, authToken?: string) {
+  private async fetchJson<T>(pathname: string, init: RequestInit) {
     const headers = new Headers(init.headers ?? {});
     headers.set('Accept', 'application/json');
 
-    if (authToken) {
-      headers.set('Authorization', `Bearer ${authToken}`);
-    }
-
     const response = await fetch(this.buildHttpUrl(pathname), {
       ...init,
+      credentials: 'include',
       headers,
-      mode: 'cors'
+      mode: 'cors',
     });
 
     if (response.status === 401 || response.status === 403) {
       const errorPayload = await parseErrorPayload(response);
-      throw new CodexAuthError(errorPayload ?? 'Authentication is required.');
+      throw new CodexAccessError(errorPayload ?? 'Cloudflare Access is required.');
     }
 
     if (!response.ok) {
@@ -244,20 +209,18 @@ export class CodexTerminalClient {
     return url.toString();
   }
 
-  private buildWebSocketUrl(authToken: string) {
+  private buildWebSocketUrl() {
     const socketUrl = this.getBaseUrl();
     socketUrl.protocol = socketUrl.protocol === 'https:' ? 'wss:' : 'ws:';
     socketUrl.pathname = TERMINAL_SOCKET_PATH;
     socketUrl.search = '';
     socketUrl.searchParams.set('sessionId', this.sessionId);
-    socketUrl.searchParams.set('authToken', authToken);
     return socketUrl.toString();
   }
 
   private getBaseUrl() {
     return new URL(
       resolveCodexBaseOrigin({
-        bridgeMode: this.bridgeMode,
         configuredOrigin: import.meta.env.VITE_CODEX_BRIDGE_URL as string | undefined,
         hostname: window.location.hostname,
         locationOrigin: window.location.origin,
@@ -266,7 +229,7 @@ export class CodexTerminalClient {
   }
 }
 
-export class CodexAuthError extends Error {}
+export class CodexAccessError extends Error {}
 
 async function parseErrorPayload(response: Response) {
   try {
@@ -282,48 +245,20 @@ async function parseErrorPayload(response: Response) {
   }
 }
 
-export function resolveAutoOrigin(hostname: string, locationOrigin: string) {
-  if (hostname.endsWith('github.io')) {
-    return DEFAULT_REMOTE_ORIGIN;
-  }
-
-  return locationOrigin;
-}
-
-export function resolveBridgeOrigin(
-  hostname: string,
-  configuredOrigin?: string,
-) {
-  if (configuredOrigin) {
-    return configuredOrigin;
-  }
-
-  if (isLocalHostname(hostname) || hostname.endsWith('github.io')) {
-    return DEFAULT_LOCAL_BRIDGE_ORIGIN;
-  }
-
-  return DEFAULT_REMOTE_ORIGIN;
-}
-
 export function resolveCodexBaseOrigin(input: {
-  bridgeMode: CodexBridgeMode;
   configuredOrigin?: string;
   hostname: string;
   locationOrigin: string;
 }) {
-  switch (input.bridgeMode) {
-    case 'dev':
-      return input.locationOrigin;
-    case 'bridge':
-      return resolveBridgeOrigin(input.hostname, input.configuredOrigin);
-    case 'auto':
-    default:
-      return resolveAutoOrigin(input.hostname, input.locationOrigin);
+  if (input.configuredOrigin) {
+    return input.configuredOrigin;
   }
-}
 
-function isLocalHostname(hostname: string) {
-  return hostname === 'localhost' || hostname === '127.0.0.1';
+  if (input.hostname.endsWith('github.io')) {
+    return DEFAULT_REMOTE_ORIGIN;
+  }
+
+  return input.locationOrigin;
 }
 
 function parseJson<T>(text: string): T {

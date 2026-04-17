@@ -28,6 +28,7 @@ export function appendCorsHeaders(headers: Record<string, string>, origin: strin
   return {
     ...headers,
     'Access-Control-Allow-Origin': new URL(origin).origin,
+    'Access-Control-Allow-Credentials': 'true',
     'Access-Control-Allow-Headers': 'Content-Type, Authorization',
     'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
     'Access-Control-Max-Age': '600',

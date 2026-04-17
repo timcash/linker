@@ -4,20 +4,18 @@ import { createServer, type IncomingMessage, type ServerResponse } from 'node:ht
 import { basename, extname, join, normalize, resolve } from 'node:path';
 import { WebSocket, WebSocketServer, type RawData } from 'ws';
 import type {
-  CodexAuthLoginRequest,
   CodexBridgeClientMessage,
   CodexBridgeServerMessage,
-  TerminalSize
+  TerminalSize,
 } from '../../shared/codex/CodexBridgeTypes';
 import { appendCorsHeaders } from './Cors';
-import { CodexAuthRegistry } from './CodexAuthRegistry';
 import { CodexExecutableResolver } from './CodexExecutableResolver';
 import type { CodexPtySession } from './CodexPtySession';
 import { CodexSessionRegistry } from './CodexSessionRegistry';
 
 const DEFAULT_TERMINAL_SIZE: TerminalSize = {
   cols: 120,
-  rows: 34
+  rows: 34,
 };
 
 interface CodexBridgeServerOptions {
@@ -32,7 +30,6 @@ export class CodexBridgeServer {
   private readonly options: CodexBridgeServerOptions;
   private readonly executableResolver: CodexExecutableResolver;
   private readonly sessionRegistry: CodexSessionRegistry;
-  private readonly authRegistry: CodexAuthRegistry;
   private readonly webSocketServer: WebSocketServer;
   private readonly httpServer;
 
@@ -40,13 +37,12 @@ export class CodexBridgeServer {
     this.options = options;
     this.executableResolver = new CodexExecutableResolver(options.workspaceRoot);
     this.sessionRegistry = new CodexSessionRegistry({
-      cwd: options.workspaceRoot
+      cwd: options.workspaceRoot,
     });
-    this.authRegistry = new CodexAuthRegistry();
     this.httpServer = createServer(this.handleRequest);
     this.webSocketServer = new WebSocketServer({
       server: this.httpServer,
-      path: '/codex-bridge'
+      path: '/codex-bridge',
     });
     this.webSocketServer.on('connection', this.handleWebSocketConnection);
   }
@@ -94,37 +90,19 @@ export class CodexBridgeServer {
           ok: true,
           authRequired: true,
           publicOrigin: this.options.publicOrigin,
-          sessionTtlSeconds: this.authRegistry.getSessionTtlSeconds()
+          sessionTtlSeconds: 0,
         },
-        origin
+        origin,
       );
       return;
     }
 
-    if (requestUrl.pathname === '/api/codex/auth/login' && request.method === 'POST') {
-      void this.handleLoginRequest(request, response, origin);
-      return;
-    }
-
-    if (requestUrl.pathname === '/api/codex/auth/logout' && request.method === 'POST') {
-      const token = readBearerToken(request.headers.authorization);
-      this.authRegistry.revoke(token);
-      this.writeJson(response, 200, { ok: true }, origin);
-      return;
-    }
-
     if (requestUrl.pathname === '/api/codex/health') {
-      const token = readBearerToken(request.headers.authorization);
-      if (!this.authRegistry.validate(token)) {
-        this.writeJson(response, 401, { ok: false, error: 'Unlock required.' }, origin);
-        return;
-      }
-
       this.writeJson(
         response,
         200,
-        this.executableResolver.buildHealth(this.options.publicOrigin, this.authRegistry.getSessionTtlSeconds()),
-        origin
+        this.executableResolver.buildHealth(this.options.publicOrigin, 0),
+        origin,
       );
       return;
     }
@@ -135,9 +113,9 @@ export class CodexBridgeServer {
         404,
         {
           ok: false,
-          error: 'Unknown Codex bridge endpoint.'
+          error: 'Unknown Codex bridge endpoint.',
         },
-        origin
+        origin,
       );
       return;
     }
@@ -147,12 +125,6 @@ export class CodexBridgeServer {
 
   private readonly handleWebSocketConnection = (socket: WebSocket, request: IncomingMessage) => {
     const requestUrl = new URL(request.url ?? '/', `http://${request.headers.host ?? this.options.host}`);
-    const authToken = requestUrl.searchParams.get('authToken');
-    if (!this.authRegistry.validate(authToken)) {
-      socket.close(4401, 'Unlock expired.');
-      return;
-    }
-
     const sessionId = sanitizeSessionId(requestUrl.searchParams.get('sessionId')) ?? randomUUID();
     const { session, isNewSession } = this.sessionRegistry.getOrCreate(sessionId);
     const unsubscribe = session.subscribe((message) => {
@@ -163,15 +135,6 @@ export class CodexBridgeServer {
     this.send(socket, session.snapshot(isNewSession));
 
     socket.on('message', (payload: RawData) => {
-      if (!this.authRegistry.validate(authToken)) {
-        this.send(socket, {
-          type: 'error',
-          message: 'Unlock expired.'
-        });
-        socket.close(4401, 'Unlock expired.');
-        return;
-      }
-
       this.handleWebSocketMessage(socket, session, payload);
     });
 
@@ -182,14 +145,14 @@ export class CodexBridgeServer {
     socket.on('error', () => {
       unsubscribe();
     });
-  }
+  };
 
   private handleWebSocketMessage(socket: WebSocket, session: CodexPtySession, payload: RawData) {
     const clientMessage = parseClientMessage(payload);
     if (!clientMessage) {
       this.send(socket, {
         type: 'error',
-        message: 'The browser sent an invalid Codex bridge message.'
+        message: 'The browser sent an invalid Codex bridge message.',
       });
       return;
     }
@@ -228,7 +191,7 @@ export class CodexBridgeServer {
         response,
         503,
         'Static frontend build not found. Run `npm run build` before serving the Codex bridge.',
-        origin
+        origin,
       );
       return;
     }
@@ -240,7 +203,7 @@ export class CodexBridgeServer {
       : requestedPath;
     const candidates = [
       normalize(resolve(staticRoot, normalizedRequestedPath)),
-      normalize(resolve(staticRoot, normalizedRequestedPath, 'index.html'))
+      normalize(resolve(staticRoot, normalizedRequestedPath, 'index.html')),
     ];
 
     const matchedPath = candidates.find((candidatePath) => {
@@ -250,7 +213,7 @@ export class CodexBridgeServer {
 
     if (matchedPath) {
       response.writeHead(200, appendCorsHeaders({
-        'Content-Type': mimeTypeForExtension(extname(matchedPath))
+        'Content-Type': mimeTypeForExtension(extname(matchedPath)),
       }, origin));
       createReadStream(matchedPath).pipe(response);
       return;
@@ -258,38 +221,15 @@ export class CodexBridgeServer {
 
     const indexPath = join(staticRoot, 'index.html');
     response.writeHead(200, appendCorsHeaders({
-      'Content-Type': 'text/html; charset=utf-8'
+      'Content-Type': 'text/html; charset=utf-8',
     }, origin));
     createReadStream(indexPath).pipe(response);
-  }
-
-  private async handleLoginRequest(request: IncomingMessage, response: ServerResponse, origin: string | undefined) {
-    const body = await readJsonBody<CodexAuthLoginRequest>(request);
-    const password = body?.password ?? '';
-    const authSession = this.authRegistry.login(password);
-
-    if (!authSession) {
-      this.writeJson(response, 401, { ok: false, error: 'Password not accepted.' }, origin);
-      return;
-    }
-
-    this.writeJson(
-      response,
-      200,
-      {
-        ok: true,
-        authToken: authSession.token,
-        expiresAt: authSession.expiresAt,
-        sessionTtlSeconds: this.authRegistry.getSessionTtlSeconds()
-      },
-      origin
-    );
   }
 
   private writeJson(response: ServerResponse, statusCode: number, payload: unknown, origin: string | undefined) {
     response.writeHead(statusCode, appendCorsHeaders({
       'Content-Type': 'application/json; charset=utf-8',
-      'Cache-Control': 'no-store'
+      'Cache-Control': 'no-store',
     }, origin));
     response.end(JSON.stringify(payload));
   }
@@ -297,14 +237,14 @@ export class CodexBridgeServer {
   private writeText(response: ServerResponse, statusCode: number, payload: string, origin: string | undefined) {
     response.writeHead(statusCode, appendCorsHeaders({
       'Content-Type': 'text/plain; charset=utf-8',
-      'Cache-Control': 'no-store'
+      'Cache-Control': 'no-store',
     }, origin));
     response.end(payload);
   }
 
   private writeEmpty(response: ServerResponse, statusCode: number, origin: string | undefined) {
     response.writeHead(statusCode, appendCorsHeaders({
-      'Cache-Control': 'no-store'
+      'Cache-Control': 'no-store',
     }, origin));
     response.end();
   }
@@ -385,48 +325,6 @@ function rawDataToText(payload: RawData) {
   return '';
 }
 
-function readBearerToken(header: string | undefined) {
-  if (!header) {
-    return null;
-  }
-
-  const match = header.match(/^Bearer\s+(.+)$/i);
-  return match?.[1]?.trim() ?? null;
-}
-
-async function readJsonBody<T>(request: IncomingMessage) {
-  const chunks: Buffer[] = [];
-
-  for await (const chunk of request) {
-    if (typeof chunk === 'string') {
-      chunks.push(Buffer.from(chunk, 'utf8'));
-      continue;
-    }
-
-    if (Buffer.isBuffer(chunk)) {
-      chunks.push(chunk);
-      continue;
-    }
-
-    if (chunk instanceof Uint8Array) {
-      chunks.push(Buffer.from(chunk));
-      continue;
-    }
-
-    return null;
-  }
-
-  if (!chunks.length) {
-    return null;
-  }
-
-  try {
-    return JSON.parse(Buffer.concat(chunks).toString('utf8')) as T;
-  } catch {
-    return null;
-  }
-}
-
 function isBufferArray(payload: RawData): payload is Buffer[] {
-  return Array.isArray(payload) && payload.every((chunk) => chunk instanceof Buffer);
+  return Array.isArray(payload) && payload.every((entry) => entry instanceof Buffer);
 }

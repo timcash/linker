@@ -1,6 +1,6 @@
 # Linker
 
-Linker is a `luma.gl` + WebGPU DAG workplane viewer and editor with aligned `12x12x12` label grids, `rank/lane/depth` 3D navigation, a compact mobile-style menu-first control pad, a browser `/codex` terminal page that can talk to a locally hosted bridge through Cloudflare, and a browser `/logs` terminal page for timestamped history with source-line filters.
+Linker is a `luma.gl` + WebGPU DAG workplane viewer and editor with aligned `12x12x12` label grids, `rank/lane/depth` 3D navigation, a compact mobile-style menu-first control pad, a browser `/codex` terminal page that now uses a single Cloudflare Access unlock workflow with a one-screen mobile lock view and a fullscreen xterm terminal after unlock, and a browser `/logs` terminal page for timestamped history with source-line filters.
 
 ## 1. Live Onboarding
 
@@ -26,6 +26,7 @@ Current proven invariant:
 - `npm run test:browser` is green and now means the hosted-style onboarding proof
 - `npm run test:browser:onboarding` stays green as the explicit onboarding alias
 - `npm run test:browser:logs` is green for the xterm.js `/logs/` history and filter route
+- `npm run test:browser:codex` is green for the single-flow `/codex/` mobile lock view plus fullscreen terminal-mode screenshot proof
 - `npm run test:browser:dag-network-build` is green for the canonical zero-data 2D + 3D interaction proof
 - `npm run test:browser:suite` is green for the broader browser matrix around the onboarding-first product path
 - `npm run test:dag:static` is green for pure DAG validation, layout, edge, and model mutation rules
@@ -68,7 +69,7 @@ Current review queue:
 - the hosted onboarding screenshots under `artifacts/test-screenshots/` remain the visual contract for each guided step from empty root to finished `1-4-4-3` DAG
 - direct 3D workplane picking plus explicit DAG edge create/remove between already-existing workplanes are still the main product gaps
 - every publish should still end with a live pass over `/`, `/codex/`, `/readme/`, and `/logs/`
-- `/codex/` on GitHub Pages is expected to render as a locked shell until the real local bridge password and tunnel env are configured on this machine
+- `/codex/` on GitHub Pages is expected to render as a locked shell until the hosted Cloudflare Access bridge is reachable from this machine
 
 ## 2. Screenshot and Links
 
@@ -113,7 +114,7 @@ Example:
 https://timcash.github.io/linker/?demoPreset=dag-rank-fanout&cameraLabel=wp-10:1:1:1
 ```
 
-`/codex/` on GitHub Pages stays static and talks to the bridge origin selected by the page. For local development:
+`/codex/` on GitHub Pages stays static and now uses one Cloudflare Access unlock step instead of a second page-local password. For local development:
 
 ```bash
 Copy-Item .env.codex.local.example .env.codex.local
@@ -228,10 +229,10 @@ npm run perf:orbit-stutter -- --label-set benchmark --label-count 4096 --segment
 - `src/main.ts`: app entry point
 - `src/auth-page.ts`: Cloudflare Access auth/status route modeled on the cad-pga Legion page
 - `src/codex-page.ts`: `/codex/` route shell that mounts the codex terminal UI inside the shared docs navigation
-- `src/codex/CodexBridgePolicy.ts`: locked-shell probe policy and copy helpers for the `/codex/` route
-- `src/codex/CodexTerminalPage.ts`: codex route controller for unlock state, bridge mode, and terminal session lifecycle
-- `src/codex/CodexTerminalClient.ts`: browser bridge client for HTTP auth, health, and WebSocket terminal traffic
-- `src/codex/CodexTerminalView.ts`: xterm.js-backed codex route DOM and terminal surface
+- `src/codex/CodexBridgePolicy.ts`: locked-shell copy helpers for the single Cloudflare Access codex flow
+- `src/codex/CodexTerminalPage.ts`: codex route controller for Cloudflare Access unlock, bridge health, and terminal session lifecycle
+- `src/codex/CodexTerminalClient.ts`: browser bridge client for Cloudflare-gated HTTP health and WebSocket terminal traffic
+- `src/codex/CodexTerminalView.ts`: xterm.js-backed codex route DOM and the mobile-first single-column locked-shell surface
 - `src/logs-page.ts`: `/logs/` route shell that mounts the browser log terminal UI inside the shared docs navigation
 - `src/logs/log-model.ts`: browser log entry types, source-line parsing, CLI command parsing, and filter helpers
 - `src/logs/log-store.ts`: local browser log capture, console wrapping, localStorage history, and global store access
@@ -263,7 +264,7 @@ npm run perf:orbit-stutter -- --label-set benchmark --label-count 4096 --segment
 - `server/codex/`: bridge auth, PTY session, executable resolution, and local env helpers
 - `server/daemon/`: optional Cloudflare-backed codex tunnel helpers
 - `shared/codex/CodexBridgeTypes.ts`: shared browser/server bridge protocol types
-- `.env.codex.local.example`: local example env for `/codex/` bridge and tunnel setup
+- `.env.codex.local.example`: local example env for `/codex/` bridge and tunnel setup without a second page-local password
 - `src/text/layer.ts`: text visibility, glyph packing, and draw submission
 - `src/line/layer.ts`: line visibility and draw submission
 - `src/perf.ts`: CPU and GPU frame telemetry

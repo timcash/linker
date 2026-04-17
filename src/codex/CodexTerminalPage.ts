@@ -1,84 +1,71 @@
-import type { CodexBridgeMode, CodexBridgeServerMessage, TerminalSize } from '../../shared/codex/CodexBridgeTypes';
-import { CodexAuthStore, type StoredCodexAuth } from './CodexAuthStore';
-import { buildDeferredBridgeHealthSummary, buildLockedBridgeStatus, shouldProbeCodexBridge } from './CodexBridgePolicy';
-import { CodexAuthError, CodexTerminalClient, type CodexTerminalClientLifecycle } from './CodexTerminalClient';
+import type { CodexBridgeServerMessage, TerminalSize } from '../../shared/codex/CodexBridgeTypes';
+import { CodexAuthStore } from './CodexAuthStore';
+import { buildDeferredBridgeHealthSummary, buildLockedBridgeStatus } from './CodexBridgePolicy';
+import { CodexAccessError, CodexTerminalClient, type CodexTerminalClientLifecycle } from './CodexTerminalClient';
 import { CodexTerminalView } from './CodexTerminalView';
 
+const ACCESS_POLL_INTERVAL_MS = 1500;
+const ACCESS_POLL_TIMEOUT_MS = 60_000;
+
 export class CodexTerminalPage {
-  private readonly authStore = new CodexAuthStore();
-  private readonly sessionId = this.authStore.getSessionId();
+  private readonly sessionId = new CodexAuthStore().getSessionId();
   private readonly client: CodexTerminalClient;
   private readonly view: CodexTerminalView;
-  private bridgeMode: CodexBridgeMode;
-  private auth: StoredCodexAuth | null = null;
-  private expiryTimer: number | null = null;
+  private isUnlocked = false;
+  private unlockPending = false;
 
   constructor(root: HTMLDivElement) {
-    this.bridgeMode = resolveInitialBridgeMode(this.authStore.getBridgeMode());
     this.client = new CodexTerminalClient({
       sessionId: this.sessionId,
       onMessage: this.handleBridgeMessage,
       onLifecycleChange: (phase, detail) => {
         void this.handleLifecycleChange(phase, detail);
       },
-      onAuthExpired: this.handleAuthExpired
+      onAccessRequired: this.handleAccessRequired,
     });
-    this.client.setBridgeMode(this.bridgeMode);
     this.view = new CodexTerminalView(root, {
-      onUnlock: (password) => {
-        void this.handleUnlock(password);
+      onUnlock: () => {
+        void this.handleUnlock();
       },
       onLock: () => {
-        void this.handleManualLock();
-      },
-      onModeChange: (mode) => {
-        void this.handleModeChange(mode);
+        this.handleManualLock();
       },
       onConnect: () => {
         void this.handleConnect();
       },
       onRestart: () => {
-        void this.handleRestart();
+        this.handleRestart();
       },
       onInterrupt: this.handleInterrupt,
       onClearTerminal: this.handleClearTerminal,
       onTerminalInput: this.handleTerminalInput,
-      onTerminalResize: this.handleTerminalResize
+      onTerminalResize: this.handleTerminalResize,
     });
   }
 
-  public async render() {
+  public render() {
     this.view.render();
-    this.syncBridgeUi();
     this.view.setSessionId(this.sessionId);
-    this.view.setConnectionState('starting', `Preparing ${bridgeModeLabelMap[this.bridgeMode]}.`);
-    this.view.setAuthSummary('Locked.');
-    this.view.setLockState(true, 'Enter the password to unlock this browser session.');
+    this.view.setBridgeOrigin(this.client.getBridgeOrigin());
+    this.view.setConnectionState('locked', buildLockedBridgeStatus());
+    this.view.setAuthSummary('Cloudflare Access required.');
+    this.view.setHealthSummary(buildDeferredBridgeHealthSummary(this.client.getBridgeOrigin()));
+    this.view.setLockState(true, 'Tap unlock to start the Cloudflare Access flow.');
     this.view.setActionAvailability({
       canConnect: false,
       canRestart: false,
       canInterrupt: false,
       canClear: true,
-      canLock: false
+      canLock: false,
     });
 
     window.addEventListener('beforeunload', this.handleBeforeUnload);
-
-    const storedAuth = this.authStore.getAuth();
-    if (!shouldProbeCodexBridge(storedAuth)) {
-      this.view.setHealthSummary(buildDeferredBridgeHealthSummary(this.bridgeMode, this.client.getBridgeOrigin()));
-      this.view.setConnectionState('locked', buildLockedBridgeStatus(this.bridgeMode));
-      this.view.focusPassword();
-      return;
-    }
-
-    await this.refreshBridgeConfig();
-    await this.adoptAuth(storedAuth, 'Restoring the last short-lived unlock token.');
+    this.view.focusUnlock();
   }
 
   public dispose() {
     window.removeEventListener('beforeunload', this.handleBeforeUnload);
-    this.clearAuthState();
+    this.client.disconnect();
     this.view.dispose();
   }
 
@@ -91,7 +78,7 @@ export class CodexTerminalPage {
         }
         this.view.setConnectionState(
           message.isRunning ? 'connected' : 'exited',
-          message.isRunning ? `Codex session ready in ${message.cwd}.` : 'Codex session is available but not currently running.'
+          message.isRunning ? `Codex session ready in ${message.cwd}.` : 'Codex session is available but not currently running.',
         );
         this.view.focusTerminal();
         break;
@@ -107,7 +94,7 @@ export class CodexTerminalPage {
       case 'exit':
         this.view.setConnectionState(
           'exited',
-          `Codex exited with code ${message.exitCode ?? 'null'}${message.signal ? ` and signal ${message.signal}` : ''}.`
+          `Codex exited with code ${message.exitCode ?? 'null'}${message.signal ? ` and signal ${message.signal}` : ''}.`,
         );
         this.view.writeln('');
         this.view.writeln(`[bridge] Codex exited with code ${message.exitCode ?? 'null'}.`);
@@ -130,13 +117,13 @@ export class CodexTerminalPage {
       return;
     }
 
-    if ((phase === 'error' || phase === 'disconnected') && this.auth?.authToken) {
+    if ((phase === 'error' || phase === 'disconnected') && this.isUnlocked) {
       try {
-        const health = await this.client.fetchHealth(this.auth.authToken);
+        const health = await this.client.fetchHealth();
         this.view.setHealthSummary(formatHealthSummary(health));
       } catch (error) {
-        if (error instanceof CodexAuthError) {
-          this.handleAuthExpired(error.message);
+        if (error instanceof CodexAccessError) {
+          this.handleAccessRequired(error.message);
           return;
         }
 
@@ -145,100 +132,78 @@ export class CodexTerminalPage {
     }
   };
 
-  private readonly handleUnlock = async (password: string) => {
-    if (password.trim().length === 0) {
-      this.view.setLockState(true, 'Enter the password before trying to unlock.');
-      this.view.focusPassword();
+  private readonly handleUnlock = async () => {
+    if (this.unlockPending) {
       return;
     }
 
-    this.view.setUnlockPending(true, 'Unlocking...');
+    this.unlockPending = true;
+    this.view.setUnlockPending(true, 'Checking Access...');
+    this.view.setLockState(true, 'Checking whether Cloudflare Access is already active.');
 
     try {
-      const login = await this.client.login(password);
-      await this.adoptAuth(
-        {
-          authToken: login.authToken,
-          expiresAt: login.expiresAt
-        },
-        'Unlocked. This browser can use the terminal for 10 minutes.'
-      );
-      this.view.clearPassword();
-    } catch (error) {
-      this.view.setLockState(true, readErrorMessage(error, 'Unlock failed.'));
-      this.view.setConnectionState('locked', 'Password check failed.');
-      this.view.focusPassword();
-    } finally {
-      this.view.setUnlockPending(false, 'Unlock');
-    }
-  };
-
-  private readonly handleManualLock = async () => {
-    const currentToken = this.auth?.authToken;
-    this.clearAuthState();
-    this.view.setHealthSummary(buildDeferredBridgeHealthSummary(this.bridgeMode, this.client.getBridgeOrigin()));
-    this.view.setLockState(true, 'Locked. Enter the password to unlock this browser again.');
-    this.view.setConnectionState('locked', 'Browser session locked.');
-    this.view.focusPassword();
-
-    if (!currentToken) {
-      return;
-    }
-
-    try {
-      await this.client.logout(currentToken);
-    } catch {
-      // Best effort only.
-    }
-  };
-
-  private readonly handleModeChange = async (mode: CodexBridgeMode) => {
-    if (mode === this.bridgeMode) {
-      return;
-    }
-
-    const previousToken = this.auth?.authToken;
-    if (previousToken) {
-      try {
-        await this.client.logout(previousToken);
-      } catch {
-        // Best effort only.
+      const existingAccess = await this.tryFetchPublicConfig();
+      if (existingAccess) {
+        await this.adoptUnlockedState(existingAccess, 'Cloudflare Access is ready. Connecting now.');
+        return;
       }
-    }
 
-    this.clearAuthState();
-    this.bridgeMode = mode;
-    this.authStore.setBridgeMode(mode);
-    this.client.setBridgeMode(mode);
-    this.syncBridgeUi();
-    this.view.clearPassword();
+      this.openAuthorizeWindow();
+      this.view.setLockState(
+        true,
+        'Complete the Cloudflare Access flow in the opened tab, then return here. This page will connect automatically.',
+      );
+
+      const unlockedAccess = await this.waitForCloudflareAccess();
+      if (!unlockedAccess) {
+        this.view.setLockState(
+          true,
+          'Cloudflare Access is still pending. Finish the Access flow, then tap unlock again.',
+        );
+        this.view.setConnectionState('locked', buildLockedBridgeStatus());
+        this.view.focusUnlock();
+        return;
+      }
+
+      await this.adoptUnlockedState(unlockedAccess, 'Cloudflare Access confirmed. Connecting now.');
+    } catch (error) {
+      this.handleAccessRequired(readErrorMessage(error, 'Cloudflare Access unlock failed.'));
+    } finally {
+      this.unlockPending = false;
+      this.view.setUnlockPending(false, 'Unlock With Cloudflare Access');
+    }
+  };
+
+  private readonly handleManualLock = () => {
+    this.client.disconnect();
+    this.isUnlocked = false;
+    this.view.setAuthSummary('Cloudflare Access required.');
+    this.view.setHealthSummary(buildDeferredBridgeHealthSummary(this.client.getBridgeOrigin()));
     this.view.setTerminalInputEnabled(false);
     this.view.setActionAvailability({
       canConnect: false,
       canRestart: false,
       canInterrupt: false,
       canClear: true,
-      canLock: false
+      canLock: false,
     });
-    this.view.setLockState(true, `Switched to ${bridgeModeLabelMap[mode]}. Unlock again to open the terminal.`);
-    this.view.setHealthSummary(buildDeferredBridgeHealthSummary(this.bridgeMode, this.client.getBridgeOrigin()));
-    this.view.setConnectionState('locked', `${bridgeModeLabelMap[mode]} is selected. Unlock to connect.`);
-    this.view.focusPassword();
+    this.view.setLockState(true, 'Locked. Tap unlock to verify Cloudflare Access again.');
+    this.view.setConnectionState('locked', buildLockedBridgeStatus());
+    this.view.focusUnlock();
   };
 
-  private readonly handleConnect = () => {
-    if (!this.auth?.authToken) {
-      this.view.setLockState(true, 'Unlock the terminal before connecting.');
-      this.view.focusPassword();
+  private readonly handleConnect = async () => {
+    if (!this.isUnlocked) {
+      await this.handleUnlock();
       return;
     }
 
-    this.client.connect(this.auth.authToken);
+    this.client.connect();
     this.view.focusTerminal();
   };
 
   private readonly handleRestart = () => {
-    if (!this.auth?.authToken) {
+    if (!this.isUnlocked) {
       return;
     }
 
@@ -248,7 +213,7 @@ export class CodexTerminalPage {
   };
 
   private readonly handleInterrupt = () => {
-    if (!this.auth?.authToken) {
+    if (!this.isUnlocked) {
       return;
     }
 
@@ -260,7 +225,7 @@ export class CodexTerminalPage {
 
   private readonly handleClearTerminal = () => {
     this.view.clearTerminal();
-    if (this.auth?.authToken) {
+    if (this.isUnlocked) {
       this.view.focusTerminal();
     }
   };
@@ -276,30 +241,32 @@ export class CodexTerminalPage {
   private readonly handleBeforeUnload = () => {
     this.client.disconnect();
     this.view.dispose();
-    this.stopExpiryTimer();
   };
 
-  private readonly handleAuthExpired = (detail: string) => {
-    this.clearAuthState();
-    this.view.setHealthSummary(buildDeferredBridgeHealthSummary(this.bridgeMode, this.client.getBridgeOrigin()));
+  private readonly handleAccessRequired = (detail: string) => {
+    this.client.disconnect();
+    this.isUnlocked = false;
+    this.view.setAuthSummary('Cloudflare Access required.');
+    this.view.setHealthSummary(buildDeferredBridgeHealthSummary(this.client.getBridgeOrigin()));
     this.view.setTerminalInputEnabled(false);
     this.view.setActionAvailability({
       canConnect: false,
       canRestart: false,
       canInterrupt: false,
       canClear: true,
-      canLock: false
+      canLock: false,
     });
-    this.view.setLockState(true, detail || 'This browser session expired. Enter the password again.');
-    this.view.setConnectionState('locked', 'Unlock expired.');
-    this.view.focusPassword();
+    this.view.setLockState(true, detail || 'Cloudflare Access is required to use the terminal.');
+    this.view.setConnectionState('locked', buildLockedBridgeStatus());
+    this.view.focusUnlock();
   };
 
-  private async adoptAuth(auth: StoredCodexAuth, successMessage: string) {
-    this.auth = auth;
-    this.authStore.setAuth(auth);
+  private async adoptUnlockedState(
+    publicConfig: { publicOrigin: string },
+    successMessage: string,
+  ) {
+    this.isUnlocked = true;
     this.client.disconnect();
-    this.armExpiryTimer();
     this.view.setLockState(false, successMessage);
     this.view.setTerminalInputEnabled(true);
     this.view.setActionAvailability({
@@ -307,77 +274,63 @@ export class CodexTerminalPage {
       canRestart: true,
       canInterrupt: true,
       canClear: true,
-      canLock: true
+      canLock: true,
     });
-    this.view.setAuthSummary(buildUnlockSummary(auth.expiresAt));
+    this.view.setAuthSummary(`Cloudflare Access ready for ${publicConfig.publicOrigin}.`);
 
     try {
-      const health = await this.client.fetchHealth(auth.authToken);
+      const health = await this.client.fetchHealth();
       this.view.setHealthSummary(formatHealthSummary(health));
     } catch (error) {
-      if (error instanceof CodexAuthError) {
-        this.handleAuthExpired(error.message);
+      if (error instanceof CodexAccessError) {
+        this.handleAccessRequired(error.message);
         return;
       }
 
       this.view.setHealthSummary(readErrorMessage(error, 'The bridge is currently offline.'));
     }
 
-    this.client.connect(auth.authToken);
+    this.client.connect();
   }
 
-  private armExpiryTimer() {
-    this.stopExpiryTimer();
-    this.updateExpirySummary();
-
-    this.expiryTimer = window.setInterval(() => {
-      this.updateExpirySummary();
-    }, 1000);
-  }
-
-  private updateExpirySummary() {
-    if (!this.auth) {
-      this.view.setAuthSummary('Locked.');
-      return;
-    }
-
-    const remainingMs = this.auth.expiresAt - Date.now();
-    if (remainingMs <= 0) {
-      this.handleAuthExpired('This 10-minute unlock window expired.');
-      return;
-    }
-
-    this.view.setAuthSummary(buildUnlockSummary(this.auth.expiresAt));
-  }
-
-  private stopExpiryTimer() {
-    if (this.expiryTimer !== null) {
-      window.clearInterval(this.expiryTimer);
-      this.expiryTimer = null;
-    }
-  }
-
-  private clearAuthState() {
-    this.stopExpiryTimer();
-    this.client.disconnect();
-    this.auth = null;
-    this.authStore.clearAuth();
-    this.view.setAuthSummary('Locked.');
-  }
-
-  private syncBridgeUi() {
-    this.view.setBridgeMode(this.bridgeMode);
-    this.view.setBridgeOrigin(this.client.getBridgeOrigin());
-  }
-
-  private async refreshBridgeConfig() {
+  private async tryFetchPublicConfig() {
     try {
-      const publicConfig = await this.client.fetchPublicConfig();
-      this.view.setHealthSummary(
-        `Reachable in ${bridgeModeLabelMap[this.bridgeMode]}. Tokens last ${Math.round(publicConfig.sessionTtlSeconds / 60)} minutes and target ${publicConfig.publicOrigin}.`
-      );
+      return await this.client.fetchPublicConfig();
     } catch (error) {
-      this.view.setHealthSummary(readErrorMessage(error, `The ${bridgeModeLabelMap[this.bridgeMode]} route is currently offline.`));
+      if (error instanceof CodexAccessError) {
+        return null;
+      }
+
+      throw error;
+    }
+  }
+
+  private async waitForCloudflareAccess() {
+    const deadline = Date.now() + ACCESS_POLL_TIMEOUT_MS;
+
+    while (Date.now() < deadline) {
+      const publicConfig = await this.tryFetchPublicConfig();
+      if (publicConfig) {
+        return publicConfig;
+      }
+
+      await delay(ACCESS_POLL_INTERVAL_MS);
+    }
+
+    return null;
+  }
+
+  private openAuthorizeWindow() {
+    if (this.client.getBridgeOrigin() === window.location.origin) {
+      return;
+    }
+
+    const openedWindow = window.open(this.client.getAuthorizeUrl(), '_blank', 'noopener,noreferrer');
+    if (!openedWindow) {
+      this.view.setLockState(
+        true,
+        'Cloudflare Access needs a new tab. Allow popups for this site, then tap unlock again.',
+      );
     }
   }
 }
@@ -386,7 +339,7 @@ const lifecycleToViewPhase = {
   connecting: 'connecting',
   connected: 'connecting',
   disconnected: 'disconnected',
-  error: 'error'
+  error: 'error',
 } as const;
 
 function mapBridgeStatusToViewPhase(phase: 'starting' | 'connected' | 'reconnected' | 'exited') {
@@ -401,14 +354,6 @@ function mapBridgeStatusToViewPhase(phase: 'starting' | 'connected' | 'reconnect
   }
 }
 
-function buildUnlockSummary(expiresAt: number) {
-  const remainingMs = Math.max(0, expiresAt - Date.now());
-  const totalSeconds = Math.ceil(remainingMs / 1000);
-  const minutes = Math.floor(totalSeconds / 60);
-  const seconds = totalSeconds % 60;
-  return `Unlocked for ${minutes}:${String(seconds).padStart(2, '0')}.`;
-}
-
 function formatHealthSummary(health: { executablePath: string | null; commandLabel: string | null; platform: string; cwd: string }) {
   return `${health.commandLabel ?? health.executablePath ?? 'codex'} on ${health.platform} in ${health.cwd}`;
 }
@@ -421,17 +366,8 @@ function readErrorMessage(error: unknown, fallback: string) {
   return fallback;
 }
 
-function resolveInitialBridgeMode(storedMode: CodexBridgeMode): CodexBridgeMode {
-  const requestedMode = new URLSearchParams(window.location.search).get('mode');
-  if (requestedMode === 'auto' || requestedMode === 'dev' || requestedMode === 'bridge') {
-    return requestedMode;
-  }
-
-  return storedMode;
+function delay(milliseconds: number) {
+  return new Promise<void>((resolve) => {
+    window.setTimeout(resolve, milliseconds);
+  });
 }
-
-const bridgeModeLabelMap: Record<CodexBridgeMode, string> = {
-  auto: 'auto mode',
-  dev: 'dev mode',
-  bridge: 'bridge mode'
-};

@@ -1,14 +1,13 @@
 import { FitAddon } from '@xterm/addon-fit';
 import { Terminal } from '@xterm/xterm';
 import '@xterm/xterm/css/xterm.css';
-import type { CodexBridgeMode, TerminalSize } from '../../shared/codex/CodexBridgeTypes';
+import type { TerminalSize } from '../../shared/codex/CodexBridgeTypes';
 
 export type CodexTerminalViewPhase = 'starting' | 'connecting' | 'connected' | 'locked' | 'disconnected' | 'error' | 'exited';
 
 interface CodexTerminalViewCallbacks {
-  onUnlock: (password: string) => void;
+  onUnlock: () => void;
   onLock: () => void;
-  onModeChange: (mode: CodexBridgeMode) => void;
   onConnect: () => void;
   onRestart: () => void;
   onInterrupt: () => void;
@@ -20,19 +19,17 @@ interface CodexTerminalViewCallbacks {
 export class CodexTerminalView {
   private readonly root: HTMLDivElement;
   private readonly callbacks: CodexTerminalViewCallbacks;
+  private shell: HTMLDivElement | null = null;
   private terminal: Terminal | null = null;
   private fitAddon: FitAddon | null = null;
   private resizeObserver: ResizeObserver | null = null;
   private terminalHost: HTMLDivElement | null = null;
   private statusPill: HTMLSpanElement | null = null;
   private statusText: HTMLParagraphElement | null = null;
-  private bridgeModeValue: HTMLParagraphElement | null = null;
   private bridgeValue: HTMLParagraphElement | null = null;
   private sessionValue: HTMLParagraphElement | null = null;
   private healthValue: HTMLParagraphElement | null = null;
   private authValue: HTMLParagraphElement | null = null;
-  private unlockForm: HTMLFormElement | null = null;
-  private passwordInput: HTMLInputElement | null = null;
   private unlockButton: HTMLButtonElement | null = null;
   private unlockMessage: HTMLParagraphElement | null = null;
   private lockOverlay: HTMLDivElement | null = null;
@@ -41,7 +38,6 @@ export class CodexTerminalView {
   private interruptButton: HTMLButtonElement | null = null;
   private clearButton: HTMLButtonElement | null = null;
   private lockButton: HTMLButtonElement | null = null;
-  private modeButtons: HTMLButtonElement[] = [];
 
   constructor(root: HTMLDivElement, callbacks: CodexTerminalViewCallbacks) {
     this.root = root;
@@ -59,41 +55,32 @@ export class CodexTerminalView {
           <a class="codex-back-link" href="../">Linker</a>
           <div class="codex-topbar-copy">
             <p class="codex-eyebrow">Codex Terminal</p>
-            <h1 class="codex-title">Local Codex CLI, unlocked for short browser sessions.</h1>
-            <p class="codex-lede">This page is a thin xterm.js client for a local PTY-backed Codex daemon. Use <code>Bridge</code> to talk to the local bridge on this computer, or use the <code>linker.dialtone.earth</code> tunnel when it is live. If that tunnel is protected by Cloudflare Access, authorize on the <a href="../auth/">Auth</a> page first.</p>
+            <h1 class="codex-title">Cloudflare unlock, then fullscreen terminal.</h1>
+            <p class="codex-lede">Unlock once with <code>Cloudflare Access</code>. On mobile the locked view stays on one screen, and the live shell expands into a fullscreen xterm terminal.</p>
           </div>
         </header>
 
         <section class="codex-meta-grid">
-          <div class="codex-meta-card">
+          <div class="codex-meta-card codex-meta-card--compact">
             <span class="codex-meta-label">Status</span>
             <span class="codex-status-pill codex-status-pill--starting">Starting</span>
             <p class="codex-meta-value" data-codex-status>Preparing the terminal route.</p>
           </div>
-          <div class="codex-meta-card">
-            <span class="codex-meta-label">Mode</span>
-            <p class="codex-meta-value" data-codex-mode>Auto mode chooses the bridge target for this page.</p>
-            <div class="codex-mode-toggle" role="group" aria-label="Codex bridge mode">
-              <button type="button" class="codex-mode-btn" data-codex-mode-button="auto">Auto</button>
-              <button type="button" class="codex-mode-btn" data-codex-mode-button="dev">Dev</button>
-              <button type="button" class="codex-mode-btn" data-codex-mode-button="bridge">Bridge</button>
-            </div>
+          <div class="codex-meta-card codex-meta-card--compact">
+            <span class="codex-meta-label">Access</span>
+            <p class="codex-meta-value" data-codex-auth>Cloudflare Access required.</p>
           </div>
-          <div class="codex-meta-card">
+          <div class="codex-meta-card codex-meta-card--compact">
             <span class="codex-meta-label">Bridge</span>
             <p class="codex-meta-value" data-codex-bridge>Detecting bridge origin.</p>
           </div>
-          <div class="codex-meta-card">
+          <div class="codex-meta-card codex-meta-card--optional">
             <span class="codex-meta-label">Session</span>
             <p class="codex-meta-value" data-codex-session>Waiting for session id.</p>
           </div>
-          <div class="codex-meta-card">
-            <span class="codex-meta-label">Unlock</span>
-            <p class="codex-meta-value" data-codex-auth>Locked.</p>
-          </div>
-          <div class="codex-meta-card codex-meta-card--wide">
+          <div class="codex-meta-card codex-meta-card--wide codex-meta-card--optional">
             <span class="codex-meta-label">Health</span>
-            <p class="codex-meta-value" data-codex-health>Bridge health will appear here after unlock.</p>
+            <p class="codex-meta-value" data-codex-health>Bridge health will appear after Cloudflare Access unlock.</p>
           </div>
         </section>
 
@@ -102,21 +89,11 @@ export class CodexTerminalView {
 
           <div class="codex-lock-overlay" data-codex-lock>
             <div class="codex-lock-card">
-              <p class="codex-lock-eyebrow">Protected</p>
-              <h2 class="codex-lock-title">Enter the password to unlock this browser for 10 minutes.</h2>
-              <p class="codex-lock-copy">The browser stores a short-lived unlock token in session storage. When it expires, the terminal locks again and the bridge rejects new input.</p>
-              <form class="codex-lock-form" data-codex-unlock-form>
-                <label class="codex-field">
-                  <span class="codex-field-label codex-field-label--hidden">Username</span>
-                  <input class="codex-hidden-input" type="text" autocomplete="username" value="codex" tabindex="-1" aria-hidden="true">
-                </label>
-                <label class="codex-field">
-                  <span class="codex-field-label">Password</span>
-                  <input class="codex-password-input" data-codex-password type="password" autocomplete="current-password" placeholder="Enter password">
-                </label>
-                <button class="codex-primary-button" data-codex-unlock-button type="submit">Unlock</button>
-              </form>
-              <p class="codex-lock-message" data-codex-unlock-message>Waiting for password.</p>
+              <p class="codex-lock-eyebrow">Cloudflare Access</p>
+              <h2 class="codex-lock-title">Unlock the hosted Codex bridge.</h2>
+              <p class="codex-lock-copy">No second password lives here anymore. The same Cloudflare Access session unlocks the terminal.</p>
+              <button class="codex-primary-button" data-codex-unlock-button type="button">Unlock With Cloudflare Access</button>
+              <p class="codex-lock-message" data-codex-unlock-message>Waiting for Cloudflare Access.</p>
             </div>
           </div>
         </section>
@@ -131,15 +108,13 @@ export class CodexTerminalView {
       </div>
     `;
 
+    this.shell = this.root.querySelector<HTMLDivElement>('.codex-page-shell');
     this.statusPill = this.root.querySelector<HTMLSpanElement>('.codex-status-pill');
     this.statusText = this.root.querySelector<HTMLParagraphElement>('[data-codex-status]');
-    this.bridgeModeValue = this.root.querySelector<HTMLParagraphElement>('[data-codex-mode]');
     this.bridgeValue = this.root.querySelector<HTMLParagraphElement>('[data-codex-bridge]');
     this.sessionValue = this.root.querySelector<HTMLParagraphElement>('[data-codex-session]');
     this.healthValue = this.root.querySelector<HTMLParagraphElement>('[data-codex-health]');
     this.authValue = this.root.querySelector<HTMLParagraphElement>('[data-codex-auth]');
-    this.unlockForm = this.root.querySelector<HTMLFormElement>('[data-codex-unlock-form]');
-    this.passwordInput = this.root.querySelector<HTMLInputElement>('[data-codex-password]');
     this.unlockButton = this.root.querySelector<HTMLButtonElement>('[data-codex-unlock-button]');
     this.unlockMessage = this.root.querySelector<HTMLParagraphElement>('[data-codex-unlock-message]');
     this.lockOverlay = this.root.querySelector<HTMLDivElement>('[data-codex-lock]');
@@ -149,22 +124,8 @@ export class CodexTerminalView {
     this.clearButton = this.root.querySelector<HTMLButtonElement>('[data-codex-clear]');
     this.lockButton = this.root.querySelector<HTMLButtonElement>('[data-codex-lock]');
     this.terminalHost = this.root.querySelector<HTMLDivElement>('[data-codex-terminal]');
-    this.modeButtons = Array.from(this.root.querySelectorAll<HTMLButtonElement>('[data-codex-mode-button]'));
 
-    this.unlockForm?.addEventListener('submit', (event) => {
-      event.preventDefault();
-      this.callbacks.onUnlock(this.passwordInput?.value ?? '');
-    });
-
-    this.modeButtons.forEach((button) => {
-      button.addEventListener('click', () => {
-        const nextMode = button.dataset.codexModeButton;
-        if (nextMode === 'auto' || nextMode === 'dev' || nextMode === 'bridge') {
-          this.callbacks.onModeChange(nextMode);
-        }
-      });
-    });
-
+    this.unlockButton?.addEventListener('click', this.callbacks.onUnlock);
     this.connectButton?.addEventListener('click', this.callbacks.onConnect);
     this.restartButton?.addEventListener('click', this.callbacks.onRestart);
     this.interruptButton?.addEventListener('click', this.callbacks.onInterrupt);
@@ -180,6 +141,7 @@ export class CodexTerminalView {
     this.fitAddon = null;
     this.terminal?.dispose();
     this.terminal = null;
+    document.body.removeAttribute('data-codex-view-mode');
     document.body.classList.remove('codex-route');
   }
 
@@ -191,14 +153,8 @@ export class CodexTerminalView {
     this.terminal?.focus();
   }
 
-  public focusPassword() {
-    this.passwordInput?.focus();
-  }
-
-  public clearPassword() {
-    if (this.passwordInput) {
-      this.passwordInput.value = '';
-    }
+  public focusUnlock() {
+    this.unlockButton?.focus();
   }
 
   public resizeTerminal() {
@@ -216,7 +172,7 @@ export class CodexTerminalView {
   public getTerminalSize(): TerminalSize {
     return {
       cols: this.terminal?.cols ?? 120,
-      rows: this.terminal?.rows ?? 34
+      rows: this.terminal?.rows ?? 34,
     };
   }
 
@@ -241,18 +197,6 @@ export class CodexTerminalView {
     }
   }
 
-  public setBridgeMode(mode: CodexBridgeMode) {
-    if (this.bridgeModeValue) {
-      this.bridgeModeValue.textContent = bridgeModeCopy[mode];
-    }
-
-    this.modeButtons.forEach((button) => {
-      const isActive = button.dataset.codexModeButton === mode;
-      button.classList.toggle('codex-mode-btn--active', isActive);
-      button.setAttribute('aria-pressed', isActive ? 'true' : 'false');
-    });
-  }
-
   public setSessionId(sessionId: string) {
     if (this.sessionValue) {
       this.sessionValue.textContent = sessionId;
@@ -272,21 +216,22 @@ export class CodexTerminalView {
   }
 
   public setLockState(isLocked: boolean, message: string) {
-    this.root.firstElementChild?.classList.toggle('codex-page-shell--locked', isLocked);
+    this.shell?.classList.toggle('codex-page-shell--locked', isLocked);
+    this.shell?.classList.toggle('codex-page-shell--terminal', !isLocked);
     this.lockOverlay?.setAttribute('aria-hidden', isLocked ? 'false' : 'true');
+    document.body.dataset.codexViewMode = isLocked ? 'locked' : 'terminal';
     if (this.unlockMessage) {
       this.unlockMessage.textContent = message;
     }
+    requestAnimationFrame(() => {
+      this.fitTerminal();
+    });
   }
 
   public setUnlockPending(isPending: boolean, label: string) {
     if (this.unlockButton) {
       this.unlockButton.disabled = isPending;
       this.unlockButton.textContent = label;
-    }
-
-    if (this.passwordInput) {
-      this.passwordInput.disabled = isPending;
     }
   }
 
@@ -330,9 +275,10 @@ export class CodexTerminalView {
     }
 
     this.fitAddon = new FitAddon();
+    const isMobileViewport = window.innerWidth <= 480;
     this.terminal = new Terminal({
       fontFamily: '"Space Mono", "Cascadia Code", Consolas, monospace',
-      fontSize: 14,
+      fontSize: isMobileViewport ? 12 : 14,
       lineHeight: 1.15,
       cursorBlink: true,
       allowTransparency: true,
@@ -355,8 +301,8 @@ export class CodexTerminalView {
         cyan: '#d0d0d0',
         brightCyan: '#ffffff',
         white: '#d9d9d9',
-        brightWhite: '#ffffff'
-      }
+        brightWhite: '#ffffff',
+      },
     });
 
     this.terminal.loadAddon(this.fitAddon);
@@ -390,11 +336,5 @@ const phaseLabelMap: Record<CodexTerminalViewPhase, string> = {
   locked: 'Locked',
   disconnected: 'Offline',
   error: 'Error',
-  exited: 'Exited'
-};
-
-const bridgeModeCopy: Record<CodexBridgeMode, string> = {
-  auto: 'Auto chooses the local dev server on localhost and the tunnel route on GitHub Pages.',
-  dev: 'Dev uses the current page origin so localhost Vite can proxy the Codex bridge.',
-  bridge: 'Bridge targets the direct local bridge on this computer instead of the local dev proxy.'
+  exited: 'Exited',
 };
