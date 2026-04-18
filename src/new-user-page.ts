@@ -108,7 +108,7 @@ class NewUserPage {
           <label class="new-user-field">
             <span class="new-user-field-label">Auth Origin</span>
             <input class="new-user-input" type="url" data-new-user-auth-input placeholder="${DEFAULT_REMOTE_AUTH_ORIGIN}" />
-            <span class="new-user-field-help">Cloudflare Access or any equivalent protected auth host for <code>/auth/</code>.</span>
+            <span class="new-user-field-help">Optional. If blank, <code>/auth/</code> reuses the hosted Mail Origin for the same Cloudflare Access flow.</span>
           </label>
           <label class="new-user-field">
             <span class="new-user-field-label">Mail Origin</span>

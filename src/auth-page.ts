@@ -1,8 +1,14 @@
-import {createSiteMenu, type SiteMenuHandle} from './docs-shell';
-import {readConfiguredAuthOrigin} from './remote-config';
+import {createSiteMenu, resolveSiteHref, type SiteMenuHandle} from './docs-shell';
+import {
+  DEFAULT_REMOTE_AUTH_ORIGIN,
+  hasExplicitConfiguredOrigin,
+  normalizeAbsoluteHttpUrl,
+} from './remote-config';
+import {readStoredAppSettings} from './site-settings';
 
 type AuthMode = 'auto' | 'auth' | 'dev';
 type AuthPhase = 'authorized' | 'checking' | 'error' | 'idle' | 'signed-out';
+type AuthSurface = 'auth' | 'mail';
 
 type PublicAuthConfigResponse = {
   loginPath: string;
@@ -22,6 +28,27 @@ type AuthSessionResponse = {
   subject?: string;
 };
 
+type MailPublicConfigResponse = {
+  authRequired: boolean;
+  ok: boolean;
+  publicOrigin: string;
+};
+
+type MailHealthResponse = {
+  counts?: {
+    threads?: number;
+  };
+  mailbox?: {
+    displayName?: string;
+    emailAddress: string;
+  } | null;
+  ok: boolean;
+};
+
+type AccessConfigResponse = PublicAuthConfigResponse & {
+  surface: AuthSurface;
+};
+
 type AuthPageElements = {
   authorizeButton: HTMLButtonElement;
   checkSessionButton: HTMLButtonElement;
@@ -35,9 +62,12 @@ type AuthPageElements = {
 };
 
 const MODE_STORAGE_KEY = 'linker.auth.mode';
-const CONFIG_PATH = '/api/auth/public-config';
-const DEFAULT_SESSION_PATH = '/api/auth/session';
-const DEFAULT_LOGOUT_PATH = '/api/auth/logout';
+const AUTH_CONFIG_PATH = '/api/auth/public-config';
+const AUTH_SESSION_PATH = '/api/auth/session';
+const MAIL_CONFIG_PATH = '/api/mail/public-config';
+const MAIL_HEALTH_PATH = '/api/mail/health';
+const DEFAULT_LOGIN_PATH = '/codex/';
+const CLOUDFLARE_LOGOUT_PATH = '/cdn-cgi/access/logout';
 const CONFIG_TIMEOUT_MS = 4000;
 
 export type AuthPageHandle = {
@@ -65,7 +95,7 @@ export async function startAuthPage(root: HTMLElement): Promise<AuthPageHandle> 
 class AuthPage {
   private readonly root: HTMLElement;
   private mode: AuthMode = 'auto';
-  private activeConfig: PublicAuthConfigResponse | null = null;
+  private activeConfig: AccessConfigResponse | null = null;
   private elements: AuthPageElements | null = null;
   private siteMenu: SiteMenuHandle | null = null;
 
@@ -84,12 +114,13 @@ class AuthPage {
         <p class="eyebrow">Cloudflare Access</p>
         <h1>Static login and auth checks for local or tunneled Linker services.</h1>
         <p class="lede">
-          Keep this route static, decide whether to target localhost or your private auth origin, then use a protected
-          config route to trigger Cloudflare Access login before checking session state.
+          Keep this route static, decide whether to target localhost or your hosted access origin, then use one
+          Cloudflare-protected route to unlock the same host that powers the mailboard.
         </p>
         <p class="auth-note">
           In remote mode, press <strong>Authorize</strong>, complete the access flow on the target origin, then return
-          here and press <strong>Check Session</strong>.
+          here and press <strong>Check Session</strong>. If no separate auth service exists, this page will reuse the
+          hosted mail API instead.
         </p>
       </header>
 
@@ -195,28 +226,25 @@ class AuthPage {
 
   private async refreshConfig(): Promise<void> {
     const origin = this.resolveHttpOrigin();
-    const configUrl = this.resolveHttpUrl(CONFIG_PATH);
     const controller = new AbortController();
     const timeout = window.setTimeout(() => controller.abort(), CONFIG_TIMEOUT_MS);
 
     this.activeConfig = null;
-    this.setOriginText(`${origin} -> ${CONFIG_PATH}`);
+    this.syncActionButtons(origin);
+
+    if (this.requiresHostedSetup(origin)) {
+      this.setOriginText('No hosted auth or mail origin is configured yet.');
+      this.setHealthText('Open New User and save a private Auth Origin or Mail Origin first.');
+      this.appendLog('system', 'Hosted auth setup is missing. Open /new-user/ before checking Cloudflare Access.');
+      window.clearTimeout(timeout);
+      return;
+    }
+
+    this.setOriginText(`${origin} -> checking access surface`);
     this.setHealthText('Checking config route...');
 
     try {
-      const response = await fetch(configUrl, {
-        headers: {
-          Accept: 'application/json',
-        },
-        mode: 'cors',
-        signal: controller.signal,
-      });
-
-      if (!response.ok) {
-        throw new Error(`Config request failed with status ${response.status}.`);
-      }
-
-      const config = (await response.json()) as PublicAuthConfigResponse;
+      const config = await this.fetchAccessConfig(origin, controller.signal);
       this.activeConfig = config;
       this.setOriginText(`${config.publicOrigin} -> ${config.sessionPath}`);
       this.setHealthText(`Reachable. ${config.sessionLabel} via ${config.providerLabel}.`);
@@ -238,7 +266,10 @@ class AuthPage {
   private async checkSession(): Promise<void> {
     this.setAuthPhase('checking', 'Checking the session route...');
 
-    const sessionUrl = this.resolveHttpUrl(this.activeConfig?.sessionPath ?? DEFAULT_SESSION_PATH);
+    const sessionUrl = this.resolveHttpUrl(
+      this.activeConfig?.sessionPath ?? AUTH_SESSION_PATH,
+      this.resolveHttpOrigin(),
+    );
     const controller = new AbortController();
     const timeout = window.setTimeout(() => controller.abort(), CONFIG_TIMEOUT_MS);
 
@@ -255,13 +286,16 @@ class AuthPage {
         throw new Error(`Session request failed with status ${response.status}.`);
       }
 
-      const session = (await response.json()) as AuthSessionResponse;
+      if (this.activeConfig?.surface === 'mail') {
+        const health = (await response.json()) as MailHealthResponse;
+        if (!health.ok) {
+          throw new Error('Hosted mail health did not report ok.');
+        }
 
-      if (session.authenticated) {
         const detail = [
-          session.sessionLabel ?? 'Authorized.',
-          session.subject ? `User ${session.subject}.` : '',
-          session.expiresAt ? `Expires ${session.expiresAt}.` : '',
+          'Hosted mailbox authorized.',
+          health.mailbox?.emailAddress ? `Mailbox ${health.mailbox.emailAddress}.` : '',
+          typeof health.counts?.threads === 'number' ? `${health.counts.threads} tracked threads.` : '',
         ]
           .filter((value) => value.length > 0)
           .join(' ');
@@ -269,8 +303,23 @@ class AuthPage {
         this.setAuthPhase('authorized', detail);
         this.appendLog('remote', detail);
       } else {
-        this.setAuthPhase('signed-out', 'No active session was reported.');
-        this.appendLog('system', 'Session check reported no active login.');
+        const session = (await response.json()) as AuthSessionResponse;
+
+        if (session.authenticated) {
+          const detail = [
+            session.sessionLabel ?? 'Authorized.',
+            session.subject ? `User ${session.subject}.` : '',
+            session.expiresAt ? `Expires ${session.expiresAt}.` : '',
+          ]
+            .filter((value) => value.length > 0)
+            .join(' ');
+
+          this.setAuthPhase('authorized', detail);
+          this.appendLog('remote', detail);
+        } else {
+          this.setAuthPhase('signed-out', 'No active session was reported.');
+          this.appendLog('system', 'Session check reported no active login.');
+        }
       }
     } catch (error) {
       this.setAuthPhase('error', readErrorMessage(error, 'Unable to check the session route.'));
@@ -286,7 +335,7 @@ class AuthPage {
     }
 
     this.elements.modeValue.textContent = modeCopyMap[this.mode];
-    this.elements.authorizeButton.hidden = !this.requiresRemoteAccessLogin();
+    this.syncActionButtons();
 
     this.elements.modeButtons.forEach((button) => {
       const isActive = button.dataset.authModeButton === this.mode;
@@ -317,13 +366,30 @@ class AuthPage {
   }
 
   private openAccessLogin(): void {
-    const accessUrl = this.resolveHttpUrl(this.activeConfig?.loginPath ?? CONFIG_PATH);
+    if (this.requiresHostedSetup()) {
+      const setupUrl = resolveSiteHref('new-user/');
+      window.location.assign(setupUrl);
+      this.appendLog('system', `Opened ${setupUrl} so you can configure a hosted auth or mail origin first.`);
+      return;
+    }
+
+    const accessUrl = this.resolveHttpUrl(
+      this.activeConfig?.loginPath ?? DEFAULT_LOGIN_PATH,
+      this.resolveHttpOrigin(),
+    );
     window.open(accessUrl, '_blank', 'noopener,noreferrer');
     this.appendLog('system', `Opened ${accessUrl}. Finish the access flow there, then return here and check the session.`);
   }
 
   private openSignOut(): void {
-    const logoutUrl = this.resolveHttpUrl(this.activeConfig?.logoutPath ?? DEFAULT_LOGOUT_PATH);
+    if (this.requiresHostedSetup()) {
+      return;
+    }
+
+    const logoutUrl = this.resolveHttpUrl(
+      this.activeConfig?.logoutPath ?? CLOUDFLARE_LOGOUT_PATH,
+      this.resolveHttpOrigin(),
+    );
     window.open(logoutUrl, '_blank', 'noopener,noreferrer');
     this.appendLog('system', `Opened ${logoutUrl}. Finish sign-out there, then return here and check the session again.`);
   }
@@ -357,11 +423,7 @@ class AuthPage {
   }
 
   private resolveHttpOrigin(): string {
-    const configuredOrigin = readConfiguredAuthOrigin({
-      configuredOrigin: import.meta.env.VITE_LINKER_AUTH_ORIGIN as string | undefined,
-      hostname: window.location.hostname,
-      locationOrigin: window.location.origin,
-    });
+    const configuredOrigin = this.resolveRemoteAccessOrigin();
 
     switch (this.mode) {
       case 'dev':
@@ -374,14 +436,14 @@ class AuthPage {
     }
   }
 
-  private resolveHttpUrl(pathname: string): string {
+  private resolveHttpUrl(pathname: string, origin = this.resolveHttpOrigin()): string {
     try {
       return new URL(pathname).toString();
     } catch (error) {
       void error;
     }
 
-    const url = new URL(this.resolveHttpOrigin());
+    const url = new URL(origin);
     url.pathname = pathname.startsWith('/') ? pathname : `/${pathname}`;
     url.search = '';
     return url.toString();
@@ -390,11 +452,102 @@ class AuthPage {
   private requiresRemoteAccessLogin(origin = this.resolveHttpOrigin()): boolean {
     return origin !== window.location.origin;
   }
+
+  private requiresHostedSetup(origin = this.resolveHttpOrigin()): boolean {
+    if (!window.location.hostname.endsWith('github.io')) {
+      return false;
+    }
+
+    if (!this.requiresRemoteAccessLogin(origin)) {
+      return false;
+    }
+
+    return !hasExplicitConfiguredOrigin({
+      configuredOrigin:
+        (import.meta.env.VITE_LINKER_AUTH_ORIGIN as string | undefined) ||
+        (import.meta.env.VITE_CODEX_MAIL_URL as string | undefined),
+      storedOrigin: readStoredAppSettings().authOrigin || readStoredAppSettings().mailOrigin,
+    });
+  }
+
+  private syncActionButtons(origin = this.resolveHttpOrigin()): void {
+    if (!this.elements) {
+      return;
+    }
+
+    const needsRemoteLogin = this.requiresRemoteAccessLogin(origin);
+    const needsHostedSetup = this.requiresHostedSetup(origin);
+
+    this.elements.authorizeButton.hidden = !needsRemoteLogin;
+    this.elements.authorizeButton.textContent = needsHostedSetup
+      ? 'Open New User Setup'
+      : 'Authorize';
+    this.elements.signOutButton.hidden = !needsRemoteLogin || needsHostedSetup;
+  }
+
+  private resolveRemoteAccessOrigin(): string {
+    const storedSettings = readStoredAppSettings();
+    const explicitAuthOrigin =
+      normalizeAbsoluteHttpUrl(storedSettings.authOrigin) ||
+      normalizeAbsoluteHttpUrl(import.meta.env.VITE_LINKER_AUTH_ORIGIN as string | undefined);
+    const explicitMailOrigin =
+      normalizeAbsoluteHttpUrl(storedSettings.mailOrigin) ||
+      normalizeAbsoluteHttpUrl(import.meta.env.VITE_CODEX_MAIL_URL as string | undefined);
+
+    return explicitAuthOrigin || explicitMailOrigin || DEFAULT_REMOTE_AUTH_ORIGIN;
+  }
+
+  private async fetchAccessConfig(origin: string, signal: AbortSignal): Promise<AccessConfigResponse> {
+    try {
+      const response = await fetch(this.resolveHttpUrl(AUTH_CONFIG_PATH, origin), {
+        headers: {
+          Accept: 'application/json',
+        },
+        mode: 'cors',
+        signal,
+      });
+
+      if (!response.ok) {
+        throw new Error(`Auth config request failed with status ${response.status}.`);
+      }
+
+      const config = (await response.json()) as PublicAuthConfigResponse;
+      return {
+        ...config,
+        surface: 'auth',
+      };
+    } catch (authError) {
+      const response = await fetch(this.resolveHttpUrl(MAIL_CONFIG_PATH, origin), {
+        headers: {
+          Accept: 'application/json',
+        },
+        mode: 'cors',
+        signal,
+      });
+
+      if (!response.ok) {
+        throw authError;
+      }
+
+      const config = (await response.json()) as MailPublicConfigResponse;
+      const publicOrigin = config.publicOrigin || origin;
+      return {
+        loginPath: DEFAULT_LOGIN_PATH,
+        logoutPath: CLOUDFLARE_LOGOUT_PATH,
+        ok: true,
+        providerLabel: 'Cloudflare Access',
+        publicOrigin,
+        sessionLabel: 'Hosted mail API reachable.',
+        sessionPath: MAIL_HEALTH_PATH,
+        surface: 'mail',
+      };
+    }
+  }
 }
 
 const modeCopyMap: Record<AuthMode, string> = {
-  auto: 'Auto mode uses localhost on local pages and switches to your configured remote auth origin on hosted pages.',
-  auth: 'Auth mode always targets the configured remote auth origin.',
+  auto: 'Auto mode uses localhost on local pages and switches to your configured hosted access origin on hosted pages.',
+  auth: 'Auth mode always targets your hosted access origin, preferring Auth Origin and falling back to Mail Origin.',
   dev: 'Dev mode stays on the current page origin and expects a local auth service beside Vite.',
 };
 

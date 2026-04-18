@@ -32,15 +32,20 @@ export async function runAuthPageSmokeFlow(
       hooks.fetchCalls.push(resolvedUrl.toString());
 
       if (resolvedUrl.pathname === '/api/auth/public-config') {
+        return new Response(JSON.stringify({ok: false}), {
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          status: 404,
+        });
+      }
+
+      if (resolvedUrl.pathname === '/api/mail/public-config') {
         return new Response(
           JSON.stringify({
-            loginPath: '/cdn-cgi/access/login/linker',
-            logoutPath: '/api/auth/logout',
             ok: true,
-            providerLabel: 'Cloudflare Access',
             publicOrigin: resolvedUrl.origin,
-            sessionLabel: 'Cloudflare session route ready.',
-            sessionPath: '/api/auth/session',
+            authRequired: true,
           }),
           {
             headers: {
@@ -51,15 +56,17 @@ export async function runAuthPageSmokeFlow(
         );
       }
 
-      if (resolvedUrl.pathname === '/api/auth/session') {
+      if (resolvedUrl.pathname === '/api/mail/health') {
         hooks.sessionChecks += 1;
         return new Response(
           JSON.stringify({
-            authenticated: true,
-            expiresAt: '2099-04-09T00:00:00Z',
             ok: true,
-            sessionLabel: 'Cloudflare Access session active.',
-            subject: 'worker@example.com',
+            mailbox: {
+              emailAddress: 'worker@example.com',
+            },
+            counts: {
+              threads: 42,
+            },
           }),
           {
             headers: {
@@ -70,7 +77,7 @@ export async function runAuthPageSmokeFlow(
         );
       }
 
-      if (resolvedUrl.pathname === '/api/auth/logout') {
+      if (resolvedUrl.pathname === '/cdn-cgi/access/logout') {
         return new Response(JSON.stringify({ok: true}), {
           headers: {
             'Content-Type': 'application/json',
@@ -168,7 +175,7 @@ export async function runAuthPageSmokeFlow(
     });
     await context.page.waitForFunction(() => {
       const health = document.querySelector('[data-auth-health]');
-      return health?.textContent?.includes('Cloudflare session route ready.') ?? false;
+      return health?.textContent?.includes('Hosted mail API reachable.') ?? false;
     });
     await context.page.waitForFunction(() => {
       const button = document.querySelector<HTMLButtonElement>('[data-auth-authorize]');
@@ -229,22 +236,26 @@ export async function runAuthPageSmokeFlow(
     assert.ok(pageState.logEntryCount >= 5, 'The auth route should record a visible auth event log.');
     assert.ok(
       pageState.fetchCalls.some((call) => call.includes('/api/auth/public-config')),
-      'The auth route should fetch the public config route.',
+      'The auth route should probe the dedicated auth config route first.',
     );
     assert.ok(
-      pageState.fetchCalls.some((call) => call.includes('/api/auth/session')),
-      'The auth route should check the session route.',
+      pageState.fetchCalls.some((call) => call.includes('/api/mail/public-config')),
+      'The auth route should fall back to the hosted mail config route when no dedicated auth config exists.',
+    );
+    assert.ok(
+      pageState.fetchCalls.some((call) => call.includes('/api/mail/health')),
+      'The auth route should check the hosted mail health route as its session proof when it falls back to the mail surface.',
     );
     assert.equal(pageState.sessionChecks, 1, 'The auth smoke test should perform one explicit session check.');
     assert.match(
       authorizedStateText,
       /Authorized\..*worker@example\.com/u,
-      'The auth route should surface the Cloudflare session result.',
+      'The auth route should surface the hosted mailbox identity after Cloudflare Access succeeds.',
     );
     assert.match(
       pageState.healthText,
-      /Cloudflare session route ready\./u,
-      'The auth route should report the mocked Cloudflare config health.',
+      /Hosted mail API reachable\./u,
+      'The auth route should report the hosted mail access health when it falls back to the mail surface.',
     );
     assert.match(
       pageState.originText,
@@ -254,13 +265,13 @@ export async function runAuthPageSmokeFlow(
     assert.equal(pageState.openCalls.length, 2, 'The auth route should open both authorize and sign-out targets.');
     assert.match(
       pageState.openCalls[0] ?? '',
-      new RegExp(`${DEFAULT_REMOTE_AUTH_ORIGIN.replace(/[.*+?^${}()|[\]\\]/gu, '\\$&')}/cdn-cgi/access/login/linker`, 'u'),
-      'Authorize should open the remote Cloudflare Access login target.',
+      new RegExp(`${DEFAULT_REMOTE_AUTH_ORIGIN.replace(/[.*+?^${}()|[\]\\]/gu, '\\$&')}/codex/`, 'u'),
+      'Authorize should open the hosted mailboard route when the auth page falls back to the mail surface.',
     );
     assert.match(
       pageState.openCalls[1] ?? '',
-      new RegExp(`${DEFAULT_REMOTE_AUTH_ORIGIN.replace(/[.*+?^${}()|[\]\\]/gu, '\\$&')}/api/auth/logout`, 'u'),
-      'Sign out should open the remote logout target.',
+      new RegExp(`${DEFAULT_REMOTE_AUTH_ORIGIN.replace(/[.*+?^${}()|[\]\\]/gu, '\\$&')}/cdn-cgi/access/logout`, 'u'),
+      'Sign out should open the standard Cloudflare Access logout target.',
     );
     await saveAuthScreenshot(context, 'auth-page');
     await openRoute(context.page, context.url);

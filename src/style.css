@@ -714,6 +714,7 @@ body[data-app-motion-preference='reduced'] .site-menu-toggle {
   inset: 0;
   z-index: 29;
   display: grid;
+  justify-items: center;
   padding:
     max(84px, calc(env(safe-area-inset-top) + 72px))
     max(18px, env(safe-area-inset-right))
@@ -727,7 +728,7 @@ body[data-app-motion-preference='reduced'] .site-menu-toggle {
 .site-menu-shell {
   width: min(100%, 34rem);
   min-height: min(42rem, calc(100svh - max(102px, env(safe-area-inset-top) + 84px)));
-  margin-left: auto;
+  margin-inline: auto;
   display: grid;
   align-content: start;
   gap: 20px;

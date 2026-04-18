@@ -24,6 +24,16 @@ export function resolveConfiguredRepoUrl(input: {
   );
 }
 
+export function hasExplicitConfiguredOrigin(input: {
+  configuredOrigin?: string;
+  storedOrigin?: string;
+}): boolean {
+  return Boolean(
+    normalizeAbsoluteHttpUrl(input.storedOrigin) ||
+      normalizeAbsoluteHttpUrl(input.configuredOrigin),
+  );
+}
+
 export function resolveConfiguredAuthOrigin(input: ResolveOriginInput): string {
   const configuredOrigin =
     normalizeAbsoluteHttpUrl(input.storedOrigin) ||

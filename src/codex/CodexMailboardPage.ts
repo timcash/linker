@@ -9,6 +9,7 @@ import {
   type CodexMailViewId,
 } from './CodexMailClient';
 import {CodexMailboardView} from './CodexMailboardView';
+import {resolveSiteHref} from '../docs-shell';
 
 const ACCESS_POLL_INTERVAL_MS = 1500;
 const ACCESS_POLL_TIMEOUT_MS = 60_000;
@@ -64,10 +65,29 @@ export class CodexMailboardPage {
 
   public render(): void {
     this.view.render();
+    if (this.client.needsHostedSetup()) {
+      const setupUrl = resolveSiteHref('new-user/');
+      this.view.setAuthorizeLink({
+        href: setupUrl,
+        label: 'Open New User Setup',
+      });
+      this.view.setUnlockPending(false, 'Open New User Setup');
+      this.view.setStatus('Save your hosted Mail Origin on New User before unlocking the shared mailbox.');
+      this.view.setMailboxSummary('No hosted mailbox origin is configured for this site yet.');
+      this.view.setHealthSummary('Open New User and save a private Mail Origin first.');
+      this.view.setAuthSummary('Private-host setup required before Cloudflare Access can begin.');
+      this.view.setLockState(true, 'No hosted Mail Origin configured yet. Open New User to continue.');
+      this.view.setCurrentViewLabel('Inbox');
+      this.view.setSearchQuery('');
+      this.view.focusUnlock();
+      return;
+    }
+
     this.view.setAuthorizeLink({
       href: this.client.getAuthorizeUrl(),
       label: resolveAuthorizeLabel(this.client.getMailOrigin()),
     });
+    this.view.setUnlockPending(false, 'Unlock With Cloudflare Access');
     this.view.setStatus('Waiting for Cloudflare Access.');
     this.view.setMailboxSummary('Your hosted mailbox will appear after unlock.');
     this.view.setHealthSummary(`Browser mail origin: ${this.client.getMailOrigin()}`);
@@ -82,6 +102,11 @@ export class CodexMailboardPage {
   }
 
   private async handleUnlock(): Promise<void> {
+    if (this.client.needsHostedSetup()) {
+      window.location.assign(resolveSiteHref('new-user/'));
+      return;
+    }
+
     if (this.unlockPending) {
       return;
     }

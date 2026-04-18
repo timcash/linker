@@ -21,6 +21,10 @@ concurrency:
 jobs:
   build:
     runs-on: ubuntu-latest
+    env:
+      VITE_CODEX_MAIL_URL: ${{ vars.VITE_CODEX_MAIL_URL }}
+      VITE_LINKER_AUTH_ORIGIN: ${{ vars.VITE_LINKER_AUTH_ORIGIN }}
+      VITE_LINKER_REPO_URL: ${{ vars.VITE_LINKER_REPO_URL }}
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
