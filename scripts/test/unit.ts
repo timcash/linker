@@ -1,11 +1,7 @@
 import assert from 'node:assert/strict';
 
 import {Camera2D, type ScreenPoint, type ViewportSize} from '../../src/camera';
-import {
-  buildDeferredBridgeHealthSummary,
-  buildLockedBridgeStatus,
-  shouldFallbackToCloudflareAuthorizeWindow,
-} from '../../src/codex/CodexBridgePolicy';
+import {resolveCodexMailOrigin} from '../../src/codex/CodexMailClient';
 import {
   filterBrowserLogs,
   formatBrowserLogEntry,
@@ -13,9 +9,6 @@ import {
   resolveBrowserLogSource,
   type BrowserLogEntry,
 } from '../../src/logs/log-model';
-import {
-  resolveCodexBaseOrigin,
-} from '../../src/codex/CodexTerminalClient';
 import {
   assertAcyclicDag,
   assertColumnsIncreaseAlongEdges,
@@ -40,6 +33,7 @@ import {
 } from '../../src/data/dag-rank-fanout';
 import {
   DEFAULT_REMOTE_AUTH_ORIGIN,
+  DEFAULT_REMOTE_MAIL_ORIGIN,
   resolveConfiguredAuthOrigin,
 } from '../../src/remote-config';
 import {
@@ -155,7 +149,7 @@ import {
 
 export function runStaticUnitTests(): void {
   runRouteAndSessionTests();
-  runCodexBridgePolicyTests();
+  runRemoteConfigTests();
   runBrowserLogModelTests();
   runDagDocumentTests();
   runDagLayoutTests();
@@ -168,51 +162,23 @@ export function runStaticUnitTests(): void {
   runDemoPresetGeometryTests();
 }
 
-function runCodexBridgePolicyTests(): void {
+function runRemoteConfigTests(): void {
   assert.equal(
-    buildDeferredBridgeHealthSummary(DEFAULT_REMOTE_AUTH_ORIGIN),
-    `Cloudflare Access unlock will verify the Codex bridge at ${DEFAULT_REMOTE_AUTH_ORIGIN} before the terminal connects.`,
-    'Deferred health copy should explain the single Cloudflare Access unlock flow and target origin.',
-  );
-  assert.equal(
-    buildLockedBridgeStatus(),
-    'Use Cloudflare Access to unlock the Codex terminal.',
-    'Locked status copy should point to the Cloudflare-only unlock flow.',
-  );
-  assert.equal(
-    shouldFallbackToCloudflareAuthorizeWindow({
-      bridgeOrigin: DEFAULT_REMOTE_AUTH_ORIGIN,
-      error: new Error('Failed to fetch'),
-      locationOrigin: 'https://your-user.github.io',
-    }),
-    true,
-    'Hosted codex unlock should still launch Cloudflare Access when the first bridge probe fails cross-origin.',
-  );
-  assert.equal(
-    shouldFallbackToCloudflareAuthorizeWindow({
-      bridgeOrigin: 'http://127.0.0.1:4173',
-      error: new Error('Failed to fetch'),
-      locationOrigin: 'http://127.0.0.1:4173',
-    }),
-    false,
-    'Local codex unlock should not hide same-origin bridge failures behind the Cloudflare Access fallback.',
-  );
-  assert.equal(
-    resolveCodexBaseOrigin({
+    resolveCodexMailOrigin({
       hostname: 'your-user.github.io',
       locationOrigin: 'https://your-user.github.io',
     }),
-    DEFAULT_REMOTE_AUTH_ORIGIN,
-    'Hosted GitHub Pages should prefer the public bridge origin.',
+    DEFAULT_REMOTE_MAIL_ORIGIN,
+    'Hosted GitHub Pages should prefer the generic remote mail origin.',
   );
   assert.equal(
-    resolveCodexBaseOrigin({
-      configuredOrigin: 'http://127.0.0.1:4186',
+    resolveCodexMailOrigin({
+      configuredOrigin: 'http://127.0.0.1:4192',
       hostname: 'localhost',
       locationOrigin: 'http://127.0.0.1:5173',
     }),
-    'http://127.0.0.1:4186',
-    'A configured codex bridge origin should override the default base-origin resolution.',
+    'http://127.0.0.1:4192',
+    'A configured mail origin should override the default mail-origin resolution.',
   );
   assert.equal(
     resolveConfiguredAuthOrigin({

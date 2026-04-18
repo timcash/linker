@@ -4,11 +4,6 @@
   "version": "0.0.0",
   "type": "module",
   "scripts": {
-    "codex:bridge": "tsx server/index.ts",
-    "codex:daemon:start": "tsx server/daemon/manage.ts start",
-    "codex:daemon:status": "tsx server/daemon/manage.ts status",
-    "codex:daemon:stop": "tsx server/daemon/manage.ts stop",
-    "codex:tunnel": "tsx server/daemon/manage.ts tunnel",
     "dev": "vite",
     "build": "tsc && vite build",
     "build:pages": "tsx scripts/build-pages.ts",
@@ -34,8 +29,6 @@
     "test:browser:readme": "tsx scripts/test.ts --flow readme-preview-smoke",
     "test:browser:suite": "tsx scripts/test.ts --flow full",
     "test:browser:tasks": "tsx scripts/test.ts --flow tasks-dashboard-smoke",
-    "test:browser:zero-data": "tsx scripts/test.ts --flow onboarding-walkthrough",
-    "test:codex:bridge": "tsx scripts/test-codex-bridge.ts",
     "test:codex:mail-sync": "tsx scripts/test-codex-mail-sync.ts",
     "test:live": "tsx scripts/test-live.ts",
     "test:preview": "tsx scripts/test-preview.ts"
@@ -43,20 +36,17 @@
   "dependencies": {
     "@fontsource/space-grotesk": "^5.2.10",
     "@fontsource/space-mono": "^5.2.9",
-    "@xterm/addon-fit": "^0.10.0",
-    "@xterm/xterm": "^5.5.0",
     "@luma.gl/core": "9.3.0-alpha.10",
     "@luma.gl/engine": "9.3.0-alpha.10",
     "@luma.gl/shadertools": "9.3.0-alpha.10",
     "@luma.gl/webgpu": "9.3.0-alpha.10",
-    "marked": "^18.0.0",
-    "node-pty": "^1.0.0",
-    "ws": "^8.18.3"
+    "@xterm/addon-fit": "^0.10.0",
+    "@xterm/xterm": "^5.5.0",
+    "marked": "^18.0.0"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",
     "@types/node": "^24.6.0",
-    "@types/ws": "^8.18.1",
     "eslint": "^10.1.0",
     "puppeteer": "^24.31.0",
     "tsx": "^4.20.6",

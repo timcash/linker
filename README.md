@@ -174,7 +174,7 @@ npm run test:browser -- --flow dag-view-smoke
 npm run test:browser:readme
 npm run test:browser:suite
 npm run test:browser:tasks
-npm run test:browser:zero-data
+npm run test:browser:onboarding
 npm run test:codex:mail-sync
 npm run test:browser
 npm run test:preview
