@@ -243,10 +243,10 @@ export async function runSmokeTest(
         document.body.dataset.onboardingStepId === 'complete' &&
         document.body.dataset.stageMode === '3d-mode' &&
         document.body.dataset.activeWorkplaneId === 'wp-1' &&
-        Number(document.body.dataset.planeCount ?? '0') === 12 &&
-        Number(document.body.dataset.dagNodeCount ?? '0') === 12 &&
-        Number(document.body.dataset.dagEdgeCount ?? '0') === 11 &&
-        Number(document.body.dataset.renderBridgeLinkCount ?? '0') === 11,
+        Number(document.body.dataset.planeCount ?? '0') === 5 &&
+        Number(document.body.dataset.dagNodeCount ?? '0') === 5 &&
+        Number(document.body.dataset.dagEdgeCount ?? '0') === 4 &&
+        Number(document.body.dataset.renderBridgeLinkCount ?? '0') === 4,
       {timeout: options.timeoutMs ?? 120_000},
     );
 

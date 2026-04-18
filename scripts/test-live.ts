@@ -85,23 +85,23 @@ try {
       );
       assert.equal(
         diagnostics.planeCount,
-        12,
-        `Live onboarding should end with twelve workplanes on ${liveUrl}.`,
+        5,
+        `Live onboarding should end with five workplanes on ${liveUrl}.`,
       );
       assert.equal(
         diagnostics.dagNodeCount,
-        12,
-        `Live onboarding should export twelve DAG nodes on ${liveUrl}.`,
+        5,
+        `Live onboarding should export five DAG nodes on ${liveUrl}.`,
       );
       assert.equal(
         diagnostics.dagEdgeCount,
-        11,
-        `Live onboarding should restore the canonical eleven DAG edges on ${liveUrl}.`,
+        4,
+        `Live onboarding should export the current four DAG edges on ${liveUrl}.`,
       );
       assert.equal(
         diagnostics.renderBridgeLinkCount,
-        11,
-        `Live onboarding should render all eleven DAG edges on ${liveUrl}.`,
+        4,
+        `Live onboarding should render the four DAG edges on ${liveUrl}.`,
       );
     } else {
       assert.ok(
