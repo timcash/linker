@@ -17,6 +17,7 @@ import {
 import {DEFAULT_BENCHMARK_LABEL_COUNT} from './data/static-benchmark';
 import {DEFAULT_LINE_STRATEGY, LINE_STRATEGIES, type LineStrategy} from './line/types';
 import {DEFAULT_TEXT_STRATEGY, TEXT_STRATEGIES, type TextStrategy} from './text/types';
+import {readStoredAppSettings, readStoredAppSettingsOverrides} from './site-settings';
 
 export type LabelSetKind = 'demo' | 'benchmark';
 export type DemoPreset =
@@ -64,12 +65,17 @@ const MANAGED_STAGE_ROUTE_PARAM_KEYS = [
 
 export function readStageConfig(search: string): StageConfig {
   const params = new URLSearchParams(search);
+  const storedSettings = readStoredAppSettings();
+  const storedOverrides = readStoredAppSettingsOverrides();
   const labelSetKind: LabelSetKind = params.get('labelSet') === 'benchmark' ? 'benchmark' : 'demo';
   const onboardingEnabled = resolveOnboardingEnabled(params, labelSetKind);
   const demoPreset = parseDemoPreset(params, labelSetKind, onboardingEnabled);
   const layoutStrategy = parseLayoutStrategy(params.get('layoutStrategy'));
-  const lineStrategy = parseLineStrategy(params.get('lineStrategy'));
-  const requestedStageMode = parseRequestedStageMode(params.get('stageMode'));
+  const lineStrategy = parseLineStrategy(params.get('lineStrategy'), storedSettings.lineStrategy);
+  const requestedStageMode = parseRequestedStageMode(
+    params.get('stageMode'),
+    onboardingEnabled ? null : storedOverrides.preferredStageMode ?? null,
+  );
   const demoLayerCount = parseBoundedInteger(
     params.get('demoLayers'),
     DEFAULT_DEMO_LAYER_COUNT,
@@ -101,7 +107,7 @@ export function readStageConfig(search: string): StageConfig {
     requestedStageMode,
     requestedWorkplaneId: parseWorkplaneId(params.get('workplane')),
     stageMode: requestedStageMode ?? (onboardingEnabled ? '2d-mode' : DEFAULT_STAGE_MODE),
-    textStrategy: parseTextStrategy(params.get('textStrategy')),
+    textStrategy: parseTextStrategy(params.get('textStrategy'), storedSettings.textStrategy),
   };
 }
 
@@ -155,8 +161,11 @@ export function syncStageRouteQueryParams(input: {
   });
 }
 
-function parseTextStrategy(value: string | null): TextStrategy {
-  return isTextStrategy(value) ? value : DEFAULT_TEXT_STRATEGY;
+function parseTextStrategy(
+  value: string | null,
+  fallback: TextStrategy = DEFAULT_TEXT_STRATEGY,
+): TextStrategy {
+  return isTextStrategy(value) ? value : fallback;
 }
 
 function parseDemoPreset(
@@ -186,16 +195,22 @@ function parseDemoPreset(
   return hasClassicDemoRouteHints(params) ? 'classic' : 'dag-rank-fanout';
 }
 
-function parseLineStrategy(value: string | null): LineStrategy {
-  return isLineStrategy(value) ? value : DEFAULT_LINE_STRATEGY;
+function parseLineStrategy(
+  value: string | null,
+  fallback: LineStrategy = DEFAULT_LINE_STRATEGY,
+): LineStrategy {
+  return isLineStrategy(value) ? value : fallback;
 }
 
 function parseLayoutStrategy(value: string | null): LayoutStrategy {
   return isLayoutStrategy(value) ? value : DEFAULT_LAYOUT_STRATEGY;
 }
 
-function parseRequestedStageMode(value: string | null): StageMode | null {
-  return isStageMode(value) ? value : null;
+function parseRequestedStageMode(
+  value: string | null,
+  fallback: StageMode | null = null,
+): StageMode | null {
+  return isStageMode(value) ? value : fallback;
 }
 
 function parseWorkplaneId(value: string | null): WorkplaneId | null {
@@ -253,6 +268,12 @@ function resolveOnboardingEnabled(
 
   if (requestedOnboarding === '1') {
     return true;
+  }
+
+  const storedSettings = readStoredAppSettings();
+
+  if (storedSettings.onboardingPreference === 'skip') {
+    return false;
   }
 
   const hostname =

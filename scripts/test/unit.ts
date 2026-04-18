@@ -8,6 +8,7 @@ import {
 } from '../../src/codex/CodexBridgePolicy';
 import {
   filterBrowserLogs,
+  formatBrowserLogEntry,
   parseLogsCommand,
   resolveBrowserLogSource,
   type BrowserLogEntry,
@@ -119,6 +120,7 @@ import {
   bucketVisibleDagNodes,
   createDagEdgeCurves,
   createDagNodeLayouts,
+  createDagStackViewState,
   createProjectedDagVisibleNodes,
   resolveWorkplaneLod,
 } from '../../src/dag-view';
@@ -256,6 +258,30 @@ function runBrowserLogModelTests(): void {
     ),
     '/src/app.ts:1996:17',
     'Browser log source resolution should skip wrapper frames and keep the caller source line.',
+  );
+  assert.equal(
+    resolveBrowserLogSource(
+      [
+        'Error',
+        '    at record (http://127.0.0.1:4173/src/logs/log-store.ts:10:2)',
+        '    at pptr:evaluate;runLogsPageSmokeFlow%20(file%3A%2F%2F%2FC%3A%2FUsers%2Ftimca%2Flinker%2Fscripts%2Ftest%2Flogs-page-smoke.ts%3A34%3A68):1:230',
+      ].join('\n'),
+    ),
+    'C:/Users/timca/linker/scripts/test/logs-page-smoke.ts:34:68',
+    'Browser log source resolution should decode Puppeteer-evaluated stack frames back to the authored source line.',
+  );
+  assert.match(
+    formatBrowserLogEntry(
+      createBrowserLogEntry({
+        id: 'entry-4',
+        level: 'warn',
+        message: 'logs smoke warn row',
+        source: 'C:/Users/timca/linker/scripts/test/logs-page-smoke.ts:34:68',
+        timestamp: nowMs,
+      }),
+    ),
+    /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2} WARN\s{2}logs-page-smoke\.ts:34\n\s{2}logs smoke warn row$/u,
+    'Browser log formatting should keep timestamps compact and source labels human-readable in the terminal.',
   );
   assert.deepEqual(
     [
@@ -578,6 +604,39 @@ function runDagViewTests(): void {
     },
     'Zooming the canonical DAG root outward should collapse every visible workplane into the graph-point bucket.',
   );
+  const graphPointViewState = createDagStackViewState({
+    ...createCanonicalNetworkDagStageState(),
+    session: {
+      ...createCanonicalNetworkDagStageState().session,
+      stackCamera: scaleStackCameraDistance(DEFAULT_STACK_CAMERA_STATE, 3),
+      stageMode: '3d-mode',
+    },
+  });
+  const firstGraphPointBackplate = graphPointViewState.backplates[0];
+  assert.equal(
+    graphPointViewState.backplates.length,
+    createCanonicalNetworkDagStageState().document.workplaneOrder.length,
+    'The far graph-point band should draw one projected square symbol backplate per DAG node.',
+  );
+  assert.equal(
+    graphPointViewState.scene.labels.length,
+    0,
+    'The far graph-point band should rely on projected square symbols instead of text labels.',
+  );
+  assert.ok(firstGraphPointBackplate, 'The far graph-point band should produce a symbol backplate for the root node.');
+  if (firstGraphPointBackplate) {
+    const symbolWidth = Math.abs(firstGraphPointBackplate.corners[1].x - firstGraphPointBackplate.corners[0].x);
+    const symbolHeight = Math.abs(firstGraphPointBackplate.corners[0].y - firstGraphPointBackplate.corners[3].y);
+    assert.equal(
+      symbolWidth,
+      symbolHeight,
+      'Graph-point symbol backplates should stay square so the far DAG overview reads as one symbol per node.',
+    );
+    assert.ok(
+      symbolWidth < 24,
+      'Graph-point symbol backplates should stay smaller than a full workplane plane footprint.',
+    );
+  }
   assert.deepEqual(
     {
       graphPointWorkplanes: closeBuckets.graphPointWorkplanes.map((layout) => layout.workplaneId),

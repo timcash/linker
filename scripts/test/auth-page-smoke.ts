@@ -91,6 +91,9 @@ export async function runAuthPageSmokeFlow(
     context.addBrowserLog('test', `Opening auth route ${authUrl}.`);
     await context.page.goto(authUrl, {waitUntil: 'load'});
     await context.page.waitForFunction(() => document.body.classList.contains('auth-route'));
+    await context.page.waitForSelector('[data-site-menu-toggle]');
+    await context.page.click('[data-site-menu-toggle]');
+    await context.page.waitForSelector('[data-site-menu-overlay]:not([hidden])');
     await context.page.waitForFunction(() => {
       const heading = document.querySelector('h1');
       return heading?.textContent?.includes('Static login and auth checks') ?? false;
@@ -99,6 +102,8 @@ export async function runAuthPageSmokeFlow(
       const health = document.querySelector('[data-auth-health]');
       return health?.textContent?.includes('Cloudflare') ?? false;
     });
+    await context.page.click('[data-site-menu-toggle]');
+    await context.page.waitForSelector('[data-site-menu-overlay][hidden]');
 
     await context.page.click('[data-auth-authorize]');
     await context.page.waitForFunction(
@@ -171,11 +176,14 @@ export async function runAuthPageSmokeFlow(
         bodyFontFamily: window.getComputedStyle(document.body).fontFamily,
         bodyText: document.body.innerText,
         currentNavLabel:
-          document.querySelector('.site-nav a[aria-current="page"]')?.textContent?.trim() ?? '',
+          document.querySelector('[data-site-menu-link][aria-current="page"]')?.textContent?.trim() ?? '',
         fetchCalls: hooks.fetchCalls,
         healthText: document.querySelector('[data-auth-health]')?.textContent?.trim() ?? '',
         logEntryCount: document.querySelectorAll('.auth-log-entry').length,
         logFontFamily: logHost ? window.getComputedStyle(logHost).fontFamily : '',
+        navLabels: Array.from(document.querySelectorAll<HTMLElement>('[data-site-menu-link]')).map(
+          (link) => link.textContent?.trim() ?? '',
+        ),
         openCalls: hooks.openCalls,
         originText: document.querySelector('[data-auth-origin]')?.textContent?.trim() ?? '',
         sessionChecks: hooks.sessionChecks,
@@ -184,7 +192,9 @@ export async function runAuthPageSmokeFlow(
     });
 
     assert.equal(pageState.title, 'Linker Auth', 'The /auth route should set a dedicated page title.');
-    assert.equal(pageState.currentNavLabel, 'Auth', 'The docs nav should mark the auth route as active.');
+    assert.match(pageState.currentNavLabel, /Auth/i, 'The fullscreen menu should mark the auth route as active.');
+    assert.ok(pageState.navLabels.some((label) => /App/i.test(label)), 'The fullscreen menu should include the app route.');
+    assert.ok(pageState.navLabels.some((label) => /README/i.test(label)), 'The fullscreen menu should include the README route.');
     assert.match(
       pageState.bodyText,
       /Cloudflare Access/u,
@@ -236,7 +246,6 @@ export async function runAuthPageSmokeFlow(
       /https:\/\/linker\.dialtone\.earth\/api\/auth\/logout/u,
       'Sign out should open the remote logout target.',
     );
-
     await saveAuthScreenshot(context, 'auth-page');
     await openRoute(context.page, context.url);
   } finally {

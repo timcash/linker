@@ -93,7 +93,7 @@ export function filterBrowserLogs(
 }
 
 export function formatBrowserLogEntry(entry: BrowserLogEntry): string {
-  return `${formatTimestamp(entry.timestamp)} | ${entry.level.toUpperCase().padEnd(5, ' ')} | ${entry.source} | ${entry.message}`;
+  return `${formatTimestamp(entry.timestamp)} ${entry.level.toUpperCase().padEnd(5, ' ')} ${formatBrowserLogSourceLabel(entry.source)}\n  ${entry.message}`;
 }
 
 export function formatLogsFilterSummary(filters: BrowserLogFilters): string {
@@ -217,7 +217,15 @@ export function resolveBrowserLogSource(stack: string | undefined): string {
 }
 
 export function formatTimestamp(timestamp: number): string {
-  return new Date(timestamp).toLocaleString();
+  const date = new Date(timestamp);
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const day = String(date.getDate()).padStart(2, '0');
+  const hours = String(date.getHours()).padStart(2, '0');
+  const minutes = String(date.getMinutes()).padStart(2, '0');
+  const seconds = String(date.getSeconds()).padStart(2, '0');
+
+  return `${year}-${month}-${day} ${hours}:${minutes}:${seconds}`;
 }
 
 function formatLogArgument(value: unknown): string {
@@ -299,25 +307,17 @@ function parsePositiveInteger(
 }
 
 function parseStackFrame(frame: string): string | null {
-  const normalizedFrame = frame.replace(/^at\s+/u, '').trim();
+  const normalizedFrame = decodeStackFrame(frame.replace(/^at\s+/u, '').trim());
+  const nestedLocation = extractNestedSourceLocation(normalizedFrame);
+
+  if (nestedLocation) {
+    return nestedLocation;
+  }
+
   const locationMatch = normalizedFrame.match(/\((.*)\)$/u);
   const rawFrameLocation = locationMatch?.[1] ?? normalizedFrame;
-  const match = rawFrameLocation.match(/(.*?):(\d+):(\d+)$/u);
 
-  if (!match) {
-    return null;
-  }
-
-  const rawLocation = match[1] ?? '';
-  const line = match[2] ?? '0';
-  const column = match[3] ?? '0';
-  const normalizedLocation = normalizeSourceLocation(rawLocation);
-
-  if (!normalizedLocation) {
-    return null;
-  }
-
-  return `${normalizedLocation}:${line}:${column}`;
+  return normalizeLocationWithLineColumn(rawFrameLocation);
 }
 
 function normalizeSourceLocation(rawLocation: string): string | null {
@@ -329,6 +329,13 @@ function normalizeSourceLocation(rawLocation: string): string | null {
     if (rawLocation.startsWith('http://') || rawLocation.startsWith('https://')) {
       const url = new URL(rawLocation);
       return url.pathname || url.hostname;
+    }
+
+    if (rawLocation.startsWith('file://')) {
+      const url = new URL(rawLocation);
+      const pathname = url.pathname || '';
+
+      return pathname.replace(/^\/([A-Za-z]:\/)/u, '$1');
     }
   } catch {
     // Fall through to the raw location below.
@@ -344,4 +351,96 @@ function normalizeSourceLocation(rawLocation: string): string | null {
   }
 
   return sanitizedLocation;
+}
+
+function formatBrowserLogSourceLabel(source: string): string {
+  if (source === 'unknown') {
+    return source;
+  }
+
+  const match = source.match(/^(.*?):(\d+):(\d+)$/u);
+
+  if (!match) {
+    return compactSourcePath(source);
+  }
+
+  const location = match[1] ?? '';
+  const line = match[2] ?? '0';
+
+  return `${compactSourcePath(location)}:${line}`;
+}
+
+function compactSourcePath(rawPath: string): string {
+  const normalizedPath = rawPath.replace(/\\/gu, '/');
+  const anchoredPath = extractAnchoredSourcePath(normalizedPath) ?? normalizedPath;
+  const segments = anchoredPath.split('/').filter(Boolean);
+
+  if (segments.length === 0) {
+    return anchoredPath;
+  }
+
+  return segments[segments.length - 1] ?? normalizedPath;
+}
+
+function extractAnchoredSourcePath(pathname: string): string | null {
+  const anchors = ['/src/', '/scripts/', '/server/', '/public/'];
+
+  for (const anchor of anchors) {
+    const anchorIndex = pathname.lastIndexOf(anchor);
+
+    if (anchorIndex >= 0) {
+      return pathname.slice(anchorIndex + 1);
+    }
+  }
+
+  return null;
+}
+
+function decodeStackFrame(frame: string): string {
+  let decoded = frame;
+
+  for (let index = 0; index < 2; index += 1) {
+    try {
+      const nextValue = decodeURIComponent(decoded);
+
+      if (nextValue === decoded) {
+        break;
+      }
+
+      decoded = nextValue;
+    } catch {
+      break;
+    }
+  }
+
+  return decoded;
+}
+
+function extractNestedSourceLocation(frame: string): string | null {
+  const matches = frame.match(
+    /((?:file:\/\/\/|https?:\/\/|[A-Za-z]:\/|\/)[^)\s]+:\d+:\d+)/gu,
+  );
+  const candidate = matches?.at(-1);
+
+  if (!candidate) {
+    return null;
+  }
+
+  return normalizeLocationWithLineColumn(candidate);
+}
+
+function normalizeLocationWithLineColumn(rawLocation: string): string | null {
+  const match = rawLocation.match(/(.*?):(\d+):(\d+)$/u);
+
+  if (!match) {
+    return null;
+  }
+
+  const normalizedLocation = normalizeSourceLocation(match[1] ?? '');
+
+  if (!normalizedLocation) {
+    return null;
+  }
+
+  return `${normalizedLocation}:${match[2] ?? '0'}:${match[3] ?? '0'}`;
 }

@@ -76,8 +76,8 @@ export async function runTasksDashboardSmokeFlow(
           ).__LINKER_TASKS_HERO__ === document.querySelector('.tasks-hero'),
         refreshCount: Number(appRoot?.dataset.tasksRefreshCount ?? '0'),
         refreshNoteText: refreshNote?.textContent?.trim() ?? '',
-        sectionTitles: Array.from(document.querySelectorAll('h2')).map((element) =>
-          element.textContent?.trim() ?? '',
+        sectionTitles: Array.from(document.querySelectorAll<HTMLElement>('.tasks-section-title')).map(
+          (element) => element.textContent?.trim() ?? '',
         ),
         tableCount: document.querySelectorAll('table').length,
         title: document.title,

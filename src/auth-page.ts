@@ -1,4 +1,4 @@
-import {createDocsNav} from './docs-shell';
+import {createSiteMenu, type SiteMenuHandle} from './docs-shell';
 
 type AuthMode = 'auto' | 'auth' | 'dev';
 type AuthPhase = 'authorized' | 'checking' | 'error' | 'idle' | 'signed-out';
@@ -67,6 +67,7 @@ class AuthPage {
   private mode: AuthMode = 'auto';
   private activeConfig: PublicAuthConfigResponse | null = null;
   private elements: AuthPageElements | null = null;
+  private siteMenu: SiteMenuHandle | null = null;
 
   constructor(root: HTMLElement) {
     this.root = root;
@@ -74,6 +75,7 @@ class AuthPage {
   }
 
   public async render(): Promise<void> {
+    this.siteMenu = createSiteMenu('auth');
     const shell = document.createElement('main');
     shell.className = 'page-shell docs-page auth-page auth-shell';
 
@@ -130,7 +132,7 @@ class AuthPage {
       </section>
     `;
 
-    shell.prepend(createDocsNav('auth'));
+    shell.append(this.siteMenu.element);
     this.root.replaceChildren(shell);
 
     this.elements = {
@@ -173,6 +175,8 @@ class AuthPage {
   }
 
   public destroy(): void {
+    this.siteMenu?.destroy();
+    this.siteMenu = null;
     this.elements = null;
   }
 

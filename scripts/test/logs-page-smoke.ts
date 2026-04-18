@@ -34,25 +34,32 @@ export async function runLogsPageSmokeFlow(
     () => document.body.dataset.logsReady === 'true',
     {timeout: 20_000},
   );
-  await context.page.waitForSelector('.site-nav');
+  await context.page.waitForSelector('[data-site-menu-toggle]');
+  await context.page.click('[data-site-menu-toggle]');
+  await context.page.waitForSelector('[data-site-menu-overlay]:not([hidden])');
 
   const initialState = await context.page.evaluate(() => ({
     commandHistoryCount: Number(document.body.dataset.logsCommandHistoryCount ?? '0'),
     entryCount: Number(document.body.dataset.logsEntryCount ?? '0'),
     followEnabled: document.body.dataset.logsFollowEnabled === 'true',
-    hasLogsNav: Array.from(document.querySelectorAll('.site-nav a')).some(
-      (link) => link.textContent?.trim() === 'Logs',
+    currentNavLabel:
+      document.querySelector('[data-site-menu-link][aria-current="page"]')?.textContent?.trim() ?? '',
+    hasAppNav: Array.from(document.querySelectorAll('[data-site-menu-link]')).some(
+      (link) => /App/i.test(link.textContent?.trim() ?? ''),
     ),
     title: document.title,
     visibleCount: Number(document.body.dataset.logsVisibleCount ?? '0'),
   }));
 
   assert.equal(initialState.title, 'Linker Logs', 'The logs route should set a Linker-specific document title.');
-  assert.equal(initialState.hasLogsNav, true, 'The logs route should stay reachable from the shared docs navigation.');
+  assert.match(initialState.currentNavLabel, /Logs/i, 'The fullscreen menu should mark the logs route.');
+  assert.equal(initialState.hasAppNav, true, 'The logs route should stay reachable from the shared fullscreen navigation.');
   assert.ok(initialState.entryCount >= 3, 'The logs route should load stored browser history, not an empty terminal.');
   assert.ok(initialState.visibleCount >= 3, 'The logs route should show matching rows on first load.');
   assert.equal(initialState.followEnabled, false, 'The logs route should begin with follow mode turned off.');
   assert.equal(initialState.commandHistoryCount, 0, 'The logs route should begin before any CLI commands are entered.');
+  await context.page.click('[data-site-menu-toggle]');
+  await context.page.waitForSelector('[data-site-menu-overlay][hidden]');
 
   await runLogsCommand(context, 'source main.ts');
   await context.page.waitForFunction(
@@ -119,6 +126,10 @@ export async function runLogsPageSmokeFlow(
     lastCommand: document.body.dataset.logsLastCommand ?? '',
     visibleCount: Number(document.body.dataset.logsVisibleCount ?? '0'),
   }));
+  const terminalText = await context.page.$eval(
+    '.xterm-screen',
+    (node) => node.textContent ?? '',
+  );
 
   assert.equal(finalState.filterSource, '', 'The logs route should clear the source filter after reset.');
   assert.equal(finalState.filterQuery, 'logs-smoke', 'The logs route should keep the grep filter active.');
@@ -128,6 +139,8 @@ export async function runLogsPageSmokeFlow(
   assert.ok(finalState.commandHistoryCount >= 4, 'The logs route should preserve command history for CLI recall.');
   assert.ok(finalState.entryCount >= 4, 'The logs route should append newly recorded rows into history.');
   assert.equal(finalState.visibleCount, 2, 'The logs route should keep the warn-only filtered rows visible after follow mode streams in a new warning.');
+  assert.match(terminalText, /logs-page-smoke\.ts:\d+/u, 'The logs terminal should show readable authored source labels for test-generated rows.');
+  assert.doesNotMatch(terminalText, /%3A|pptr:evaluate;/u, 'The logs terminal should not dump percent-encoded Puppeteer stack frames into the UI.');
 }
 
 async function runLogsCommand(

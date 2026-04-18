@@ -7,6 +7,8 @@ import {
   DAG_RANK_FANOUT_WORKPLANE_ORDER,
   getDagRankFanoutFocusLabelKey,
 } from '../../src/data/dag-rank-fanout';
+import {STAGE_ONBOARDING_COMPLETION_STORAGE_KEY} from '../../src/stage-config';
+import {STORED_APP_SETTINGS_KEY} from '../../src/site-settings';
 import {
   DEMO_LABEL_SET_ID,
   captureInteractionScreenshot,
@@ -25,8 +27,24 @@ export async function runBootFlow(
 ): Promise<ReadyResult | null> {
   const {page, pageErrors} = context;
   const route = context.url;
+  const resetStorageScript = await page.evaluateOnNewDocument(
+    ({onboardingKey, settingsKey}) => {
+      window.localStorage.removeItem(onboardingKey);
+      window.localStorage.removeItem(settingsKey);
+    },
+    {
+      onboardingKey: STAGE_ONBOARDING_COMPLETION_STORAGE_KEY,
+      settingsKey: STORED_APP_SETTINGS_KEY,
+    },
+  );
 
-  await openRoute(page, route);
+  try {
+    await openRoute(page, route);
+  } finally {
+    await page.removeScriptToEvaluateOnNewDocument(
+      (resetStorageScript as {identifier: string}).identifier,
+    );
+  }
 
   assert.deepEqual(
     pageErrors,
@@ -136,6 +154,86 @@ export async function runBootFlow(
     {stageMode: '3d-mode', workplaneId: DAG_RANK_FANOUT_ROOT_WORKPLANE_ID},
     'Default boot should mirror stage mode and workplane into the route.',
   );
+  const pwaShell = await page.evaluate(() => ({
+    appleCapable:
+      document
+        .querySelector('meta[name="apple-mobile-web-app-capable"]')
+        ?.getAttribute('content') ?? '',
+    iconHref: document.querySelector('link[rel="icon"]')?.getAttribute('href') ?? '',
+    manifestHref: document.querySelector('link[rel="manifest"]')?.getAttribute('href') ?? '',
+    themeColor:
+      document.querySelector('meta[name="theme-color"]')?.getAttribute('content') ?? '',
+    viewport:
+      document.querySelector('meta[name="viewport"]')?.getAttribute('content') ?? '',
+  }));
+  assert.match(pwaShell.manifestHref, /site\.webmanifest/u, 'The app shell should advertise a web app manifest.');
+  assert.match(pwaShell.iconHref, /linker-icon\.svg/u, 'The app shell should expose the shared SVG icon.');
+  assert.equal(pwaShell.themeColor, '#000000', 'The app shell should keep the black PWA theme color.');
+  assert.match(pwaShell.viewport, /viewport-fit=cover/u, 'The app shell should opt into mobile safe-area coverage.');
+  assert.equal(pwaShell.appleCapable, 'yes', 'The app shell should opt into Apple standalone mode.');
+  await assertEmbeddedSiteMenuInStatusPanel(context, 'Status');
+  await page.waitForSelector('[data-site-menu-toggle]');
+  await page.click('[data-site-menu-toggle]');
+  await page.waitForSelector('[data-site-menu-overlay]:not([hidden])');
+  const siteMenuState = await page.evaluate(() => ({
+    breadcrumb:
+      document.querySelector('[data-site-menu-breadcrumb]')?.textContent?.trim() ?? '',
+    currentLabel:
+      document.querySelector('[data-site-menu-link][aria-current="page"]')?.textContent?.trim() ?? '',
+    labels: Array.from(document.querySelectorAll<HTMLElement>('[data-site-menu-link]')).map(
+      (link) => link.textContent?.trim() ?? '',
+    ),
+  }));
+  assert.match(siteMenuState.currentLabel, /App/i, 'The app route should mark itself in the shared fullscreen menu.');
+  assert.match(siteMenuState.breadcrumb, /Menu \/ Navigation/u, 'The menu header should expose the navigation hierarchy.');
+  assert.ok(siteMenuState.labels.some((label) => /Codex/i.test(label)), 'The shared fullscreen menu should include the codex route.');
+  assert.ok(siteMenuState.labels.some((label) => /README/i.test(label)), 'The shared fullscreen menu should include the README route.');
+  await page.click('[data-site-menu-page-target="settings"]');
+  await page.waitForSelector('[data-site-menu-page="settings"]:not([hidden])');
+  await page.waitForSelector('[data-site-menu-setting-button="ui-layout:wide"]');
+  const settingsState = await page.evaluate(() => ({
+    breadcrumb:
+      document.querySelector('[data-site-menu-breadcrumb]')?.textContent?.trim() ?? '',
+    labels: Array.from(document.querySelectorAll<HTMLElement>('[data-site-menu-setting-button]')).map(
+      (button) => button.textContent?.trim() ?? '',
+    ),
+    note:
+      document.querySelector<HTMLElement>('.site-menu-settings-note')?.textContent?.trim() ?? '',
+    settingsSections: Array.from(document.querySelectorAll<HTMLElement>('[data-site-menu-settings-panel-target]')).map(
+      (button) => button.textContent?.trim() ?? '',
+    ),
+  }));
+  assert.match(settingsState.breadcrumb, /Menu \/ Settings \/ Layout/u, 'The settings view should expose the nested menu hierarchy.');
+  assert.ok(settingsState.settingsSections.some((label) => /Layout/i.test(label)), 'The settings page should expose the layout section.');
+  assert.ok(settingsState.settingsSections.some((label) => /View/i.test(label)), 'The settings page should expose the view section.');
+  assert.ok(settingsState.settingsSections.some((label) => /Motion/i.test(label)), 'The settings page should expose the motion section.');
+  assert.ok(settingsState.settingsSections.some((label) => /Install/i.test(label)), 'The settings page should expose the install section.');
+  assert.ok(settingsState.labels.some((label) => /Compact/i.test(label)), 'The settings page should expose the compact layout option.');
+  assert.ok(settingsState.labels.some((label) => /Wide/i.test(label)), 'The settings page should expose the wide layout option.');
+  assert.ok(settingsState.labels.some((label) => /^2D$/i.test(label)), 'The settings page should expose a 2D stage preference.');
+  assert.ok(settingsState.labels.some((label) => /^3D$/i.test(label)), 'The settings page should expose a 3D stage preference.');
+  assert.ok(settingsState.labels.some((label) => /Sharp/i.test(label)), 'The settings page should expose the text style controls.');
+  assert.ok(settingsState.labels.some((label) => /Orbit/i.test(label)), 'The settings page should expose the link style controls.');
+  assert.ok(settingsState.labels.some((label) => /Smooth/i.test(label)), 'The settings page should expose the motion controls.');
+  assert.ok(settingsState.labels.some((label) => /Reduced/i.test(label)), 'The settings page should expose reduced motion.');
+  assert.ok(settingsState.labels.some((label) => /Auto/i.test(label)), 'The settings page should expose auto onboarding.');
+  assert.ok(settingsState.labels.some((label) => /Skip/i.test(label)), 'The settings page should expose skip onboarding.');
+  assert.match(settingsState.note, /apply/i, 'The settings page should explain that the app settings are persistent.');
+  await page.click('[data-site-menu-setting-button="ui-layout:wide"]');
+  await page.waitForFunction(() => document.body.dataset.appUiLayout === 'wide');
+  await page.click('[data-site-menu-setting-button="ui-layout:compact"]');
+  await page.waitForFunction(() => document.body.dataset.appUiLayout === 'compact');
+  await page.click('[data-site-menu-settings-panel-target="motion"]');
+  await page.waitForSelector('[data-site-menu-settings-panel="motion"]:not([hidden])');
+  await page.click('[data-site-menu-setting-button="motion-preference:reduced"]');
+  await page.waitForFunction(() => document.body.dataset.appMotionPreference === 'reduced');
+  await page.click('[data-site-menu-setting-button="motion-preference:smooth"]');
+  await page.waitForFunction(() => document.body.dataset.appMotionPreference === 'smooth');
+  await page.click('[data-site-menu-settings-panel-target="install"]');
+  await page.waitForSelector('[data-site-menu-settings-panel="install"]:not([hidden])');
+  await page.waitForSelector('[data-site-menu-install-status]');
+  await page.click('[data-site-menu-toggle]');
+  await page.waitForSelector('[data-site-menu-overlay][hidden]');
   assert.equal(
     await page.evaluate(() => new URL(window.location.href).searchParams.get('demoPreset')),
     'dag-rank-fanout',
@@ -167,4 +265,77 @@ async function isSelectionBoxVisible(
       window.getComputedStyle(selectionBox).display !== 'none'
     );
   });
+}
+
+async function assertEmbeddedSiteMenuInStatusPanel(
+  context: BrowserTestContext,
+  expectedPanelLabel: string,
+): Promise<void> {
+  const placement = await context.page.evaluate(() => {
+    const statusPanel = document.querySelector<HTMLElement>('[data-testid="status-panel"]');
+    const statusLabel = document.querySelector<HTMLElement>('[data-testid="status-panel-label"]');
+    const menuSlot = document.querySelector<HTMLElement>('[data-testid="status-panel-menu-slot"]');
+    const toggle = menuSlot?.querySelector<HTMLElement>('[data-site-menu-toggle]');
+    const statusRect = statusPanel?.getBoundingClientRect();
+    const menuSlotRect = menuSlot?.getBoundingClientRect();
+    const toggleRect = toggle?.getBoundingClientRect();
+
+    return {
+      panelLabel: statusLabel?.textContent?.trim() ?? '',
+      slotContainsToggle: menuSlot?.contains(toggle ?? null) ?? false,
+      slotVisible:
+        menuSlot instanceof HTMLElement &&
+        menuSlot.getClientRects().length > 0 &&
+        window.getComputedStyle(menuSlot).display !== 'none' &&
+        window.getComputedStyle(menuSlot).visibility !== 'hidden',
+      toggleVisible:
+        toggle instanceof HTMLElement &&
+        toggle.getClientRects().length > 0 &&
+        window.getComputedStyle(toggle).display !== 'none' &&
+        window.getComputedStyle(toggle).visibility !== 'hidden',
+      toggleRightGap: Math.round((statusRect?.right ?? 0) - (toggleRect?.right ?? 0)),
+      toggleTopGap: Math.round((toggleRect?.top ?? 0) - (statusRect?.top ?? 0)),
+      toggleWithinSlot:
+        !!toggleRect &&
+        !!menuSlotRect &&
+        toggleRect.left >= menuSlotRect.left - 1 &&
+        toggleRect.right <= menuSlotRect.right + 1 &&
+        toggleRect.top >= menuSlotRect.top - 1 &&
+        toggleRect.bottom <= menuSlotRect.bottom + 1,
+    };
+  });
+
+  assert.equal(
+    placement.panelLabel,
+    expectedPanelLabel,
+    `The status shell should label the top panel as ${expectedPanelLabel}.`,
+  );
+  assert.equal(
+    placement.slotContainsToggle,
+    true,
+    'The site menu toggle should be mounted inside the dedicated status-panel menu slot.',
+  );
+  assert.equal(
+    placement.slotVisible,
+    true,
+    'The status-panel menu slot should stay visible.',
+  );
+  assert.equal(
+    placement.toggleVisible,
+    true,
+    'The site menu toggle should stay visible inside the top panel.',
+  );
+  assert.equal(
+    placement.toggleWithinSlot,
+    true,
+    'The site menu toggle should stay fully contained by the top-right status-panel menu slot.',
+  );
+  assert.ok(
+    placement.toggleRightGap >= 0 && placement.toggleRightGap <= 20,
+    `The site menu toggle should stay visually aligned to the right edge of the top panel. placement=${JSON.stringify(placement)}`,
+  );
+  assert.ok(
+    placement.toggleTopGap >= 0 && placement.toggleTopGap <= 20,
+    `The site menu toggle should stay visually aligned to the top edge of the top panel. placement=${JSON.stringify(placement)}`,
+  );
 }

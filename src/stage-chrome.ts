@@ -24,7 +24,9 @@ export type StageChromeElements = {
   selectionBox: HTMLDivElement;
   stage: HTMLDivElement;
   statusPanel: HTMLElement;
-  stats: HTMLDivElement;
+  statusPanelLabel: HTMLParagraphElement;
+  statusPanelMenuSlot: HTMLElement;
+  stats: HTMLElement;
   strategyModePanel: HTMLElement;
 };
 
@@ -58,17 +60,21 @@ export function createStageChrome(root: HTMLElement): StageChromeElements {
   statusPanel.className = 'status-panel';
   statusPanel.dataset.testid = 'status-panel';
   statusPanel.innerHTML = `
+    <header class="status-panel-header">
+      <p class="status-panel-eyebrow" data-testid="status-panel-label">Status</p>
+      <section class="status-panel-menu-slot" data-testid="status-panel-menu-slot" aria-label="App menu"></section>
+    </header>
     <section class="onboard-panel" data-testid="onboard-panel" hidden>
-      <div class="onboard-meta">
+      <header class="onboard-meta">
         <p class="onboard-kicker">Onboard</p>
         <p class="onboard-progress" data-testid="onboard-progress">Step 1 of 1</p>
-      </div>
-      <div class="onboard-copy">
+      </header>
+      <section class="onboard-copy">
         <h2 class="onboard-title" data-testid="onboard-title">Linker walkthrough</h2>
         <p class="onboard-body" data-testid="onboard-body"></p>
         <p class="onboard-detail" data-testid="onboard-detail"></p>
-      </div>
-      <div class="onboard-actions">
+      </section>
+      <nav class="onboard-actions" aria-label="Onboarding actions">
         <button type="button" class="control-button control-button--wide" data-onboard-action="skip" data-testid="onboard-skip">
           Skip
         </button>
@@ -78,10 +84,14 @@ export function createStageChrome(root: HTMLElement): StageChromeElements {
         <button type="button" class="control-button control-button--wide" data-onboard-action="dismiss" data-testid="onboard-dismiss" hidden>
           Stats
         </button>
-      </div>
+      </nav>
     </section>
-    <div class="status-live-table" data-testid="status-stats"></div>
+    <section class="status-live-table" data-testid="status-stats"></section>
   `;
+  const statusPanelLabel =
+    statusPanel.querySelector<HTMLParagraphElement>('[data-testid="status-panel-label"]');
+  const statusPanelMenuSlot =
+    statusPanel.querySelector<HTMLElement>('[data-testid="status-panel-menu-slot"]');
   const onboardPanel = statusPanel.querySelector<HTMLElement>('[data-testid="onboard-panel"]');
   const onboardProgress =
     statusPanel.querySelector<HTMLParagraphElement>('[data-testid="onboard-progress"]');
@@ -97,7 +107,7 @@ export function createStageChrome(root: HTMLElement): StageChromeElements {
     statusPanel.querySelector<HTMLButtonElement>('[data-testid="onboard-replay"]');
   const onboardDismissButton =
     statusPanel.querySelector<HTMLButtonElement>('[data-testid="onboard-dismiss"]');
-  const stats = statusPanel.querySelector<HTMLDivElement>('[data-testid="status-stats"]');
+  const stats = statusPanel.querySelector<HTMLElement>('[data-testid="status-stats"]');
 
   const launchBanner = document.createElement('div');
   launchBanner.className = 'launch-banner';
@@ -112,7 +122,7 @@ export function createStageChrome(root: HTMLElement): StageChromeElements {
   strategyModePanel.dataset.testid = 'strategy-mode-panel';
   strategyModePanel.setAttribute('aria-label', 'Control pad');
   strategyModePanel.innerHTML = `
-    <div class="control-page-grid control-page-grid--menu" data-control-pad-page="menu" data-testid="control-pad-page-menu">
+    <nav class="control-page-grid control-page-grid--menu" data-control-pad-page="menu" data-testid="control-pad-page-menu" aria-label="Control pad menu">
       <button type="button" class="control-button control-button--tile" data-control-pad-target="navigate">
         Map
       </button>
@@ -123,10 +133,10 @@ export function createStageChrome(root: HTMLElement): StageChromeElements {
         DAG
       </button>
       <button type="button" class="control-button control-button--tile" data-control-pad-target="edit">
-        CRUD
+        Edit
       </button>
       <button type="button" class="control-button control-button--tile" data-control-pad-target="view">
-        View
+        Style
       </button>
       <button type="button" class="control-button control-button--chip" disabled aria-disabled="true">
         Local Links
@@ -140,8 +150,8 @@ export function createStageChrome(root: HTMLElement): StageChromeElements {
       <button type="button" class="control-button control-button--chip" disabled aria-disabled="true">
         Pan + Zoom
       </button>
-    </div>
-    <div class="control-page-grid" data-control-pad-page="navigate" data-testid="control-pad-page-navigate">
+    </nav>
+    <nav class="control-page-grid" data-control-pad-page="navigate" data-testid="control-pad-page-navigate" aria-label="Map controls">
       <button type="button" class="control-button control-button--tile" data-control="zoom-in">Zoom +</button>
       <button type="button" class="control-button control-button--tile" data-control="pan-up">Up</button>
       <button type="button" class="control-button control-button--tile" data-control="zoom-out">Zoom -</button>
@@ -155,14 +165,14 @@ export function createStageChrome(root: HTMLElement): StageChromeElements {
         disabled
         aria-disabled="true"
       >
-        Grid
+        Root
       </button>
       <button type="button" class="control-button control-button--tile" data-control="pan-down">Down</button>
       <button type="button" class="control-button control-button--menu" data-control-pad-action="open-menu">
         Menu
       </button>
-    </div>
-    <div class="control-page-grid" data-control-pad-page="stage" data-testid="control-pad-page-stage" hidden>
+    </nav>
+    <nav class="control-page-grid" data-control-pad-page="stage" data-testid="control-pad-page-stage" hidden aria-label="Stage controls">
       <button type="button" class="control-button control-button--tile" data-stage-mode-action="set-2d-mode" aria-pressed="false">
         2D
       </button>
@@ -173,7 +183,7 @@ export function createStageChrome(root: HTMLElement): StageChromeElements {
         data-dag-action="focus-root"
         aria-disabled="true"
       >
-        Grid
+        Root
       </button>
       <button type="button" class="control-button control-button--tile" data-stage-mode-action="set-3d-mode" aria-pressed="false">
         3D
@@ -202,8 +212,8 @@ export function createStageChrome(root: HTMLElement): StageChromeElements {
       <button type="button" class="control-button control-button--menu" data-control-pad-action="open-menu">
         Menu
       </button>
-    </div>
-    <div class="control-page-grid" data-control-pad-page="dag" data-testid="control-pad-page-dag" hidden>
+    </nav>
+    <nav class="control-page-grid" data-control-pad-page="dag" data-testid="control-pad-page-dag" hidden aria-label="DAG controls">
       <button type="button" class="control-button control-button--tile" data-dag-action="move-rank-backward">
         Rank -
       </button>
@@ -223,20 +233,20 @@ export function createStageChrome(root: HTMLElement): StageChromeElements {
         Depth In
       </button>
       <button type="button" class="control-button control-button--tile" data-dag-action="spawn-child-workplane">
-        Child Link
+        New Child
       </button>
       <button type="button" class="control-button control-button--tile" data-dag-action="insert-parent-workplane">
-        Parent Link
+        New Parent
       </button>
       <button type="button" class="control-button control-button--menu" data-control-pad-action="open-menu">
         Menu
       </button>
-    </div>
+    </nav>
     <section class="edit-page" data-control-pad-page="edit" data-testid="edit-panel" hidden>
-      <div class="edit-page-meta" data-testid="label-edit-panel">
+      <header class="edit-page-meta" data-testid="label-edit-panel">
         <p class="panel-meta" data-testid="label-input-hint">Label wp-1:1:1:1</p>
         <p class="panel-meta" data-testid="editor-selection-summary">0 selected</p>
-      </div>
+      </header>
       <form class="control-page-grid control-page-grid--edit" data-testid="label-input-form">
         <input
           type="text"
@@ -269,7 +279,7 @@ export function createStageChrome(root: HTMLElement): StageChromeElements {
         </button>
       </form>
     </section>
-    <div class="control-page-grid" data-control-pad-page="view" data-testid="control-pad-page-view" hidden>
+    <nav class="control-page-grid" data-control-pad-page="view" data-testid="control-pad-page-view" hidden aria-label="Style controls">
       ${renderStrategyButton(TEXT_STRATEGY_OPTIONS[0], 'textStrategy')}
       ${renderStrategyButton(TEXT_STRATEGY_OPTIONS[1], 'textStrategy')}
       <button type="button" class="control-button control-button--chip" disabled aria-disabled="true">
@@ -287,7 +297,7 @@ export function createStageChrome(root: HTMLElement): StageChromeElements {
       <button type="button" class="control-button control-button--menu" data-control-pad-action="open-menu">
         Menu
       </button>
-    </div>
+    </nav>
   `;
 
   const editPanel = strategyModePanel.querySelector<HTMLElement>('[data-testid="edit-panel"]');
@@ -315,6 +325,8 @@ export function createStageChrome(root: HTMLElement): StageChromeElements {
     !onboardReplayButton ||
     !onboardSkipButton ||
     !onboardTitle ||
+    !statusPanelLabel ||
+    !statusPanelMenuSlot ||
     !stats
   ) {
     throw new Error('Failed to build the stage chrome controls.');
@@ -361,6 +373,8 @@ export function createStageChrome(root: HTMLElement): StageChromeElements {
     selectionBox,
     stage,
     statusPanel,
+    statusPanelLabel,
+    statusPanelMenuSlot,
     stats,
     strategyModePanel,
   };

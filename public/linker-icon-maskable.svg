@@ -1,0 +1,22 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-labelledby="title desc">
+  <title id="title">Linker maskable icon</title>
+  <desc id="desc">A padded white DAG of linked workplanes on a black square.</desc>
+  <rect width="512" height="512" rx="128" fill="#000000"/>
+  <g transform="translate(32 32)">
+    <g fill="none" stroke="#ffffff" stroke-linecap="round" stroke-linejoin="round" stroke-width="20">
+      <path d="M124 134 224 80l100 54-100 60z"/>
+      <path d="M124 134v92l100 60 100-60v-92"/>
+      <path d="M84 326h104v74H84z"/>
+      <path d="M172 326h104v74H172z"/>
+      <path d="M260 326h104v74H260z"/>
+      <path d="M136 286v40"/>
+      <path d="M224 286v40"/>
+      <path d="M312 286v40"/>
+    </g>
+    <g fill="#ffffff">
+      <circle cx="136" cy="326" r="10"/>
+      <circle cx="224" cy="326" r="10"/>
+      <circle cx="312" cy="326" r="10"/>
+    </g>
+  </g>
+</svg>

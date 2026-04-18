@@ -30,6 +30,10 @@ body.logs-route {
   gap: 10px;
 }
 
+.logs-topbar {
+  padding-inline-end: clamp(92px, 24vw, 140px);
+}
+
 .logs-eyebrow {
   margin: 0;
   color: #8f949b;

@@ -32,13 +32,17 @@ const ACTIVE_BACKPLATE_FILL: RgbaColor = [0.02, 0.02, 0.02, 0.97];
 const ACTIVE_BACKPLATE_OUTLINE: RgbaColor = [1, 1, 1, 1];
 const INACTIVE_BACKPLATE_FILL: RgbaColor = [0.01, 0.01, 0.01, 0.88];
 const INACTIVE_BACKPLATE_OUTLINE: RgbaColor = [0.78, 0.78, 0.78, 0.9];
+const DAG_GRAPH_POINT_SYMBOL_ACTIVE_FILL: RgbaColor = [1, 1, 1, 0.34];
+const DAG_GRAPH_POINT_SYMBOL_ACTIVE_OUTLINE: RgbaColor = [1, 1, 1, 1];
+const DAG_GRAPH_POINT_SYMBOL_INACTIVE_FILL: RgbaColor = [1, 1, 1, 0.18];
+const DAG_GRAPH_POINT_SYMBOL_INACTIVE_OUTLINE: RgbaColor = [1, 1, 1, 0.8];
 const DAG_EDGE_COLOR: RgbaColor = [1, 1, 1, 0.96];
 const DAG_TITLE_ACTIVE_COLOR: RgbaColor = [1, 1, 1, 1];
 const DAG_TITLE_INACTIVE_COLOR: RgbaColor = [0.88, 0.88, 0.88, 0.97];
 const DAG_POINT_COLOR: RgbaColor = [1, 1, 1, 1];
 const DAG_TITLE_LABEL_SIZE = 1.72;
 const DAG_OVERVIEW_TITLE_LABEL_SIZE = 3.1;
-const DAG_GRAPH_POINT_LABEL_SIZE = 1.6;
+const DAG_GRAPH_POINT_SYMBOL_HALF_SIZE = 5.2;
 const DAG_LABEL_POINT_MARKER_SIZE = 0.86;
 export const DAG_TITLE_ONLY_MIN_PROJECTED_SPAN_PX = 32;
 export const DAG_LABEL_POINTS_MIN_PROJECTED_SPAN_PX = 92;
@@ -271,7 +275,9 @@ export function createDagStackViewState(
       lod === 'full-workplane' ? node.contentPlaneBounds : node.layout.planeBounds,
     );
 
-    if (lod !== 'graph-point') {
+    if (lod === 'graph-point') {
+      backplates.push(createGraphPointSymbolBackplate(node, isActive, alphaScale));
+    } else {
       backplates.push({
         corners: backplateCorners,
         fillColor: isActive ? ACTIVE_BACKPLATE_FILL : INACTIVE_BACKPLATE_FILL,
@@ -299,7 +305,7 @@ export function createDagStackViewState(
         appendTitleOnlyNodeScene(node, isActive, alphaScale, labels);
         break;
       case 'graph-point':
-        appendGraphPointNodeScene(node, isActive, alphaScale, labels);
+        appendGraphPointNodeScene();
         break;
     }
   }
@@ -393,17 +399,8 @@ function appendTitleOnlyNodeScene(
   labels.push(createWorkplaneOverviewLabel(node, isActive, alphaScale));
 }
 
-function appendGraphPointNodeScene(
-  node: DagProjectedNode,
-  isActive: boolean,
-  alphaScale: number,
-  labels: LabelDefinition[],
-): void {
-  labels.push(createWorkplaneGraphPointLabel(node, isActive, alphaScale));
-
-  if (isActive) {
-    labels.push(createWorkplaneTitleLabel(node, true, Math.min(1, alphaScale + 0.08)));
-  }
+function appendGraphPointNodeScene(): void {
+  // The far graph-point band is geometry-first: one projected square symbol per DAG node.
 }
 
 function createWorldLabel(
@@ -502,25 +499,27 @@ function createWorkplaneOverviewLabel(
   };
 }
 
-function createWorkplaneGraphPointLabel(
+function createGraphPointSymbolBackplate(
   node: DagProjectedNode,
   isActive: boolean,
   alphaScale: number,
-): LabelDefinition {
+): StackBackplate {
+  const symbolBounds = createGraphPointSymbolBounds(node.layout);
+
   return {
-    color: scaleColorAlpha(
-      isActive ? DAG_TITLE_ACTIVE_COLOR : DAG_POINT_COLOR,
+    corners: createBackplateCorners(symbolBounds),
+    fillColor: scaleColorAlpha(
+      isActive ? DAG_GRAPH_POINT_SYMBOL_ACTIVE_FILL : DAG_GRAPH_POINT_SYMBOL_INACTIVE_FILL,
       alphaScale,
     ),
-    inputLinkKeys: [],
-    location: {...node.layout.origin},
-    outputLinkKeys: [],
-    planeBasisX: {...STACK_PLANE_BASIS_X},
-    planeBasisY: {...STACK_PLANE_BASIS_Y},
-    size: DAG_GRAPH_POINT_LABEL_SIZE,
-    text: '+',
-    zoomLevel: DAG_ALWAYS_VISIBLE_ZOOM_LEVEL,
-    zoomRange: DAG_ALWAYS_VISIBLE_ZOOM_RANGE,
+    isActive,
+    outlineColor: scaleColorAlpha(
+      isActive
+        ? DAG_GRAPH_POINT_SYMBOL_ACTIVE_OUTLINE
+        : DAG_GRAPH_POINT_SYMBOL_INACTIVE_OUTLINE,
+      alphaScale,
+    ),
+    workplaneId: node.layout.workplaneId,
   };
 }
 
@@ -854,6 +853,18 @@ function createBackplateCorners(
     {x: bounds.maxX, y: bounds.minY, z: bounds.z},
     {x: bounds.minX, y: bounds.minY, z: bounds.z},
   ];
+}
+
+function createGraphPointSymbolBounds(
+  layout: DagNodeWorldLayout,
+): DagNodeWorldLayout['planeBounds'] {
+  return {
+    maxX: layout.origin.x + DAG_GRAPH_POINT_SYMBOL_HALF_SIZE,
+    maxY: layout.origin.y + DAG_GRAPH_POINT_SYMBOL_HALF_SIZE,
+    minX: layout.origin.x - DAG_GRAPH_POINT_SYMBOL_HALF_SIZE,
+    minY: layout.origin.y - DAG_GRAPH_POINT_SYMBOL_HALF_SIZE,
+    z: layout.origin.z,
+  };
 }
 
 function measureProjectedPlaneSpanPx(

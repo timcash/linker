@@ -1,6 +1,6 @@
 import { marked } from 'marked';
 
-import { createDocsNav, resolveRepoMarkdownUrl, resolveSiteHref } from './docs-shell';
+import { createSiteMenu, resolveRepoMarkdownUrl, resolveSiteHref } from './docs-shell';
 
 const markdownDocuments = import.meta.glob<string>('../*.md', {
   eager: true,
@@ -33,6 +33,7 @@ export type ReadmePageHandle = {
 export function startReadmePage(root: HTMLElement): Promise<ReadmePageHandle> {
   document.body.classList.add('docs-route', 'readme-route');
   root.classList.add('readme-page-root');
+  const siteMenu = createSiteMenu('readme');
 
   const shell = document.createElement('main');
   shell.className = 'page-shell docs-page readme-page';
@@ -43,7 +44,7 @@ export function startReadmePage(root: HTMLElement): Promise<ReadmePageHandle> {
   document.title = requestedDoc === 'README.md' ? 'Linker README' : `Linker ${requestedDoc}`;
 
   shell.append(
-    createDocsNav('readme'),
+    siteMenu.element,
     createReadmeHero(requestedDoc, markdown !== null),
     createReadmeSection(requestedDoc, markdown),
   );
@@ -52,6 +53,7 @@ export function startReadmePage(root: HTMLElement): Promise<ReadmePageHandle> {
 
   return Promise.resolve({
     destroy: () => {
+      siteMenu.destroy();
       document.body.classList.remove('docs-route', 'readme-route');
       root.classList.remove('readme-page-root');
       root.replaceChildren();

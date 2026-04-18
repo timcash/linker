@@ -1,4 +1,11 @@
-export type CodexMailViewId = 'inbox' | 'needs-reply' | 'waiting' | 'queued' | 'working' | 'done';
+export type CodexMailViewId = 'inbox' | 'unread' | 'starred' | 'sent' | 'all-mail' | 'codex';
+export type CodexMailThreadAction =
+  | 'mark-read'
+  | 'mark-unread'
+  | 'star'
+  | 'unstar'
+  | 'archive'
+  | 'move-to-inbox';
 
 export interface CodexMailPublicConfig {
   ok: true;
@@ -10,12 +17,13 @@ export interface CodexMailView {
   id: CodexMailViewId;
   label: string;
   description: string;
-  kind: 'mail' | 'triage' | 'status';
+  kind: 'mail' | 'status';
   count: number;
 }
 
 export interface CodexMailThreadSummary {
   threadId: string;
+  latestMessageId: string | null;
   subject: string;
   updatedAt: string | null;
   workspaceKey: string | null;
@@ -24,7 +32,15 @@ export interface CodexMailThreadSummary {
   triage: string | null;
   taskCount: number;
   latestTaskId: string | null;
+  from: string;
+  to: string[];
   excerpt: string;
+  labelIds: string[];
+  labelNames: string[];
+  unread: boolean;
+  starred: boolean;
+  inInbox: boolean;
+  inSent: boolean;
   badges: string[];
 }
 
@@ -46,12 +62,23 @@ export interface CodexMailMessage {
   snippet: string;
   bodyText: string;
   labelIds: string[];
+  labelNames: string[];
+}
+
+export interface CodexMailThreadActions {
+  canMarkRead: boolean;
+  canMarkUnread: boolean;
+  canStar: boolean;
+  canUnstar: boolean;
+  canArchive: boolean;
+  canMoveToInbox: boolean;
 }
 
 export interface CodexMailThreadDetail {
   summary: CodexMailThreadSummary;
   latestReplyToMessageId: string | null;
   loadError: string | null;
+  actions: CodexMailThreadActions;
   tasks: CodexMailTask[];
   messages: CodexMailMessage[];
 }
@@ -111,9 +138,16 @@ export class CodexMailClient {
     return response.views;
   }
 
-  public async fetchThreads(view: CodexMailViewId): Promise<CodexMailThreadSummary[]> {
-    const response = await this.fetchJson<{ok: true; view: string; threads: CodexMailThreadSummary[]}>(
-      `${THREADS_PATH}?view=${encodeURIComponent(view)}`,
+  public async fetchThreads(view: CodexMailViewId, searchQuery = ''): Promise<CodexMailThreadSummary[]> {
+    const url = new URL(THREADS_PATH, this.getBaseUrl());
+    url.searchParams.set('view', view);
+
+    if (searchQuery.trim()) {
+      url.searchParams.set('q', searchQuery.trim());
+    }
+
+    const response = await this.fetchJson<{ok: true; view: string; searchQuery: string; threads: CodexMailThreadSummary[]}>(
+      `${url.pathname}${url.search}`,
       {
         method: 'GET',
       },
@@ -129,6 +163,13 @@ export class CodexMailClient {
       },
     );
     return response.thread;
+  }
+
+  public async applyThreadAction(threadId: string, action: CodexMailThreadAction): Promise<void> {
+    await this.fetchJson<{ok: true}>(`/api/mail/thread/${encodeURIComponent(threadId)}/action`, {
+      method: 'POST',
+      body: JSON.stringify({action}),
+    });
   }
 
   public async markThreadRead(threadId: string): Promise<void> {

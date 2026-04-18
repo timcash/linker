@@ -1,4 +1,4 @@
-import {createDocsNav} from './docs-shell';
+import {createSiteMenu} from './docs-shell';
 import {CodexMailboardPage} from './codex/CodexMailboardPage';
 import './codex/codexMailboard.css';
 
@@ -10,17 +10,19 @@ export function startCodexPage(root: HTMLElement): CodexPageHandle {
   document.title = 'Linker Codex';
   document.body.classList.add('docs-route', 'codex-route');
   root.classList.add('codex-page-root');
+  const siteMenu = createSiteMenu('codex');
 
   const page = new CodexMailboardPage(root as HTMLDivElement);
   page.render();
 
   const pageShell = root.querySelector('.codex-mail-shell');
   if (pageShell instanceof HTMLElement) {
-    pageShell.prepend(createDocsNav('codex'));
+    pageShell.append(siteMenu.element);
   }
 
   return {
     destroy: () => {
+      siteMenu.destroy();
       page.dispose();
       document.body.classList.remove('docs-route', 'codex-route');
       root.classList.remove('codex-page-root');

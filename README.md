@@ -1,23 +1,17 @@
 # Linker
 
-Linker is a `luma.gl` + WebGPU DAG workplane viewer and editor with aligned `12x12x12` label grids, `rank/lane/depth` 3D navigation, a compact mobile-style menu-first control pad, a browser `/codex` mailboard that talks to the shared `gmail-agent` daemon through one Cloudflare Access unlock flow, and a browser `/logs` terminal page for timestamped history with source-line filters.
+Linker is a `luma.gl` + WebGPU DAG workplane viewer and editor with aligned `12x12x12` label grids, `rank/lane/depth` 3D navigation, a compact mobile-style menu-first control pad, an installable fullscreen PWA shell with a shared SVG icon and route manifest, a browser `/codex` Gmail inbox client that talks to the shared `gmail-agent` daemon through one Cloudflare Access unlock flow, and a browser `/logs` terminal page for timestamped history with source-line filters.
 
 ## 1. Live Onboarding
 
 First-time GitHub Pages visits now boot from `demoPreset=dag-empty` and replace the top stats strip with an `onboard-panel`. The guided run starts on the bottom `Menu` pad and uses the same visible buttons and label input that Linker exposes to the user:
 
-- open `Map`, `Stage`, `DAG`, `CRUD`, and `View` from the menu-first 3x3 control hub
-- create and rename a local label stack on the root workplane
-- create, remove, and clear a local label selection and local link
-- demonstrate `child`, `parent`, and leaf `delete` DAG CRUD
-- build the full `1-4-4-3` twelve-workplane DAG from zero data
-- autogrid each downstream `rank slice` into a readable two-depth `lane x depth` grid instead of piling every child into one flat lane
-- add real local labels and links onto multiple authored workplanes so the deep zoom bands reveal actual content
-- move a leaf across `rank`, `lane`, and `depth`, then settle it back onto the rails
-- distinguish `Local Link` on `CRUD` from `Child Link` and `Parent Link` on `DAG`, with the `Menu` hub now labeling `Local Links`, `DAG Links`, `2D <-> 3D`, and `Pan + Zoom`
-- switch to the dedicated `View` pad for text and line rendering choices without overflowing the `CRUD` grid
+- open `Map`, `Stage`, `DAG`, `Edit`, and `Style` from the menu-first `3x3` control hub
+- stay in `3d-mode` first and title the root plus four connected workplanes with the shared input field
+- build a readable five-node DAG from zero data with hotkeys: `C`, `[`, `]`, and `F`
+- step through the discrete `graph-point`, `title-only`, `label-point`, and `full-workplane` LOD bands with `Shift+ArrowDown` and `Shift+ArrowUp`, starting from projected square node symbols and then revealing titles and local detail
 - hand workplane selection off through smooth 2D and 3D camera motion instead of snapping between workplanes
-- enter `3d-mode`, use discrete `Zoom +` and `Zoom -` steps to travel through the reachable `graph-point`, `title-only`, `label-point`, and closest 3D `full-workplane` band, then hand off into `plane-focus` detail and return to the title-only DAG overview
+- press `/` to enter `plane-focus`, then use `Arrow` keys, `Enter`, `Shift+Enter`, and `Escape` to add and link one local 2D label
 - finish on the root-focused 3D DAG overview with the `Menu` pad reopened for manual exploration
 - write one ordered screenshot per onboarding step into [`artifacts/test-screenshots/`](./artifacts/test-screenshots/) so the walkthrough can be reviewed visually step by step
 
@@ -26,15 +20,15 @@ Current proven invariant:
 - `npm run test:browser` is green and now means the hosted-style onboarding proof
 - `npm run test:browser:onboarding` stays green as the explicit onboarding alias
 - `npm run test:browser:logs` is green for the xterm.js `/logs/` history and filter route
-- `npm run test:browser:codex` is green for the `/codex/` mailboard unlock, inbox filter, mark-read, reply, and compose screenshot proof
+- `npm run test:browser:codex` is green for the `/codex/` mailboard unlock, Gmail search, mailbox-view switching, inbox actions, reply, and compose screenshot proof
 - `npm run test:browser:dag-network-build` is green for the canonical zero-data 2D + 3D interaction proof
 - `npm run test:browser:suite` is green for the broader browser matrix around the onboarding-first product path
 - `npm run test:dag:static` is green for pure DAG validation, layout, edge, and model mutation rules
 - `npm run build:pages` is green for the deployable GitHub Pages bundle
+- the shared site shell now advertises `site.webmanifest`, a monochrome SVG app icon, safe-area mobile meta tags, and a service worker-backed install surface
 - workplane switches now animate through a camera handoff in both `plane-focus view` and the 3D DAG overview
-- the default twelve-workplane DAG boot now uses the same deterministic rank-slice autogrid as zero-data authoring, so each downstream rank reads as a visible `lane x depth` grid in 3D
-- the regular `dag-rank-fanout` boot now reuses the same authored local labels and local links that the onboarding walkthrough leaves behind, so `?onboarding=0` and the finished walkthrough land on the same dataset
-- the onboarding proof now records `28` ordered screenshots, from `intro` through `complete`, in `artifacts/test-screenshots`
+- the default twelve-workplane DAG boot still uses the deterministic rank-slice autogrid, so each downstream rank reads as a visible `lane x depth` grid in 3D
+- the onboarding proof now records `13` ordered screenshots, from `intro` through `complete`, in `artifacts/test-screenshots`
 
 Current focused diagnostic to keep explicit:
 
@@ -66,7 +60,7 @@ npm run test:live -- --url https://timcash.github.io/linker/ --expect-onboarding
 Current review queue:
 
 - the zero-data `dag-network-build` flow remains the clearest end-to-end CRUD proof for local labels, local links, workplane creation, leaf delete, `rank/lane/depth`, and 2D/3D mode handoff
-- the hosted onboarding screenshots under `artifacts/test-screenshots/` remain the visual contract for each guided step from empty root to finished `1-4-4-3` DAG
+- the hosted onboarding screenshots under `artifacts/test-screenshots/` remain the visual contract for each guided step from empty root to the finished five-node DAG plus one stitched 2D local link
 - direct 3D workplane picking plus explicit DAG edge create/remove between already-existing workplanes are still the main product gaps
 - every publish should still end with a live pass over `/`, `/codex/`, `/readme/`, and `/logs/`
 - `/codex/` on GitHub Pages is expected to render as a locked mailboard until the hosted Cloudflare Access mail origin is reachable from this machine
@@ -100,6 +94,12 @@ Docs routes:
 - `/tasks/`
 - `/readme/`
 
+Install surface:
+
+- `Menu -> Settings -> Install` shows the current install state and the install action when the browser makes it available
+- the manifest entry is `/site.webmanifest`
+- the shared icon assets are `/linker-icon.svg` and `/linker-icon-maskable.svg`
+
 To choose the dataset and focused label on the live page, only change these query params:
 
 ```text
@@ -114,7 +114,7 @@ Example:
 https://timcash.github.io/linker/?demoPreset=dag-rank-fanout&cameraLabel=wp-10:1:1:1
 ```
 
-`/codex/` on GitHub Pages stays static and now uses one Cloudflare Access unlock step to reach the shared `gmail-agent` mail API. For local development:
+`/codex/` on GitHub Pages stays static and now uses one Cloudflare Access unlock step to reach the shared `gmail-agent` mail API. The route behaves like a compact Gmail inbox client with search, Inbox/Unread/Starred/Sent/All Mail/Codex views, thread-level read-star-archive controls, reply, and compose. For local development:
 
 ```bash
 Copy-Item .env.codex.local.example .env.local
@@ -158,6 +158,7 @@ npm run test:dag:static
 npm run test:browser:boot
 npm run test:browser:auth
 npm run test:browser:codex
+npm run test:browser:codex:live
 npm run test:browser:dag-control-pad
 npm run test:browser:dag-network-build
 npm run test:browser:logs
@@ -209,7 +210,7 @@ npm run perf:orbit-stutter -- --label-set benchmark --label-count 4096 --segment
 - `child fanout`: the set of direct child workplanes spread across the next rank slice
 - `autoplacement`: the deterministic rule that picks the next lane and depth slot for a newly created child within the downstream rank slice; the current default fills two depth rails before opening a new lane
 - `DAG rails`: the snapped integer `rank/lane/depth` placement grid used in `3d-mode`
-- `zoom band`: one discrete 3D DAG level of detail used by the `Zoom +` and `Zoom -` controls: `graph-point`, `title-only`, `label-points`, or `full-workplane`
+- `zoom band`: one discrete 3D DAG level of detail used by the `Zoom +` and `Zoom -` controls: `graph-point` (projected square node symbols), `title-only`, `label-points`, or `full-workplane`
 - `menu pad`: the bottom 3x3 hub that routes the user into the other control pads
 - `control pad section`: one named container inside the bottom pad: `menu`, `map`, `stage`, `dag`, `crud`, or `view`
 - `map controls`: the user-facing name for the camera and cursor movement pad; the internal page key remains `navigate`
@@ -219,36 +220,51 @@ npm run perf:orbit-stutter -- --label-set benchmark --label-count 4096 --segment
 - `onboard panel`: the guided walkthrough panel that temporarily replaces the status strip on first-run GitHub Pages visits
 - `mailboard`: the `/codex/` mailbox UI backed by the shared `gmail-agent` daemon
 - `mail view`: the currently selected mailbox filter on the `/codex/` bottom pad
+- `mail search`: the `/codex/` mailbox query input used to filter the current mail view
 - `thread row`: one visible mailbox summary in the `/codex/` list
+- `label chip`: a small mailbox label badge shown on a thread row or message
+- `thread action grid`: the `/codex/` detail-grid of Gmail controls like read, unread, star, and archive
 - `message pane`: the selected thread detail area on `/codex/`
 - `compose box`: the reply or new-mail text surface on `/codex/`
+- `site menu`: the fullscreen top-right overlay shared by the app, docs, `/codex/`, and `/logs/`; it now has `Navigation` and `Settings` pages
+- `embedded site menu`: the app-specific placement where the `Menu` toggle lives inside the top-right edge of the status strip or onboard panel instead of floating above the app
+- `settings page`: the `site menu` page that now drills into `Layout`, `View`, `Motion`, and `Install`
+- `ui layout`: the persisted shell density mode for the app route; current options are `Compact` and `Wide`
+- `motion preference`: the persisted shell motion mode for the app route; current options are `Smooth` and `Reduced`
+- `onboarding preference`: the persisted hosted-first onboarding mode; current options are `Auto` and `Skip`
+- `install state`: the current PWA availability state surfaced inside `Menu -> Settings -> Install`
 
 ## 5. UI Panels
 
-- `status strip`: the top telemetry table with the live stage stats
-- `onboard panel`: the temporary top panel used during the automated first-run walkthrough; it replaces the status strip until the intro completes or is dismissed
-- `menu pad`: the default bottom 3x3 hub with one entry button for each main control pad: `Map`, `Stage`, `DAG`, `CRUD`, and `View`, plus passive cue chips for `Local Links`, `DAG Links`, `2D <-> 3D`, and `Pan + Zoom`
+- `status strip`: the top telemetry table with the live stage stats and the embedded top-right `Menu` toggle
+- `site menu`: the fullscreen top-right route picker with a breadcrumb header, `Navigation` and `Settings` pages, plus `App`, `Auth`, `Codex`, `Logs`, `Tasks`, `README`, and `GitHub` links
+- `onboard panel`: the temporary top panel used during the automated first-run walkthrough; it replaces the stats body but keeps the embedded top-right `Menu` toggle in the same header
+- `settings page`: the `site menu` page with nested `Layout`, `View`, `Motion`, and `Install` sections
+- `install card`: the `site menu` install section that shows PWA availability, current display mode, and the install action
+- `menu pad`: the default bottom 3x3 hub with one entry button for each main control pad: `Map`, `Stage`, `DAG`, `Edit`, and `Style`, plus passive cue chips for `Local Links`, `DAG Links`, `2D <-> 3D`, and `Pan + Zoom`
 - `map controls`: the bottom 3x3 container for zoom, orbit, and 2D cursor movement
 - `stage controls`: the bottom 3x3 container for `2d-mode`, `3d-mode`, workplane switching, and root focus when a DAG is active
-- `dag controls`: the bottom 3x3 container for `child link`, `parent link`, and `rank/lane/depth` DAG placement moves
-- `crud controls`: the bottom input-grid container with one label input row plus two `3x3` action rows for selection, local linking, unlinking, removing, clearing, and returning to `Menu`
-- `view controls`: the bottom 3x3 container for `Sharp`, `Soft`, `Step`, `Arc`, and `Orbit`
+- `dag controls`: the bottom 3x3 container for `new child`, `new parent`, and `rank/lane/depth` DAG placement moves
+- `edit controls`: the bottom input-grid container with one label input row plus two `3x3` action rows for selection, local linking, unlinking, removing, clearing, and returning to `Menu`
+- `style controls`: the bottom 3x3 container for text and line rendering choices such as `Sharp`, `Soft`, `Step`, `Arc`, and `Orbit`
 - `menu button`: the bottom-right button on the active pads that returns the user to the `Menu` hub
 - `editor overlays`: the selection box, ranked-selection badges, and ghost-slot markers drawn over the canvas
 - `mail meta cards`: the `/codex/` top status cards for mailbox, health, and current mail view
 - `thread list`: the `/codex/` scrollable list of mailbox thread summaries
-- `message pane`: the `/codex/` conversation view with message text and task history
+- `message pane`: the `/codex/` conversation view with message text, task history, and Gmail action grid
 - `compose panel`: the `/codex/` new-mail form that opens inside the message pane
-- `mail pad`: the `/codex/` bottom 3x3 pad for view switching plus `Refresh`, `Compose`, and `Mark Read`
+- `mail pad`: the `/codex/` bottom 3x3 pad for mailbox view switching plus `Refresh`, `Compose`, and `Clear`
 
 ## 6. Code Index
 
 - `src/main.ts`: app entry point
+- `src/docs-shell.ts`: shared fullscreen site menu with breadcrumb hierarchy, `Navigation` plus nested `Settings` sections, embedded/floating placements, install-state UI, and repo/link helpers used by the app and docs routes
+- `src/pwa.ts`: shared PWA runtime for service worker registration, display-mode detection, and install-prompt state
 - `src/auth-page.ts`: Cloudflare Access auth/status route modeled on the cad-pga Legion page
 - `src/codex-page.ts`: `/codex/` route shell that mounts the mailboard UI inside the shared docs navigation
-- `src/codex/CodexMailboardPage.ts`: codex route controller for Cloudflare Access unlock, mailbox loading, view switching, reply, and compose
+- `src/codex/CodexMailboardPage.ts`: codex route controller for Cloudflare Access unlock, Gmail mailbox loading, search, view switching, inbox actions, reply, and compose
 - `src/codex/CodexMailClient.ts`: browser client for the shared `gmail-agent` mail API
-- `src/codex/CodexMailboardView.ts`: mobile-first monochrome mailboard DOM, thread list, message pane, and bottom 3x3 mail pad
+- `src/codex/CodexMailboardView.ts`: mobile-first monochrome mailboard DOM, Gmail search form, thread list, action grid, message pane, and bottom 3x3 mail pad
 - `src/codex/codexMailboard.css`: `/codex/` mailboard layout and mobile-to-desktop route styling
 - `src/logs-page.ts`: `/logs/` route shell that mounts the browser log terminal UI inside the shared docs navigation
 - `src/logs/log-model.ts`: browser log entry types, source-line parsing, CLI command parsing, and filter helpers
@@ -258,15 +274,16 @@ npm run perf:orbit-stutter -- --label-set benchmark --label-count 4096 --segment
 - `src/readme-page.ts`: live markdown preview route for `README.md`
 - `src/app.ts`: WebGPU boot, plane-stack state, discrete DAG zoom-band stepping, input handling, render loop, and dataset exports
 - `src/projector.ts`: plane-focus and stack-camera projection, including eased 3D orbit-target handoff between workplanes and tighter onboarding-first DAG framing
-- `src/style.css`: static overlay grid for the status strip, fullscreen canvas, and bottom menu-first control pad
-- `src/stage-chrome.ts`: DOM shell for the status strip, `onboard-panel`, the monochrome `Menu` hub, the strict `CRUD` input-grid, and the `View` pad
+- `src/site-settings.ts`: persisted app settings storage for `UI Layout`, `Stage Mode`, `Text Style`, `Link Style`, `Motion`, and `Onboarding`
+- `src/style.css`: static overlay grid for the status strip, embedded app menu header, fullscreen canvas, and bottom menu-first control pad
+- `src/stage-chrome.ts`: DOM shell for the status strip, `onboard-panel`, embedded top-right menu slot, the monochrome `Menu` hub, the strict `CRUD` input-grid, and the `View` pad
 - `src/stage-panels.ts`: sync logic for the `menu`, `map`, `stage`, `dag`, `crud`, and `view` control containers
-- `src/stage-config.ts`: query parsing for `demoPreset`, `cameraLabel`, and hosted onboarding
+- `src/stage-config.ts`: query parsing for `demoPreset`, `cameraLabel`, hosted onboarding, and persisted app-setting fallbacks
 - `src/stage-session.ts`: boot hydration and default dataset selection
 - `src/plane-stack.ts`: document/session helpers across workplanes, including DAG authoring, leaf delete, and rank-slice child autogrid placement
 - `src/dag-document.ts`: DAG document types, validation helpers, and topological checks
 - `src/dag-layout.ts`: integer DAG coordinate to world-space layout helpers for `rank/lane/depth` slices
-- `src/dag-view.ts`: DAG-aware 3D scene assembly, shared LOD thresholds, brighter monochrome overview rendering, and compatibility-mode stack rendering
+- `src/dag-view.ts`: DAG-aware 3D scene assembly, shared LOD thresholds, projected square graph-point symbols, brighter monochrome overview rendering, and compatibility-mode stack rendering
 - `src/stack-view.ts`: stacked 3D scene composition and bridge-link routing
 - `src/stage-editor.ts`: cursor motion, ghost slots, ranked selection, and scene edits
 - `src/stage-editor-overlay.ts`: DOM overlays for cursor, selection, and ghost slots
@@ -284,9 +301,13 @@ npm run perf:orbit-stutter -- --label-set benchmark --label-count 4096 --segment
 - `scripts/test.ts`: browser test entry point
 - `scripts/test/codex-page-smoke.ts`: focused `/codex/` browser route proof
 - `scripts/test/logs-page-smoke.ts`: focused `/logs/` browser route proof for stored history, source filtering, and CLI follow mode
+- `public/site.webmanifest`: installable PWA manifest for the hosted multi-route shell
+- `public/sw.js`: service worker that caches the route shell for standalone launches
+- `public/linker-icon.svg`: shared monochrome SVG app icon
+- `public/linker-icon-maskable.svg`: padded maskable variant of the shared app icon
 - `scripts/test/dag-control-pad.ts`: focused zero-data DAG authoring flow
 - `scripts/test/dag-network-build.ts`: canonical zero-data end-to-end DAG interaction flow across 2D workplane CRUD and 3D DAG CRUD
-- `scripts/test/onboarding-walkthrough.ts`: first-run hosted onboarding proof from an empty root to the final twelve-workplane 3D DAG, with one screenshot artifact per onboarding step
+- `scripts/test/onboarding-walkthrough.ts`: first-run hosted onboarding proof from an empty root to a five-node 3D DAG, one stitched 2D local-link edit, and one screenshot artifact per onboarding step
 - `scripts/test/dag-rank-fanout.ts`: focused zero-data twelve-workplane rank-fanout authoring flow
 - `scripts/test/dag-zoom-journey.ts`: screenshot-backed DAG zoom-band and 3D-to-2D return proof
 - `scripts/test-dag-static.ts`: focused static DAG command entry point

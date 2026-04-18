@@ -3,7 +3,7 @@ import type {
   TasksDashboardRun,
   TasksDashboardTask,
 } from './tasks-dashboard-types';
-import { createDocsNav } from './docs-shell';
+import { createSiteMenu } from './docs-shell';
 
 const DEFAULT_REFRESH_INTERVAL_MS = 5000;
 
@@ -36,8 +36,10 @@ export async function startTasksPage(root: HTMLElement): Promise<TasksPageHandle
   document.title = 'Linker Tasks';
   document.body.classList.add('docs-route', 'tasks-route');
   root.classList.add('tasks-page-root');
+  const siteMenu = createSiteMenu('tasks');
 
   const frame = createTasksPageFrame();
+  frame.shell.append(siteMenu.element);
   root.replaceChildren(frame.shell);
   root.dataset.tasksRefreshCount = '0';
 
@@ -106,6 +108,7 @@ export async function startTasksPage(root: HTMLElement): Promise<TasksPageHandle
     destroy: () => {
       disposed = true;
       window.clearInterval(intervalId);
+      siteMenu.destroy();
       document.body.classList.remove('docs-route', 'tasks-route');
       delete root.dataset.tasksRefreshCount;
       root.replaceChildren();
@@ -130,7 +133,6 @@ async function loadTasksDashboardData(): Promise<TasksDashboardData> {
 function createTasksPageFrame(): TasksPageFrame {
   const shell = document.createElement('main');
   shell.className = 'page-shell docs-page tasks-page';
-  shell.append(createDocsNav('tasks'));
 
   const hero = document.createElement('header');
   hero.className = 'hero tasks-hero';

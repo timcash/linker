@@ -1,0 +1,20 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-labelledby="title desc">
+  <title id="title">Linker icon</title>
+  <desc id="desc">A white DAG of linked workplanes on a black square.</desc>
+  <rect width="512" height="512" rx="96" fill="#000000"/>
+  <g fill="none" stroke="#ffffff" stroke-linecap="round" stroke-linejoin="round" stroke-width="20">
+    <path d="M156 146 256 92l100 54-100 60z"/>
+    <path d="M156 146v92l100 60 100-60v-92"/>
+    <path d="M116 338h104v74H116z"/>
+    <path d="M204 338h104v74H204z"/>
+    <path d="M292 338h104v74H292z"/>
+    <path d="M168 298v40"/>
+    <path d="M256 298v40"/>
+    <path d="M344 298v40"/>
+  </g>
+  <g fill="#ffffff">
+    <circle cx="168" cy="338" r="10"/>
+    <circle cx="256" cy="338" r="10"/>
+    <circle cx="344" cy="338" r="10"/>
+  </g>
+</svg>

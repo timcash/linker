@@ -5,11 +5,14 @@ import '@fontsource/space-mono/400.css';
 import '@fontsource/space-mono/700.css';
 
 import {installBrowserLogCapture, recordBrowserLog} from './logs/log-store';
+import {initializePwaRuntime} from './pwa';
 import './style.css';
 
 const root = document.createElement('div');
 root.id = 'app';
 document.body.append(root);
+
+initializePwaRuntime();
 
 const route = resolveRoute(window.location.pathname);
 installBrowserLogCapture(route);

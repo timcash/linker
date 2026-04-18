@@ -1,4 +1,4 @@
-import {type Device, type DeviceProps} from '@luma.gl/core';
+﻿import {type Device, type DeviceProps} from '@luma.gl/core';
 import {Geometry, Model} from '@luma.gl/engine';
 import {WebGPUDevice} from '@luma.gl/webgpu';
 
@@ -14,10 +14,7 @@ import {
   LAYOUT_STRATEGIES,
   type LayoutStrategy,
 } from './data/labels';
-import {
-  DAG_RANK_FANOUT_NODES,
-  DAG_RANK_FANOUT_ROOT_LABEL_TEXT,
-} from './data/dag-rank-fanout';
+import {DAG_RANK_FANOUT_ROOT_LABEL_TEXT} from './data/dag-rank-fanout';
 import {
   DAG_FULL_WORKPLANE_MIN_PROJECTED_SPAN_PX,
   DAG_LABEL_POINTS_MIN_PROJECTED_SPAN_PX,
@@ -50,6 +47,7 @@ import {
   canDeleteActiveWorkplane,
   canSpawnWorkplane,
   deleteActiveWorkplane,
+  type StageMode,
   focusDagRootWorkplane,
   getActiveWorkplaneDocument,
   getDagControlAvailability,
@@ -73,11 +71,12 @@ import {
   type WorkplaneId,
 } from './plane-stack';
 import {
+  cloneStageScene,
   createDemoStageScene,
   type StageScene,
 } from './scene-model';
 import {GRID_LAYER_ZOOM_STEP} from './layer-grid';
-import {parseLabelKey} from './label-key';
+import {buildLabelKey, parseLabelKey} from './label-key';
 import {
   PlaneFocusProjector,
   StackCameraProjector,
@@ -90,6 +89,15 @@ import {
   syncStageRouteQueryParams,
   type StageConfig,
 } from './stage-config';
+import {createSiteMenu} from './docs-shell';
+import {
+  readStoredAppSettings,
+  writeStoredAppSettings,
+  type AppMotionPreference,
+  type AppOnboardingPreference,
+  type AppUiLayout,
+  type StoredAppSettings,
+} from './site-settings';
 import {
   type ControlPadPage,
   syncStageCameraPanel,
@@ -289,6 +297,12 @@ type BootPhase =
   | 'error';
 
 type OnboardingPhase = 'complete' | 'dismissed' | 'inactive' | 'running';
+type EditableLabelTarget = {
+  hint: string;
+  key: string;
+  mode: '2d-label' | '3d-title';
+  text: string;
+};
 type OnboardingStepState = {
   body: string;
   detail: string;
@@ -303,20 +317,28 @@ export type AppHandle = {
   destroy: () => void;
 };
 
-const ONBOARDING_CLICK_SETTLE_MS = 220;
 const ONBOARDING_FRAME_SETTLE_MS = 420;
 const ONBOARDING_TYPING_DELAY_MS = 72;
 const ONBOARDING_TYPING_SETTLE_MS = 180;
 
 export async function startApp(root: HTMLElement): Promise<AppHandle> {
   const stageChrome = createStageChrome(root);
+  const initialAppSettings = readStoredAppSettings();
   const bootPayload = createStageBootPayload(readStageConfig(window.location.search));
   const stageController = new LumaStageController(
     stageChrome,
     bootPayload.config,
     bootPayload.initialState,
     bootPayload.strategyPanelMode,
+    initialAppSettings,
   );
+  const siteMenu = createSiteMenu('app', {
+    onSettingsChange: (settings) => {
+      stageController.applyStoredSettings(settings);
+    },
+    placement: 'embedded',
+  });
+  stageChrome.statusPanelMenuSlot.replaceChildren(siteMenu.element);
 
   await stageController.start();
   window.__LINKER_TEST_HOOKS__ = {
@@ -327,6 +349,7 @@ export async function startApp(root: HTMLElement): Promise<AppHandle> {
   return {
     destroy: () => {
       delete window.__LINKER_TEST_HOOKS__;
+      siteMenu.destroy();
       stageController.destroy();
     },
   };
@@ -389,6 +412,9 @@ class LumaStageController {
   private strategyPanelMode: StrategyPanelMode;
   private textLayerCharacterSet = new Set<string>();
   private textStrategy: TextStrategy;
+  private motionPreference: AppMotionPreference;
+  private onboardingPreference: AppOnboardingPreference;
+  private uiLayout: AppUiLayout;
   private workplaneSyncGeneration = 0;
   private workplaneSyncPending = false;
 
@@ -397,6 +423,7 @@ class LumaStageController {
     private readonly config: StageConfig,
     initialState: StageSystemState,
     strategyPanelMode: StrategyPanelMode,
+    appSettings: StoredAppSettings,
   ) {
     this.state = initialState;
     this.scene = getActiveWorkplaneDocument(initialState).scene;
@@ -417,6 +444,9 @@ class LumaStageController {
     this.strategyPanelMode =
       strategyPanelMode === 'label-edit' ? strategyPanelMode : DEFAULT_STRATEGY_PANEL_MODE;
     this.textStrategy = config.textStrategy;
+    this.motionPreference = appSettings.motionPreference;
+    this.onboardingPreference = appSettings.onboardingPreference;
+    this.uiLayout = appSettings.uiLayout;
     const initialView = getActiveWorkplaneView(initialState);
 
     if (config.labelSetKind === 'demo') {
@@ -440,6 +470,7 @@ class LumaStageController {
       initialView.camera.centerY,
       initialView.camera.zoom,
     );
+    this.syncAppPreferences();
   }
 
   async start(): Promise<void> {
@@ -548,6 +579,24 @@ class LumaStageController {
       }
 
       this.showError(error);
+    }
+  }
+
+  public applyStoredSettings(settings: StoredAppSettings): void {
+    this.setAppUiLayout(settings.uiLayout, {persist: false});
+    this.setAppMotionPreference(settings.motionPreference, {persist: false});
+    this.setAppOnboardingPreference(settings.onboardingPreference, {persist: false});
+
+    if (settings.textStrategy !== this.textStrategy) {
+      this.setTextStrategy(settings.textStrategy, {persist: false});
+    }
+
+    if (settings.lineStrategy !== this.lineStrategy) {
+      this.setLineStrategy(settings.lineStrategy, {persist: false});
+    }
+
+    if (settings.preferredStageMode !== this.state.session.stageMode) {
+      this.applyPreferredStageMode(settings.preferredStageMode, {persist: false});
     }
   }
 
@@ -2077,7 +2126,6 @@ class LumaStageController {
 
     if (
       this.labelInputPending ||
-      this.state.session.stageMode === '3d-mode' ||
       this.workplaneSyncPending ||
       this.config.labelSetKind !== 'demo' ||
       document.body.dataset.benchmarkState === 'running'
@@ -2085,24 +2133,86 @@ class LumaStageController {
       return;
     }
 
-    const focusedLabelKey = this.getFocusedEditorLabelKey();
-    const focusedLabel = this.getFocusedEditorLabel();
+    const editableTarget = this.getEditableLabelTarget();
 
-    if (!focusedLabelKey || !focusedLabel) {
+    if (!editableTarget) {
       return;
     }
 
     const nextText = this.chrome.labelInputField.value;
 
-    if (nextText === focusedLabel.text) {
+    if (nextText === editableTarget.text) {
       this.syncLabelInputPanel({forceValue: true});
       return;
     }
 
-    void this.updateFocusedLabelText(focusedLabelKey, nextText);
+    if (editableTarget.mode === '3d-title') {
+      this.updateActiveWorkplaneTitleText(editableTarget.key, nextText);
+      return;
+    }
+
+    void this.updateFocusedLabelText(editableTarget.key, nextText);
   };
 
-  private setTextStrategy(mode: TextStrategy): void {
+  private setAppUiLayout(
+    layout: AppUiLayout,
+    options?: {persist?: boolean},
+  ): void {
+    if (layout === this.uiLayout) {
+      this.syncAppPreferences();
+      return;
+    }
+
+    this.uiLayout = layout;
+    this.syncAppPreferences();
+
+    if (options?.persist !== false) {
+      writeStoredAppSettings({uiLayout: layout});
+    }
+  }
+
+  private setAppMotionPreference(
+    preference: AppMotionPreference,
+    options?: {persist?: boolean},
+  ): void {
+    if (preference === this.motionPreference) {
+      this.syncAppPreferences();
+      return;
+    }
+
+    this.motionPreference = preference;
+    this.syncAppPreferences();
+
+    if (options?.persist !== false) {
+      writeStoredAppSettings({motionPreference: preference});
+    }
+  }
+
+  private setAppOnboardingPreference(
+    preference: AppOnboardingPreference,
+    options?: {persist?: boolean},
+  ): void {
+    if (preference === this.onboardingPreference) {
+      this.syncAppPreferences();
+      return;
+    }
+
+    this.onboardingPreference = preference;
+    this.syncAppPreferences();
+
+    if (preference === 'skip' && this.onboardingPhase === 'running') {
+      this.skipOnboardingWalkthrough();
+    }
+
+    if (options?.persist !== false) {
+      writeStoredAppSettings({onboardingPreference: preference});
+    }
+  }
+
+  private setTextStrategy(
+    mode: TextStrategy,
+    options?: {persist?: boolean},
+  ): void {
     if (
       !this.textLayer ||
       mode === this.textStrategy ||
@@ -2122,9 +2232,16 @@ class LumaStageController {
     this.syncCurrentRouteQueryParams();
     this.updateStatus();
     this.requestRender();
+
+    if (options?.persist !== false) {
+      writeStoredAppSettings({textStrategy: mode});
+    }
   }
 
-  private setLineStrategy(mode: LineStrategy): void {
+  private setLineStrategy(
+    mode: LineStrategy,
+    options?: {persist?: boolean},
+  ): void {
     if (
       !this.lineLayer ||
       this.config.labelSetKind !== 'demo' ||
@@ -2145,6 +2262,17 @@ class LumaStageController {
     this.syncCurrentRouteQueryParams();
     this.updateStatus();
     this.requestRender();
+
+    if (options?.persist !== false) {
+      writeStoredAppSettings({lineStrategy: mode});
+    }
+  }
+
+  private applyPreferredStageMode(
+    mode: StageMode,
+    options?: {persist?: boolean},
+  ): void {
+    this.applyStageModeAction(mode === '2d-mode' ? 'set-2d-mode' : 'set-3d-mode', options);
   }
 
   private setLayoutStrategy(mode: LayoutStrategy): void {
@@ -2223,6 +2351,7 @@ class LumaStageController {
   private syncEditorPanel(): void {
     const editorState = this.editorState;
     const focusedLabel = this.getFocusedEditorLabel();
+    const editableTarget = this.getEditableLabelTarget();
     const editorReady =
       !this.labelInputPending &&
       !this.workplaneSyncPending &&
@@ -2235,7 +2364,7 @@ class LumaStageController {
     const cursorKind = editorState?.cursor.kind ?? 'ghost';
     const summary =
       this.state.session.stageMode === '3d-mode'
-        ? '3D locked'
+        ? editableTarget?.hint ?? 'Title'
         : !editorState
         ? 'Unavailable'
         : selectedCount === 0
@@ -2268,12 +2397,25 @@ class LumaStageController {
     }
   }
 
+  private syncAppPreferences(): void {
+    document.body.dataset.appUiLayout = this.uiLayout;
+    document.body.dataset.appMotionPreference = this.motionPreference;
+    document.body.dataset.appOnboardingPreference = this.onboardingPreference;
+    this.chrome.stage.dataset.uiLayout = this.uiLayout;
+    this.chrome.stage.dataset.appMotionPreference = this.motionPreference;
+    this.chrome.statusPanel.dataset.uiLayout = this.uiLayout;
+    this.chrome.statusPanel.dataset.appMotionPreference = this.motionPreference;
+    this.chrome.strategyModePanel.dataset.uiLayout = this.uiLayout;
+    this.chrome.strategyModePanel.dataset.appMotionPreference = this.motionPreference;
+  }
+
   private syncOnboardingPanel(): void {
     const showPanel =
       this.onboardingPhase === 'running' ||
       this.onboardingPhase === 'complete';
 
     this.chrome.statusPanel.dataset.panelMode = showPanel ? 'onboarding' : 'status';
+    this.chrome.statusPanelLabel.textContent = showPanel ? 'Onboard' : 'Status';
     this.chrome.onboardPanel.hidden = !showPanel;
     this.chrome.stats.hidden = showPanel;
 
@@ -2391,17 +2533,22 @@ class LumaStageController {
 
   private async startOnboardingWalkthrough(): Promise<void> {
     const runId = ++this.onboardingRunId;
-    const totalSteps = 26;
+    const totalSteps = 13;
 
     this.onboardingPhase = 'running';
+
+    if (this.state.session.stageMode !== '3d-mode') {
+      this.applyStageModeAction('set-3d-mode', {persist: false});
+    }
+
     this.setOnboardingStepState({
-      body: 'Linker is starting from one empty root workplane and will author the whole DAG live with the same menu, buttons, and typing flow the user gets.',
-      detail: 'The top panel will guide the sequence. You can press Skip any time and take over manually.',
+      body: 'Linker is starting in the 3D DAG view so the first pass can build a small readable graph with the same hotkeys, menu pads, and title field the user gets.',
+      detail: 'This tour stays DAG-first: name workplanes in 3D, connect five nodes, zoom through the LOD bands, then drop into one 2D workplane for local editing.',
       stepCount: totalSteps,
       stepId: 'intro',
       stepIndex: 0,
       targetSelectors: [],
-      title: 'Building a 12-workplane DAG from zero',
+      title: 'Build a five-node DAG in 3D first',
     });
     this.updateStatus();
 
@@ -2417,7 +2564,7 @@ class LumaStageController {
       this.persistOnboardingCompletion();
       this.onboardingPhase = 'complete';
       this.setOnboardingStepState({
-        body: 'The guided run finished on the live 3D overview with a twelve-workplane DAG, richer local labels, and the menu reopened for manual exploration.',
+        body: 'The guided run finished on a readable five-node DAG with titled workplanes, one stitched local 2D edit, and the menu reopened for manual exploration.',
         detail: 'Tap Replay to watch the sequence again, or Stats to restore the live telemetry strip.',
         stepCount: totalSteps,
         stepId: 'complete',
@@ -2472,10 +2619,17 @@ class LumaStageController {
       await this.waitOnboardingDelay(runId, ONBOARDING_FRAME_SETTLE_MS);
     };
 
+    const rootTitle = DAG_RANK_FANOUT_ROOT_LABEL_TEXT;
+    const firstChildTitle = 'Ingress';
+    const secondChildTitle = 'Policy';
+    const firstLeafTitle = 'Audit';
+    const secondLeafTitle = 'Relay';
+    const localDetailTitle = 'Cache';
+
     await this.showOnboardingControlPadPage('menu', runId);
     await step({
-      body: 'The bottom control pad now opens as a menu, so new users can jump straight into the right button set instead of cycling blindly.',
-      detail: 'Linker uses five pad names here: Map, Stage, DAG, CRUD, and View.',
+      body: 'The walkthrough starts in the 3D DAG because that is the root map for Linker. The menu hub keeps the main button sets readable: Map, Stage, DAG, Edit, and Style.',
+      detail: 'This first pass stays keyboard-first: C adds a child workplane, [ and ] move across the DAG, F focuses the root, Shift plus Up or Down changes LOD bands, and / swaps between 3D and 2D.',
       stepId: 'menu-intro',
       targetSelectors: [
         'button[data-control-pad-target="navigate"]',
@@ -2484,321 +2638,196 @@ class LumaStageController {
         'button[data-control-pad-target="edit"]',
         'button[data-control-pad-target="view"]',
       ],
-      title: 'Open the menu and choose a pad',
+      title: 'Start from the 3D menu hub',
     });
-    await this.clickOnboardingButton('button[data-control-pad-target="edit"]', runId);
 
+    await this.showOnboardingControlPadPage('edit', runId);
+    await this.typeOnboardingFocusedLabel(runId, rootTitle);
     await step({
-      body: 'We begin by converting the first ghost slot into a real label stack on the root workplane.',
-      detail: 'The pulsing Select/Create button is the fastest way to grow local content in 2D.',
-      stepId: 'root-create',
-      targetSelectors: ['button[data-editor-shortcut="toggle-selection-or-create"]'],
-      title: 'Create the first label stack',
-    });
-    await this.clickOnboardingButton('button[data-editor-shortcut="toggle-selection-or-create"]', runId);
-
-    await step({
-      body: 'Now the input box is live, so Linker can type the first local label directly into the focused stack.',
-      detail: 'Typing and Save both happen in the same CRUD pad without leaving the workplane.',
-      stepId: 'root-name',
+      body: 'The input field works in 3D too. The active workplane gets a readable title first, so each DAG node can be recognized before we ever drop into plane-focus detail.',
+      detail: `This root is now titled ${rootTitle}. The same title field will name every new workplane as it becomes active.`,
+      stepId: 'root-title',
       targetSelectors: ['[data-testid="label-input-field"]', '[data-testid="label-input-submit"]'],
-      title: 'Name the root label',
+      title: 'Title the root in 3D',
     });
-    await this.typeOnboardingFocusedLabel(runId, DAG_RANK_FANOUT_ROOT_LABEL_TEXT);
 
-    await this.showOnboardingControlPadPage('navigate', runId);
-    await step({
-      body: 'The Map pad moves the 2D cursor across labels and empty cells.',
-      detail: 'Here the same Right button that pans a camera in stack view advances the local editor cursor.',
-      stepId: 'cursor-right',
-      targetSelectors: ['button[data-control="pan-right"]'],
-      title: 'Move to the next grid cell',
-    });
-    await this.clickOnboardingButton('button[data-control="pan-right"]', runId);
-
-    await this.showOnboardingControlPadPage('edit', runId);
-    await step({
-      body: 'The next ghost slot becomes a second stack, which gives the root plane something to link and remove.',
-      detail: 'A focused label can be renamed immediately after creation in the same input field.',
-      stepId: 'firewall-create',
-      targetSelectors: ['button[data-editor-shortcut="toggle-selection-or-create"]'],
-      title: 'Create another local label',
-    });
-    await this.clickOnboardingButton('button[data-editor-shortcut="toggle-selection-or-create"]', runId);
-
-    await step({
-      body: 'This second label becomes a temporary firewall node so the walkthrough can demonstrate local link CRUD.',
-      detail: 'Watch the input field type directly into the focused stack again.',
-      stepId: 'firewall-name',
-      targetSelectors: ['[data-testid="label-input-field"]', '[data-testid="label-input-submit"]'],
-      title: 'Type into the input box',
-    });
-    await this.typeOnboardingFocusedLabel(runId, 'Firewall');
-
-    await step({
-      body: 'Select/Create also toggles ranked selection on existing labels, not just empty cells.',
-      detail: 'The current Firewall label becomes selection rank one.',
-      stepId: 'firewall-select',
-      targetSelectors: ['button[data-editor-shortcut="toggle-selection-or-create"]'],
-      title: 'Select the focused label',
-    });
-    await this.clickOnboardingButton('button[data-editor-shortcut="toggle-selection-or-create"]', runId);
-
-    await this.showOnboardingControlPadPage('navigate', runId);
-    await step({
-      body: 'We move back to the root stack so the second selection can complete a local link pair.',
-      detail: 'The same 2D navigation controls are still driving the editor cursor under the hood.',
-      stepId: 'cursor-left',
-      targetSelectors: ['button[data-control="pan-left"]'],
-      title: 'Return to the root stack',
-    });
-    await this.clickOnboardingButton('button[data-control="pan-left"]', runId);
-
-    await this.showOnboardingControlPadPage('edit', runId);
-    await step({
-      body: 'Selecting the root label second builds the ranked pair that link creation uses.',
-      detail: 'Linker keeps the selection order live so the link button can act on it immediately.',
-      stepId: 'root-select',
-      targetSelectors: ['button[data-editor-shortcut="toggle-selection-or-create"]'],
-      title: 'Add the root to the ranked selection',
-    });
-    await this.clickOnboardingButton('button[data-editor-shortcut="toggle-selection-or-create"]', runId);
-
-    await step({
-      body: 'The Link button creates a local workplane connection between the selected labels.',
-      detail: 'Local links stay inside one workplane and never affect the global DAG edges.',
-      stepId: 'local-link',
-      targetSelectors: ['button[data-editor-action="link-selection"]'],
-      title: 'Create a local link',
-    });
-    await this.clickOnboardingButton('button[data-editor-action="link-selection"]', runId);
-
-    await step({
-      body: 'Unlink immediately removes that local connection without deleting either label stack.',
-      detail: 'This keeps label CRUD and link CRUD separate inside the same workplane.',
-      stepId: 'local-unlink',
-      targetSelectors: ['button[data-editor-action="remove-links"]'],
-      title: 'Remove the local link',
-    });
-    await this.clickOnboardingButton('button[data-editor-action="remove-links"]', runId);
-
-    await step({
-      body: 'Clear drops the ranked selection, then the extra Firewall stack can be removed cleanly.',
-      detail: 'The Remove action deletes every authored layer in the focused stack and returns the cell to a ghost slot.',
-      stepId: 'local-remove',
-      targetSelectors: [
-        'button[data-editor-action="clear-selection"]',
-        'button[data-editor-action="remove-label"]',
-      ],
-      title: 'Clear selection and prune the extra label',
-    });
-    await this.clickOnboardingButton('button[data-editor-action="clear-selection"]', runId);
-    await this.showOnboardingControlPadPage('navigate', runId);
-    await this.clickOnboardingButton('button[data-control="pan-right"]', runId);
-    await this.showOnboardingControlPadPage('edit', runId);
-    await this.clickOnboardingButton('button[data-editor-action="remove-label"]', runId);
-
-    await step({
-      body: 'The DAG pad creates workplane-to-workplane links, not local label links. Child Link grows a downstream node, Parent Link inserts an upstream node, and Delete removes a leaf safely.',
-      detail: 'A short extra chain is created off the root, then removed again, so the final twelve-node build still lands on the clean canonical ids.',
-      stepId: 'dag-crud',
-      targetSelectors: [
-        'button[data-dag-action="spawn-child-workplane"]',
-        'button[data-dag-action="insert-parent-workplane"]',
-        'button[data-workplane-action="delete-active-workplane"]',
-      ],
-      title: 'Demonstrate DAG add and remove',
-    });
     await this.focusRootWithOnboarding(runId);
     await this.showOnboardingControlPadPage('dag', runId);
-    await this.clickOnboardingButton('button[data-dag-action="spawn-child-workplane"]', runId);
-    await this.clickOnboardingButton('button[data-dag-action="insert-parent-workplane"]', runId);
-    await this.navigateToWorkplaneByButtons('wp-2', runId);
-    await this.showOnboardingControlPadPage('stage', runId);
-    await this.clickOnboardingButton('button[data-workplane-action="delete-active-workplane"]', runId);
-    await this.clickOnboardingButton('button[data-workplane-action="delete-active-workplane"]', runId);
-
+    await this.pressOnboardingHotkey(
+      runId,
+      {code: 'KeyC', key: 'c'},
+      {highlightSelector: 'button[data-dag-action="spawn-child-workplane"]'},
+    );
+    await this.showOnboardingControlPadPage('edit', runId);
+    await this.typeOnboardingFocusedLabel(runId, firstChildTitle);
+    await this.focusRootWithOnboarding(runId);
+    await this.showOnboardingControlPadPage('dag', runId);
+    await this.pressOnboardingHotkey(
+      runId,
+      {code: 'KeyC', key: 'c'},
+      {highlightSelector: 'button[data-dag-action="spawn-child-workplane"]'},
+    );
+    await this.showOnboardingControlPadPage('edit', runId);
+    await this.typeOnboardingFocusedLabel(runId, secondChildTitle);
+    await this.focusRootWithOnboarding(runId);
+    await this.showOnboardingControlPadPage('dag', runId);
     await step({
-      body: 'Now the root fans out into four rank-one child workplanes using the DAG control pad only.',
-      detail: 'Each Child press creates the next downstream node and makes it active.',
-      stepId: 'rank-one',
+      body: 'The first fanout stays entirely in the 3D DAG view. C creates a downstream workplane, F jumps back to the root, and the same title field names each node as it appears.',
+      detail: `${firstChildTitle} and ${secondChildTitle} are now linked under ${rootTitle}.`,
+      stepId: 'first-rank',
       targetSelectors: ['button[data-dag-action="spawn-child-workplane"]'],
-      title: 'Build the first fanout rank',
+      title: 'Fan out two titled children',
     });
-    for (let index = 0; index < 4; index += 1) {
-      await this.focusRootWithOnboarding(runId);
-      await this.showOnboardingControlPadPage('dag', runId);
-      await this.clickOnboardingButton('button[data-dag-action="spawn-child-workplane"]', runId, {
-        settleMs: ONBOARDING_CLICK_SETTLE_MS,
-      });
-    }
 
+    await this.navigateToWorkplaneByButtons('wp-2', runId);
+    await this.showOnboardingControlPadPage('dag', runId);
+    await this.pressOnboardingHotkey(
+      runId,
+      {code: 'KeyC', key: 'c'},
+      {highlightSelector: 'button[data-dag-action="spawn-child-workplane"]'},
+    );
+    await this.showOnboardingControlPadPage('edit', runId);
+    await this.typeOnboardingFocusedLabel(runId, firstLeafTitle);
+    await this.navigateToWorkplaneByButtons('wp-3', runId);
+    await this.showOnboardingControlPadPage('dag', runId);
+    await this.pressOnboardingHotkey(
+      runId,
+      {code: 'KeyC', key: 'c'},
+      {highlightSelector: 'button[data-dag-action="spawn-child-workplane"]'},
+    );
+    await this.showOnboardingControlPadPage('edit', runId);
+    await this.typeOnboardingFocusedLabel(runId, secondLeafTitle);
+    await this.focusRootWithOnboarding(runId);
+    await this.showOnboardingControlPadPage('dag', runId);
     await step({
-      body: 'Next and Child together build the second rank so each first-rank node fans out one level deeper.',
-      detail: 'This is the first time the walkthrough uses stage-page workplane navigation to author across the graph.',
-      stepId: 'rank-two',
+      body: 'Now the DAG reaches five titled workplanes. The stage hotkeys [ and ] walk the active node, while C keeps extending the graph from the current workplane.',
+      detail: `${firstLeafTitle} hangs under ${firstChildTitle}, and ${secondLeafTitle} hangs under ${secondChildTitle}, so the graph already reads as a stitched dependency tree in 3D.`,
+      stepId: 'second-rank',
       targetSelectors: [
         'button[data-workplane-action="select-next-workplane"]',
         'button[data-dag-action="spawn-child-workplane"]',
       ],
-      title: 'Build the second fanout rank',
-    });
-    for (const parentWorkplaneId of ['wp-2', 'wp-3', 'wp-4', 'wp-5'] as const) {
-      await this.navigateToWorkplaneByButtons(parentWorkplaneId, runId);
-      await this.showOnboardingControlPadPage('dag', runId);
-      await this.clickOnboardingButton('button[data-dag-action="spawn-child-workplane"]', runId, {
-        settleMs: ONBOARDING_CLICK_SETTLE_MS,
-      });
-    }
-
-    await step({
-      body: 'Three of those second-rank leaves expand once more to finish the target 1-4-4-3 DAG.',
-      detail: 'At this point the walkthrough has authored a full twelve-workplane graph from the empty root.',
-      stepId: 'rank-three',
-      targetSelectors: ['button[data-dag-action="spawn-child-workplane"]'],
-      title: 'Finish the twelve-workplane DAG',
-    });
-    for (const parentWorkplaneId of ['wp-6', 'wp-7', 'wp-8'] as const) {
-      await this.navigateToWorkplaneByButtons(parentWorkplaneId, runId);
-      await this.showOnboardingControlPadPage('dag', runId);
-      await this.clickOnboardingButton('button[data-dag-action="spawn-child-workplane"]', runId, {
-        settleMs: ONBOARDING_CLICK_SETTLE_MS,
-      });
-    }
-
-    await step({
-      body: 'Before the camera tour, Linker stitches meaningful local content into multiple workplanes so the later 3D zoom bands reveal readable text and internal links instead of empty planes.',
-      detail: 'This keeps the walkthrough zero-data at boot while still showing real label and link structure later in 3D.',
-      stepId: 'label-seed',
-      targetSelectors: ['button[data-editor-shortcut="toggle-selection-or-create"]'],
-      title: 'Populate several workplanes',
-    });
-    for (const node of DAG_RANK_FANOUT_NODES) {
-      if (!node.localLabelTexts || node.localLabelTexts.length < 2) {
-        continue;
-      }
-
-      await this.navigateToWorkplaneByButtons(node.workplaneId, runId);
-      await this.authorOnboardingLinkedPair(runId, node.localLabelTexts as readonly [string, string]);
-    }
-
-    await step({
-      body: 'A leaf can slide along the DAG rails in rank, lane, and depth without changing its local 2D label coordinates.',
-      detail: 'The walkthrough nudges the active leaf out and back so the final overview still ends on the canonical shape.',
-      stepId: 'dag-rails',
-      targetSelectors: [
-        'button[data-dag-action="move-rank-forward"]',
-        'button[data-dag-action="move-lane-down"]',
-        'button[data-dag-action="move-depth-in"]',
-      ],
-      title: 'Move a workplane across the DAG rails',
-    });
-    await this.showOnboardingControlPadPage('dag', runId);
-    await this.clickOnboardingButton('button[data-dag-action="move-rank-forward"]', runId);
-    await this.clickOnboardingButton('button[data-dag-action="move-rank-backward"]', runId);
-    await this.clickOnboardingButton('button[data-dag-action="move-lane-down"]', runId);
-    await this.clickOnboardingButton('button[data-dag-action="move-lane-up"]', runId);
-    await this.clickOnboardingButton('button[data-dag-action="move-depth-in"]', runId);
-    await this.clickOnboardingButton('button[data-dag-action="move-depth-out"]', runId);
-
-    await step({
-      body: 'Now the walkthrough leaves 2D and lifts the finished graph into the global 3D DAG view, which is Linker’s root visualization.',
-      detail: 'The Stage pad keeps 2D, 3D, root focus, and workplane switching in one place.',
-      stepId: 'stage-3d',
-      targetSelectors: ['button[data-stage-mode-action="set-3d-mode"]'],
-      title: 'Enter 3D mode',
-    });
-    await this.focusRootWithOnboarding(runId);
-    await this.showOnboardingControlPadPage('stage', runId);
-    await this.clickOnboardingButton('button[data-stage-mode-action="set-3d-mode"]', runId, {
-      waitForCamera: true,
+      title: 'Finish the five-node DAG in 3D',
     });
 
     await this.zoomOnboardingDagToGraphOverview(runId);
     await step({
-      body: 'At the far zoom, every workplane collapses to one bright graph marker so the whole dependency shape fits in view.',
-      detail: 'This is the widest LOD band: graph markers plus global DAG links only.',
+      body: 'Shift plus Down snaps outward through the DAG zoom bands. At the far graph overview, every workplane compresses to one projected square symbol so the full dependency shape fits at once.',
+      detail: 'This band is for graph recognition: five square node symbols and four DAG links, with the root still centered.',
       stepId: 'graph-overview',
       targetSelectors: ['button[data-control="zoom-out"]'],
-      title: 'See the far DAG overview',
+      title: 'Zoom all the way out',
     });
 
-    await this.navigateToWorkplaneByButtons('wp-6', runId);
+    await this.navigateToWorkplaneByButtons('wp-4', runId);
     await this.zoomOnboardingDagToTitleOnly(runId);
     await step({
-      body: 'One zoom band closer, the camera auto-centers the selected workplane in an isometric view and every nearby workplane becomes a readable title card.',
-      detail: 'This title-only LOD is the bridge between the abstract DAG shape and the local plane content.',
+      body: 'Shift plus Up steps inward to the title-only band. The camera auto-centers the active workplane in an isometric view and the nearby DAG nodes become readable title cards instead of square symbols.',
+      detail: `The selected workplane is ${firstLeafTitle}, but the other titles stay readable enough to understand the surrounding branch.`,
       stepId: 'title-only',
       targetSelectors: ['button[data-control="zoom-in"]'],
-      title: 'Reveal workplane titles',
+      title: 'Reveal readable workplane titles',
     });
 
     await this.zoomOnboardingDagToLabelPoint(runId);
     await step({
-      body: 'Closer again, local label markers and simplified local links appear across the visible DAG so you can see which workplanes already carry authored content.',
-      detail: 'This label-point LOD keeps the scene light while previewing where the real 2D work lives.',
+      body: 'One band closer, the titled workplanes begin exposing their local label markers. This makes it obvious which nodes already carry internal content before you commit to a 2D handoff.',
+      detail: 'Label-point is the preview band: more detail than title-only, but still light enough to read the wider DAG.',
       stepId: 'label-point',
       targetSelectors: ['button[data-control="zoom-in"]'],
-      title: 'Reveal label points',
+      title: 'Reveal label markers and local link hints',
     });
 
     await this.zoomOnboardingDagToFullWorkplane(runId);
     await step({
-      body: 'At the closest 3D zoom, the selected workplane becomes a readable plane with visible text, local links, and a clear place in the wider graph.',
-      detail: 'This is the last pure 3D LOD band before Linker hands the view off to plane-focus detail.',
+      body: 'At the closest 3D band, one workplane becomes fully readable without leaving the DAG view. Titles, local text, and local lines all stay legible while the graph context remains around it.',
+      detail: `This is the bridge into detailed editing: ${firstLeafTitle} is readable as a plane, but it is still visibly stitched into the wider DAG.`,
       stepId: 'full-workplane',
       targetSelectors: ['button[data-control="zoom-in"]'],
-      title: 'Read one workplane in 3D',
+      title: 'Read one full workplane in 3D',
     });
 
     await this.openOnboardingPlaneFocus(runId);
     await step({
-      body: 'One more step drops straight into the same workplane in 2D so the local labels and local links become fully readable and editable.',
-      detail: 'This is the DAG-to-workplane handoff: 3D gets you there, then plane-focus takes over for detailed CRUD.',
+      body: 'Pressing / swaps cleanly from the 3D full-workplane band into the same workplane in 2D. The camera handoff should feel like one continuous zoom instead of a separate tool.',
+      detail: `The focus stays on ${firstLeafTitle}, so the local plane is ready for fast keyboard editing.`,
       stepId: 'plane-focus',
       targetSelectors: ['button[data-stage-mode-action="set-2d-mode"]'],
-      title: 'Hand off into plane-focus',
+      title: 'Drop into the same workplane in 2D',
     });
 
-    await step({
-      body: 'The Stage pad can lift that same workplane back into 3D, and Next plus Prev still move around the DAG after the return.',
-      detail: 'The camera keeps the active workplane centered so the jump between plane-focus and stack view feels like one continuous map.',
-      stepId: 'stage-next-prev',
-      targetSelectors: [
-        'button[data-stage-mode-action="set-3d-mode"]',
-        'button[data-workplane-action="select-next-workplane"]',
-        'button[data-workplane-action="select-previous-workplane"]',
-      ],
-      title: 'Return to 3D and switch workplanes',
-    });
-    await this.showOnboardingControlPadPage('stage', runId);
-    await this.clickOnboardingButton('button[data-stage-mode-action="set-3d-mode"]', runId, {
-      waitForCamera: true,
-    });
-    await this.clickOnboardingButton('button[data-workplane-action="select-next-workplane"]', runId);
-    await this.clickOnboardingButton('button[data-workplane-action="select-previous-workplane"]', runId);
-
-    await step({
-      body: 'The View pad controls 3D text and line style, and then Menu returns the user to the five main pads at the end of the tour.',
-      detail: 'After the style pass, Root and Reset bring the guided intro back to the clean title-only overview.',
-      stepId: 'styles-finish',
-      targetSelectors: [
-        'button[data-line-strategy="arc-links"]',
-        'button[data-text-strategy="sdf-soft"]',
-        'button[data-control-pad-action="open-menu"]',
-      ],
-      title: 'Change styles and reopen the menu',
-    });
-    await this.showOnboardingControlPadPage('view', runId);
-    await this.clickOnboardingButton('button[data-line-strategy="arc-links"]', runId);
-    await this.clickOnboardingButton('button[data-line-strategy="rounded-step-links"]', runId);
-    await this.clickOnboardingButton('button[data-text-strategy="sdf-soft"]', runId);
-    await this.clickOnboardingButton('button[data-text-strategy="sdf-instanced"]', runId);
-    await this.focusRootWithOnboarding(runId);
     await this.showOnboardingControlPadPage('navigate', runId);
-    await this.clickOnboardingButton('button[data-control="reset-camera"]', runId, {waitForCamera: true});
+    await this.pressOnboardingHotkey(
+      runId,
+      {code: 'ArrowRight', key: 'ArrowRight'},
+      {highlightSelector: 'button[data-control="pan-right"]', waitForCamera: false},
+    );
+    await this.showOnboardingControlPadPage('edit', runId);
+    await this.pressOnboardingHotkey(
+      runId,
+      {code: 'Enter', key: 'Enter'},
+      {highlightSelector: 'button[data-editor-shortcut="toggle-selection-or-create"]', waitForCamera: false},
+    );
+    await this.typeOnboardingFocusedLabel(runId, localDetailTitle);
+    await this.pressOnboardingHotkey(
+      runId,
+      {code: 'Enter', key: 'Enter'},
+      {highlightSelector: 'button[data-editor-shortcut="toggle-selection-or-create"]', waitForCamera: false},
+    );
+    await this.showOnboardingControlPadPage('navigate', runId);
+    await this.pressOnboardingHotkey(
+      runId,
+      {code: 'ArrowLeft', key: 'ArrowLeft'},
+      {highlightSelector: 'button[data-control="pan-left"]', waitForCamera: false},
+    );
+    await this.showOnboardingControlPadPage('edit', runId);
+    await this.pressOnboardingHotkey(
+      runId,
+      {code: 'Enter', key: 'Enter'},
+      {highlightSelector: 'button[data-editor-shortcut="toggle-selection-or-create"]', waitForCamera: false},
+    );
+    await this.pressOnboardingHotkey(
+      runId,
+      {code: 'Enter', key: 'Enter', shiftKey: true},
+      {highlightSelector: 'button[data-editor-action="link-selection"]', waitForCamera: false},
+    );
+    await this.pressOnboardingHotkey(
+      runId,
+      {code: 'Escape', key: 'Escape'},
+      {highlightSelector: 'button[data-editor-action="clear-selection"]', waitForCamera: false},
+    );
+    await step({
+      body: 'The 2D step stays keyboard-first too. Arrow keys move the local cursor, Enter creates or selects, Shift plus Enter links the ranked pair, and Escape clears the selection without removing the authored result.',
+      detail: `${localDetailTitle} is now linked inside ${firstLeafTitle}, proving the DAG node can be stitched internally after it was created and titled in 3D.`,
+      stepId: 'local-fill',
+      targetSelectors: [
+        'button[data-editor-shortcut="toggle-selection-or-create"]',
+        'button[data-editor-action="link-selection"]',
+        'button[data-editor-action="clear-selection"]',
+      ],
+      title: 'Fill and link one workplane in 2D',
+    });
+
+    await this.showOnboardingControlPadPage('stage', runId);
+    await this.pressOnboardingHotkey(
+      runId,
+      {code: 'Slash', key: '/'},
+      {highlightSelector: 'button[data-stage-mode-action="set-3d-mode"]'},
+    );
+    await this.focusRootWithOnboarding(runId);
     await this.zoomOnboardingDagToTitleOnly(runId);
     await this.showOnboardingControlPadPage('menu', runId);
+    await step({
+      body: 'Press / to lift the same workplane back into the DAG, then use F to recenter the root. The walkthrough ends on a readable five-node title view with the menu reopened for the next manual action.',
+      detail: `The graph now has titled nodes in 3D and one internal ${localDetailTitle} link in 2D, so both levels of CRUD are already visible in one finished scene.`,
+      stepId: 'stitched-dag',
+      targetSelectors: [
+        'button[data-control-pad-action="open-menu"]',
+        'button[data-control-pad-target="dag"]',
+        'button[data-control-pad-target="edit"]',
+      ],
+      title: 'Return to the stitched DAG overview',
+    });
     await this.waitForOnboardingIdle(runId, {waitForCamera: false});
   }
 
@@ -2808,7 +2837,13 @@ class LumaStageController {
     }
 
     await this.showOnboardingControlPadPage('stage', runId);
-    await this.clickOnboardingButton('button[data-dag-action="focus-root"]', runId);
+    await this.pressOnboardingHotkey(
+      runId,
+      {code: 'KeyF', key: 'f'},
+      {
+        highlightSelector: 'button[data-dag-action="focus-root"]',
+      },
+    );
   }
 
   private async navigateToWorkplaneByButtons(
@@ -2828,12 +2863,15 @@ class LumaStageController {
       targetIndex > currentIndex
         ? 'select-next-workplane'
         : 'select-previous-workplane';
+    const keyInput =
+      action === 'select-next-workplane'
+        ? {code: 'BracketRight', key: ']'}
+        : {code: 'BracketLeft', key: '['};
 
     for (let step = 0; step < Math.abs(targetIndex - currentIndex); step += 1) {
-      await this.clickOnboardingButton(
-        `button[data-workplane-action="${action}"]`,
-        runId,
-      );
+      await this.pressOnboardingHotkey(runId, keyInput, {
+        highlightSelector: `button[data-workplane-action="${action}"]`,
+      });
     }
   }
 
@@ -2883,27 +2921,6 @@ class LumaStageController {
     );
   }
 
-  private async authorOnboardingLinkedPair(
-    runId: number,
-    labels: readonly [string, string],
-  ): Promise<void> {
-    await this.showOnboardingControlPadPage('edit', runId);
-    await this.clickOnboardingButton('button[data-editor-shortcut="toggle-selection-or-create"]', runId);
-    await this.typeOnboardingFocusedLabel(runId, labels[0]);
-    await this.showOnboardingControlPadPage('navigate', runId);
-    await this.clickOnboardingButton('button[data-control="pan-right"]', runId);
-    await this.showOnboardingControlPadPage('edit', runId);
-    await this.clickOnboardingButton('button[data-editor-shortcut="toggle-selection-or-create"]', runId);
-    await this.typeOnboardingFocusedLabel(runId, labels[1]);
-    await this.clickOnboardingButton('button[data-editor-shortcut="toggle-selection-or-create"]', runId);
-    await this.showOnboardingControlPadPage('navigate', runId);
-    await this.clickOnboardingButton('button[data-control="pan-left"]', runId);
-    await this.showOnboardingControlPadPage('edit', runId);
-    await this.clickOnboardingButton('button[data-editor-shortcut="toggle-selection-or-create"]', runId);
-    await this.clickOnboardingButton('button[data-editor-action="link-selection"]', runId);
-    await this.clickOnboardingButton('button[data-editor-action="clear-selection"]', runId);
-  }
-
   private async zoomOnboardingDagToGraphOverview(runId: number): Promise<void> {
     await this.showOnboardingControlPadPage('navigate', runId);
 
@@ -2921,9 +2938,14 @@ class LumaStageController {
         return;
       }
 
-      await this.clickOnboardingButton('button[data-control="zoom-out"]', runId, {
-        waitForCamera: true,
-      });
+      await this.pressOnboardingHotkey(
+        runId,
+        {code: 'ArrowDown', key: 'ArrowDown', shiftKey: true},
+        {
+          highlightSelector: 'button[data-control="zoom-out"]',
+          waitForCamera: true,
+        }
+      );
     }
 
     throw new Error('Timed out while waiting for the onboarding DAG graph overview.');
@@ -2951,9 +2973,16 @@ class LumaStageController {
           ? 'zoom-in'
           : 'zoom-out';
 
-      await this.clickOnboardingButton(`button[data-control="${action}"]`, runId, {
-        waitForCamera: true,
-      });
+      await this.pressOnboardingHotkey(
+        runId,
+        action === 'zoom-in'
+          ? {code: 'ArrowUp', key: 'ArrowUp', shiftKey: true}
+          : {code: 'ArrowDown', key: 'ArrowDown', shiftKey: true},
+        {
+          highlightSelector: `button[data-control="${action}"]`,
+          waitForCamera: true,
+        }
+      );
     }
 
     throw new Error('Timed out while waiting for the onboarding DAG title-only view.');
@@ -2973,11 +3002,14 @@ class LumaStageController {
         return;
       }
 
-      const action = 'zoom-in';
-
-      await this.clickOnboardingButton(`button[data-control="${action}"]`, runId, {
-        waitForCamera: true,
-      });
+      await this.pressOnboardingHotkey(
+        runId,
+        {code: 'ArrowUp', key: 'ArrowUp', shiftKey: true},
+        {
+          highlightSelector: 'button[data-control="zoom-in"]',
+          waitForCamera: true,
+        }
+      );
     }
 
     throw new Error('Timed out while waiting for the onboarding DAG label-point view.');
@@ -2985,44 +3017,28 @@ class LumaStageController {
 
   private async zoomOnboardingDagToFullWorkplane(runId: number): Promise<void> {
     await this.showOnboardingControlPadPage('navigate', runId);
-    let redirectedToDetailLeaf = false;
 
     for (let attempt = 0; attempt < 16; attempt += 1) {
       const dagSnapshot = this.getDagSnapshotState(true);
-      const lineVisibleLinkCount = this.lineLayer?.getStats().lineVisibleLinkCount ?? 0;
       const visibleGlyphCount = this.textLayer?.getStats().visibleGlyphCount ?? 0;
 
       if (
         this.state.session.stageMode === '3d-mode' &&
         dagSnapshot &&
         dagSnapshot.fullWorkplaneCount > 0 &&
-        lineVisibleLinkCount > dagSnapshot.visibleEdgeCount &&
         visibleGlyphCount > dagSnapshot.visibleWorkplaneCount
       ) {
-        if (!this.getEffectiveCameraAvailability().canZoomIn) {
-          return;
-        }
+        return;
       }
 
-      const action =
-        dagSnapshot && dagSnapshot.fullWorkplaneCount > 0
-          ? 'zoom-out'
-          : 'zoom-in';
-
-      if (action === 'zoom-in' && !this.getEffectiveCameraAvailability().canZoomIn) {
-        if (!redirectedToDetailLeaf) {
-          redirectedToDetailLeaf = true;
-          await this.navigateToWorkplaneByButtons('wp-10', runId);
-          await this.showOnboardingControlPadPage('navigate', runId);
-          continue;
+      await this.pressOnboardingHotkey(
+        runId,
+        {code: 'ArrowUp', key: 'ArrowUp', shiftKey: true},
+        {
+          highlightSelector: 'button[data-control="zoom-in"]',
+          waitForCamera: true,
         }
-
-        break;
-      }
-
-      await this.clickOnboardingButton(`button[data-control="${action}"]`, runId, {
-        waitForCamera: true,
-      });
+      );
     }
 
     throw new Error('Timed out while waiting for the onboarding 3D full workplane detail view.');
@@ -3030,17 +3046,20 @@ class LumaStageController {
 
   private async openOnboardingPlaneFocus(runId: number): Promise<void> {
     await this.showOnboardingControlPadPage('stage', runId);
-    await this.clickOnboardingButton('button[data-stage-mode-action="set-2d-mode"]', runId, {
-      waitForCamera: true,
-    });
+    await this.pressOnboardingHotkey(
+      runId,
+      {code: 'Slash', key: '/'},
+      {
+        highlightSelector: 'button[data-stage-mode-action="set-2d-mode"]',
+        waitForCamera: true,
+      }
+    );
 
     for (let attempt = 0; attempt < 24; attempt += 1) {
-      const lineVisibleLinkCount = this.lineLayer?.getStats().lineVisibleLinkCount ?? 0;
       const visibleGlyphCount = this.textLayer?.getStats().visibleGlyphCount ?? 0;
 
       if (
         this.state.session.stageMode === '2d-mode' &&
-        lineVisibleLinkCount > 0 &&
         visibleGlyphCount > 0
       ) {
         return;
@@ -3082,6 +3101,52 @@ class LumaStageController {
     });
   }
 
+  private async pressOnboardingHotkey(
+    runId: number,
+    input: {
+      code: string;
+      key: string;
+      shiftKey?: boolean;
+    },
+    options?: {
+      highlightSelector?: string;
+      settleMs?: number;
+      waitForCamera?: boolean;
+    },
+  ): Promise<void> {
+    this.ensureOnboardingRunActive(runId);
+    const highlightElement = options?.highlightSelector
+      ? document.querySelector<HTMLElement>(options.highlightSelector)
+      : null;
+
+    if (highlightElement) {
+      highlightElement.dataset.onboardHighlight = 'true';
+      highlightElement.dataset.onboardPress = 'true';
+      highlightElement.focus?.({preventScroll: true});
+    } else if (document.activeElement instanceof HTMLElement) {
+      document.activeElement.blur();
+    }
+
+    await this.waitOnboardingDelay(runId, options?.settleMs ?? 110);
+    window.dispatchEvent(
+      new KeyboardEvent('keydown', {
+        bubbles: true,
+        cancelable: true,
+        code: input.code,
+        key: input.key,
+        shiftKey: input.shiftKey ?? false,
+      }),
+    );
+
+    if (highlightElement) {
+      delete highlightElement.dataset.onboardPress;
+    }
+
+    await this.waitForOnboardingIdle(runId, {
+      waitForCamera: options?.waitForCamera ?? true,
+    });
+  }
+
   private async typeOnboardingFocusedLabel(
     runId: number,
     value: string,
@@ -3113,7 +3178,8 @@ class LumaStageController {
     }
 
     await this.waitOnboardingDelay(runId, ONBOARDING_TYPING_SETTLE_MS);
-    await this.clickOnboardingButton('[data-testid="label-input-submit"]', runId);
+    input.form?.requestSubmit();
+    await this.waitForOnboardingIdle(runId, {waitForCamera: false});
   }
 
   private async waitForOnboardingIdle(
@@ -3147,8 +3213,12 @@ class LumaStageController {
     durationMs: number,
   ): Promise<void> {
     this.ensureOnboardingRunActive(runId);
+    const effectiveDurationMs =
+      this.motionPreference === 'reduced'
+        ? Math.min(durationMs, 48)
+        : durationMs;
     await new Promise<void>((resolve) => {
-      window.setTimeout(() => resolve(), durationMs);
+      window.setTimeout(() => resolve(), effectiveDurationMs);
     });
     this.ensureOnboardingRunActive(runId);
     await this.waitForAnimationFrames(1);
@@ -3384,26 +3454,55 @@ class LumaStageController {
   }
 
   private getEditableLabelHint(): string {
-    if (this.state.session.stageMode === '3d-mode') {
-      return '3D locked';
-    }
-
     if (this.config.labelSetKind !== 'demo') {
       return 'Demo only';
+    }
+
+    return this.getEditableLabelTarget()?.hint ?? 'No focus';
+  }
+
+  private getEditableLabelTarget(): EditableLabelTarget | null {
+    if (this.config.labelSetKind !== 'demo') {
+      return null;
+    }
+
+    if (this.state.session.stageMode === '3d-mode') {
+      const workplaneId = this.state.session.activeWorkplaneId;
+      const titleLabelKey = buildLabelKey(workplaneId, 1, 1, 1);
+      const titleLabel = this.scene.labels.find(
+        (label) => label.navigation?.key === titleLabelKey,
+      );
+
+      return {
+        hint: `Title ${workplaneId}`,
+        key: titleLabelKey,
+        mode: '3d-title',
+        text: titleLabel?.text ?? '',
+      };
     }
 
     const focusedLabel = this.getFocusedEditorLabel();
     const editorCursor = this.getEditorCursor();
 
     if (!editorCursor) {
-      return 'No focus';
+      return null;
     }
 
     if (!focusedLabel) {
-      return `Ghost ${editorCursor.key}`;
+      return {
+        hint: `Ghost ${editorCursor.key}`,
+        key: editorCursor.key,
+        mode: '2d-label',
+        text: '',
+      };
     }
 
-    return `Label ${focusedLabel.navigation?.key ?? editorCursor.key}`;
+    return {
+      hint: `Label ${focusedLabel.navigation?.key ?? editorCursor.key}`,
+      key: focusedLabel.navigation?.key ?? editorCursor.key,
+      mode: '2d-label',
+      text: focusedLabel.text,
+    };
   }
 
   private findSceneLabelByKey(labelKey: string): StageScene['labels'][number] | null {
@@ -3441,30 +3540,28 @@ class LumaStageController {
   }
 
   private syncLabelInputPanel(options?: {forceValue?: boolean}): void {
-    const focusedLabel = this.getFocusedEditorLabel();
-    const focusedLabelKey = focusedLabel?.navigation?.key ?? null;
+    const editableTarget = this.getEditableLabelTarget();
     const input = this.chrome.labelInputField;
     const submitButton = this.chrome.labelInputSubmitButton;
     const shouldDisableInput =
       this.labelInputPending ||
-      this.state.session.stageMode === '3d-mode' ||
       this.workplaneSyncPending ||
       this.config.labelSetKind !== 'demo' ||
-      focusedLabel === null ||
+      editableTarget === null ||
       document.body.dataset.benchmarkState === 'running';
     const shouldSyncValue =
       Boolean(options?.forceValue) ||
-      focusedLabelKey !== this.labelInputSyncedKey ||
+      editableTarget?.key !== this.labelInputSyncedKey ||
       (!shouldDisableInput &&
         document.activeElement !== input &&
-        focusedLabel !== null &&
-        focusedLabel.text !== this.labelInputSyncedText);
+        editableTarget !== null &&
+        editableTarget.text !== this.labelInputSyncedText);
 
     this.chrome.labelInputHint.textContent = this.getEditableLabelHint();
     input.disabled = shouldDisableInput;
     submitButton.disabled = shouldDisableInput;
 
-    if (!focusedLabel) {
+    if (!editableTarget) {
       this.labelInputSyncedKey = null;
       this.labelInputSyncedText = '';
 
@@ -3476,11 +3573,11 @@ class LumaStageController {
     }
 
     if (shouldSyncValue) {
-      input.value = focusedLabel.text;
+      input.value = editableTarget.text;
     }
 
-    this.labelInputSyncedKey = focusedLabelKey;
-    this.labelInputSyncedText = focusedLabel.text;
+    this.labelInputSyncedKey = editableTarget.key;
+    this.labelInputSyncedText = editableTarget.text;
   }
 
   private async updateFocusedLabelText(labelKey: string, nextText: string): Promise<void> {
@@ -3546,6 +3643,97 @@ class LumaStageController {
     }
   }
 
+  private updateActiveWorkplaneTitleText(
+    labelKey: string,
+    nextText: string,
+  ): void {
+    if (this.config.labelSetKind !== 'demo') {
+      return;
+    }
+
+    const activeWorkplaneId = this.state.session.activeWorkplaneId;
+    const currentWorkplane = this.state.document.workplanesById[activeWorkplaneId];
+
+    if (!currentWorkplane) {
+      return;
+    }
+
+    const normalizedText = nextText.trim();
+    let nextScene = cloneStageScene(currentWorkplane.scene);
+    let titleLabel =
+      nextScene.labels.find((label) => label.navigation?.key === labelKey) ?? null;
+
+    if (!titleLabel && normalizedText.length > 0) {
+      const mutation = addLabelAtStageEditorCursor(nextScene, {
+        cursor: {
+          column: 1,
+          key: labelKey,
+          kind: 'ghost',
+          layer: 1,
+          row: 1,
+          workplaneId: activeWorkplaneId,
+        },
+        selectedLabelKeys: [],
+      });
+
+      if (!mutation.changed) {
+        this.syncLabelInputPanel({forceValue: true});
+        return;
+      }
+
+      nextScene = mutation.scene;
+      titleLabel =
+        nextScene.labels.find((label) => label.navigation?.key === labelKey) ?? null;
+    }
+
+    if (!titleLabel) {
+      this.syncLabelInputPanel({forceValue: true});
+      return;
+    }
+
+    const nextSceneTitleText =
+      normalizedText.length > 0
+        ? normalizedText
+        : (titleLabel.navigation?.key ?? titleLabel.text);
+
+    if (titleLabel.text === nextSceneTitleText) {
+      this.syncLabelInputPanel({forceValue: true});
+      return;
+    }
+
+    titleLabel.text = nextSceneTitleText;
+    const nextOverrideText =
+      normalizedText.length > 0 && normalizedText !== (titleLabel.navigation?.key ?? '')
+        ? normalizedText
+        : null;
+
+    this.labelInputPending = true;
+    this.syncLabelInputPanel();
+
+    try {
+      let nextState = cloneStageSystemState(this.state);
+      nextState = replaceWorkplaneScene(nextState, activeWorkplaneId, nextScene);
+      nextState = replaceWorkplaneLabelTextOverride(
+        nextState,
+        activeWorkplaneId,
+        labelKey,
+        nextOverrideText,
+      );
+      nextState = replaceWorkplaneView(nextState, activeWorkplaneId, {
+        ...nextState.session.workplaneViewsById[activeWorkplaneId],
+        selectedLabelKey: labelKey,
+      });
+
+      this.benchmarkSummary = null;
+      document.body.dataset.benchmarkError = '';
+      document.body.dataset.benchmarkState = this.config.benchmarkEnabled ? 'pending' : 'disabled';
+      this.applyStageSystemState(nextState, {forceLabelInput: true, syncQuery: true});
+    } finally {
+      this.labelInputPending = false;
+      this.syncLabelInputPanel({forceValue: true});
+    }
+  }
+
   private captureActiveWorkplaneRuntimeState(state: StageSystemState): StageSystemState {
     return replaceWorkplaneView(state, state.session.activeWorkplaneId, {
       selectedLabelKey: this.getFocusedEditorLabelKey(),
@@ -3553,7 +3741,10 @@ class LumaStageController {
     });
   }
 
-  private applyStageModeAction(action: StageModeAction): void {
+  private applyStageModeAction(
+    action: StageModeAction,
+    options?: {persist?: boolean},
+  ): void {
     if (this.workplaneSyncPending || this.labelInputPending) {
       return;
     }
@@ -3570,6 +3761,10 @@ class LumaStageController {
       forceLabelInput: true,
       syncQuery: true,
     });
+
+    if (options?.persist !== false) {
+      writeStoredAppSettings({preferredStageMode: nextState.session.stageMode});
+    }
   }
 
   private applyStageSystemState(

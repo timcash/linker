@@ -1,5 +1,6 @@
-import type {
+﻿import type {
   CodexMailMessage,
+  CodexMailThreadAction,
   CodexMailThreadDetail,
   CodexMailThreadSummary,
   CodexMailView,
@@ -11,13 +12,23 @@ interface CodexMailboardViewCallbacks {
   onSelectView: (viewId: CodexMailViewId) => void;
   onSelectThread: (threadId: string) => void;
   onRefresh: () => void;
-  onMarkRead: () => void;
+  onClearSearch: () => void;
+  onSearchSubmit: (query: string) => void;
   onToggleCompose: () => void;
+  onApplyThreadAction: (action: CodexMailThreadAction) => void;
   onSendReply: (input: {body: string; messageId: string | null}) => void;
   onSendCompose: (input: {to: string; subject: string; body: string}) => void;
 }
 
-const VIEW_BUTTON_IDS: CodexMailViewId[] = ['inbox', 'needs-reply', 'waiting', 'queued', 'working', 'done'];
+const VIEW_BUTTON_IDS: CodexMailViewId[] = ['inbox', 'unread', 'starred', 'sent', 'all-mail', 'codex'];
+const DETAIL_ACTION_ORDER: CodexMailThreadAction[] = [
+  'mark-read',
+  'mark-unread',
+  'star',
+  'unstar',
+  'archive',
+  'move-to-inbox',
+];
 
 export class CodexMailboardView {
   private readonly root: HTMLDivElement;
@@ -25,6 +36,7 @@ export class CodexMailboardView {
   private shell: HTMLDivElement | null = null;
   private lockOverlay: HTMLDivElement | null = null;
   private unlockButton: HTMLButtonElement | null = null;
+  private authorizeLink: HTMLAnchorElement | null = null;
   private statusValue: HTMLParagraphElement | null = null;
   private mailboxValue: HTMLParagraphElement | null = null;
   private healthValue: HTMLParagraphElement | null = null;
@@ -32,6 +44,9 @@ export class CodexMailboardView {
   private currentViewValue: HTMLParagraphElement | null = null;
   private threadList: HTMLDivElement | null = null;
   private threadPanel: HTMLDivElement | null = null;
+  private searchForm: HTMLFormElement | null = null;
+  private searchInput: HTMLInputElement | null = null;
+  private clearSearchButton: HTMLButtonElement | null = null;
   private replyTextarea: HTMLTextAreaElement | null = null;
   private replyButton: HTMLButtonElement | null = null;
   private composePanel: HTMLDivElement | null = null;
@@ -41,9 +56,10 @@ export class CodexMailboardView {
   private composeSendButton: HTMLButtonElement | null = null;
   private actionButtons = new Map<string, HTMLButtonElement>();
   private viewButtons = new Map<CodexMailViewId, HTMLButtonElement>();
-  private selectedThreadId: string | null = null;
+  private threadActionButtons = new Map<CodexMailThreadAction, HTMLButtonElement>();
   private composeOpen = false;
   private locked = true;
+  private searchQuery = '';
 
   constructor(root: HTMLDivElement, callbacks: CodexMailboardViewCallbacks) {
     this.root = root;
@@ -57,12 +73,10 @@ export class CodexMailboardView {
     this.root.innerHTML = `
       <div class="codex-mail-shell codex-mail-shell--locked">
         <header class="codex-mail-topbar">
-          <a class="codex-mail-back-link" href="../">Linker</a>
-          <div class="codex-mail-topbar-copy">
+          <section class="codex-mail-topbar-copy">
             <p class="codex-mail-eyebrow">Codex Mailboard</p>
-            <h1 class="codex-mail-title">One shared mailbox, one shared daemon.</h1>
-            <p class="codex-mail-lede">Unlock with <code>Cloudflare Access</code>, then browse the shared gmail-agent inbox, reply in-thread, and draft new mail without leaving the page.</p>
-          </div>
+            <h1 class="codex-mail-title">Shared Gmail inbox.</h1>
+          </section>
         </header>
 
         <section class="codex-mail-meta-grid">
@@ -91,8 +105,17 @@ export class CodexMailboardView {
         <section class="codex-mail-main">
           <div class="codex-thread-list-shell">
             <div class="codex-thread-list-header">
-              <p class="codex-section-label">Threads</p>
-              <p class="codex-thread-list-note">A compact view of the shared mailbox state.</p>
+              <p class="codex-section-label">Inbox Search</p>
+              <form class="codex-mail-search-form" data-codex-search-form>
+                <input
+                  class="codex-form-input codex-mail-search-input"
+                  type="search"
+                  data-codex-search-input
+                  placeholder="Search the mailbox"
+                />
+                <button class="codex-mail-inline-button" type="submit" data-codex-search-submit>Search</button>
+                <button class="codex-mail-inline-button" type="button" data-codex-clear-search>Clear</button>
+              </form>
             </div>
             <div class="codex-thread-list" data-codex-thread-list>
               <p class="codex-thread-empty">Unlock the mailboard to load the mailbox list.</p>
@@ -101,8 +124,8 @@ export class CodexMailboardView {
 
           <div class="codex-thread-panel" data-codex-thread-panel>
             <div class="codex-thread-empty-state">
-              <p class="codex-section-label">Conversation</p>
-              <p>Select a thread to inspect the email text, task history, and reply tools.</p>
+              <p class="codex-section-label">Thread</p>
+              <p>Select a Gmail thread to inspect messages, labels, and inbox actions.</p>
             </div>
           </div>
 
@@ -110,8 +133,10 @@ export class CodexMailboardView {
             <div class="codex-mail-lock-card">
               <p class="codex-mail-lock-eyebrow">Cloudflare Access</p>
               <h2 class="codex-mail-lock-title">Unlock the shared gmail-agent mailbox.</h2>
-              <p class="codex-mail-lock-copy">The page does not carry its own password anymore. The same Access session unlocks the browser view and the remote mail API.</p>
-              <button class="codex-mail-primary-button" type="button" data-codex-unlock-button>Unlock With Cloudflare Access</button>
+              <div class="codex-mail-lock-actions" data-codex-lock-actions>
+                <button class="codex-mail-primary-button" type="button" data-codex-unlock-button>Unlock With Cloudflare Access</button>
+                <a class="codex-mail-secondary-link" data-codex-authorize-link href="https://codex.dialtone.earth/codex/" target="_blank" rel="noopener noreferrer">Sign In With Cloudflare</a>
+              </div>
               <p class="codex-mail-lock-message" data-codex-unlock-message>Waiting for Cloudflare Access.</p>
             </div>
           </div>
@@ -126,6 +151,7 @@ export class CodexMailboardView {
     this.shell = this.root.querySelector('.codex-mail-shell');
     this.lockOverlay = this.root.querySelector('[data-codex-lock]');
     this.unlockButton = this.root.querySelector('[data-codex-unlock-button]');
+    this.authorizeLink = this.root.querySelector('[data-codex-authorize-link]');
     this.statusValue = this.root.querySelector('[data-codex-status]');
     this.mailboxValue = this.root.querySelector('[data-codex-mailbox]');
     this.healthValue = this.root.querySelector('[data-codex-health]');
@@ -133,6 +159,9 @@ export class CodexMailboardView {
     this.currentViewValue = this.root.querySelector('[data-codex-view]');
     this.threadList = this.root.querySelector('[data-codex-thread-list]');
     this.threadPanel = this.root.querySelector('[data-codex-thread-panel]');
+    this.searchForm = this.root.querySelector('[data-codex-search-form]');
+    this.searchInput = this.root.querySelector('[data-codex-search-input]');
+    this.clearSearchButton = this.root.querySelector('[data-codex-clear-search]');
     this.composePanel = null;
     this.composeToInput = null;
     this.composeSubjectInput = null;
@@ -142,9 +171,12 @@ export class CodexMailboardView {
     this.replyButton = null;
     this.actionButtons.clear();
     this.viewButtons.clear();
+    this.threadActionButtons.clear();
 
     this.unlockButton?.addEventListener('click', this.callbacks.onUnlock);
     this.threadList?.addEventListener('click', this.handleThreadListClick);
+    this.searchForm?.addEventListener('submit', this.handleSearchSubmit);
+    this.clearSearchButton?.addEventListener('click', this.callbacks.onClearSearch);
 
     for (const viewId of VIEW_BUTTON_IDS) {
       const button = this.root.querySelector<HTMLButtonElement>(`[data-codex-view-button="${viewId}"]`);
@@ -156,7 +188,7 @@ export class CodexMailboardView {
       }
     }
 
-    for (const actionId of ['refresh', 'compose', 'mark-read']) {
+    for (const actionId of ['refresh', 'compose', 'clear-search']) {
       const button = this.root.querySelector<HTMLButtonElement>(`[data-codex-action-button="${actionId}"]`);
       if (button) {
         this.actionButtons.set(actionId, button);
@@ -165,10 +197,11 @@ export class CodexMailboardView {
 
     this.actionButtons.get('refresh')?.addEventListener('click', this.callbacks.onRefresh);
     this.actionButtons.get('compose')?.addEventListener('click', this.callbacks.onToggleCompose);
-    this.actionButtons.get('mark-read')?.addEventListener('click', this.callbacks.onMarkRead);
+    this.actionButtons.get('clear-search')?.addEventListener('click', this.callbacks.onClearSearch);
 
     this.setComposeOpen(false);
-    this.setThreadActionAvailability(false);
+    this.setThreadActionsPending(false);
+    this.setSearchQuery('');
     this.setLockState(true, 'Waiting for Cloudflare Access.');
   }
 
@@ -180,6 +213,18 @@ export class CodexMailboardView {
 
   public focusUnlock(): void {
     this.unlockButton?.focus();
+  }
+
+  public setAuthorizeLink(input: {
+    href: string;
+    label: string;
+  }): void {
+    if (!this.authorizeLink) {
+      return;
+    }
+
+    this.authorizeLink.href = input.href;
+    this.authorizeLink.textContent = input.label;
   }
 
   public setStatus(message: string): void {
@@ -212,6 +257,23 @@ export class CodexMailboardView {
     }
   }
 
+  public setSearchQuery(query: string): void {
+    this.searchQuery = query;
+
+    if (this.searchInput && this.searchInput.value !== query) {
+      this.searchInput.value = query;
+    }
+
+    const clearSearchAction = this.actionButtons.get('clear-search');
+    if (clearSearchAction) {
+      clearSearchAction.disabled = this.locked || query.trim().length === 0;
+    }
+
+    if (this.clearSearchButton) {
+      this.clearSearchButton.disabled = this.locked || query.trim().length === 0;
+    }
+  }
+
   public setUnlockPending(isPending: boolean, label: string): void {
     if (this.unlockButton) {
       this.unlockButton.disabled = isPending;
@@ -234,13 +296,21 @@ export class CodexMailboardView {
       button.disabled = locked;
     }
 
-    for (const [actionId, button] of this.actionButtons.entries()) {
-      if (actionId === 'refresh' || actionId === 'compose') {
-        button.disabled = locked;
-      }
+    for (const button of this.actionButtons.values()) {
+      button.disabled = locked;
     }
 
-    this.setThreadActionAvailability(!locked && Boolean(this.selectedThreadId));
+    if (this.searchInput) {
+      this.searchInput.disabled = locked;
+    }
+
+    const searchSubmit = this.root.querySelector<HTMLButtonElement>('[data-codex-search-submit]');
+    if (searchSubmit) {
+      searchSubmit.disabled = locked;
+    }
+
+    this.setSearchQuery(this.searchQuery);
+    this.setThreadActionsPending(false);
   }
 
   public setViews(views: CodexMailView[], activeViewId: CodexMailViewId): void {
@@ -259,20 +329,24 @@ export class CodexMailboardView {
   }
 
   public setThreads(threads: CodexMailThreadSummary[], selectedThreadId: string | null): void {
-    this.selectedThreadId = selectedThreadId;
     if (!this.threadList) {
       return;
     }
 
     if (threads.length === 0) {
-      this.threadList.innerHTML = `<p class="codex-thread-empty">No threads match the current view.</p>`;
-      this.setThreadActionAvailability(false);
+      this.threadList.innerHTML = `<p class="codex-thread-empty">No threads match the current mailbox view.</p>`;
+      this.setThreadActionsPending(false);
       return;
     }
 
     this.threadList.innerHTML = threads
       .map((thread) => {
         const isActive = thread.threadId === selectedThreadId;
+        const meta = [thread.from || '(unknown sender)', formatDateLabel(thread.updatedAt)]
+          .filter(Boolean)
+          .join(' | ');
+        const chips = buildThreadChips(thread);
+
         return `
           <button
             type="button"
@@ -280,14 +354,15 @@ export class CodexMailboardView {
             data-codex-thread-id="${escapeHtml(thread.threadId)}"
           >
             <span class="codex-thread-row-subject">${escapeHtml(thread.subject)}</span>
-            <span class="codex-thread-row-meta">${escapeHtml(thread.badges.join(' · ') || 'thread')}</span>
+            <span class="codex-thread-row-meta">${escapeHtml(meta)}</span>
+            ${chips ? `<span class="codex-thread-chip-row">${chips}</span>` : ''}
             <span class="codex-thread-row-excerpt">${escapeHtml(thread.excerpt)}</span>
           </button>
         `;
       })
       .join('');
 
-    this.setThreadActionAvailability(!this.locked && Boolean(selectedThreadId));
+    this.setThreadActionsPending(false);
   }
 
   public setThreadDetail(detail: CodexMailThreadDetail | null): void {
@@ -295,11 +370,13 @@ export class CodexMailboardView {
       return;
     }
 
+    this.threadActionButtons.clear();
+
     if (!detail) {
       this.threadPanel.innerHTML = `
         <div class="codex-thread-empty-state">
-          <p class="codex-section-label">Conversation</p>
-          <p>Select a thread to inspect the email text, task history, and reply tools.</p>
+          <p class="codex-section-label">Thread</p>
+          <p>Select a Gmail thread to inspect messages, labels, and inbox actions.</p>
         </div>
       `;
       this.composePanel = null;
@@ -312,23 +389,37 @@ export class CodexMailboardView {
       return;
     }
 
+    const summaryMeta = [detail.summary.from || '(unknown sender)', formatDateLabel(detail.summary.updatedAt)]
+      .filter(Boolean)
+      .join(' | ');
+    const threadChips = buildThreadChips(detail.summary);
+    const actionButtons = renderThreadActions(detail);
+
     this.threadPanel.innerHTML = `
       <div class="codex-thread-detail">
         <header class="codex-thread-detail-header">
-          <p class="codex-section-label">Conversation</p>
+          <p class="codex-section-label">Thread</p>
           <h2 class="codex-thread-detail-title">${escapeHtml(detail.summary.subject)}</h2>
-          <p class="codex-thread-detail-meta">${escapeHtml(detail.summary.badges.join(' · ') || 'mail thread')}</p>
+          <p class="codex-thread-detail-meta">${escapeHtml(summaryMeta)}</p>
+          ${threadChips ? `<div class="codex-thread-chip-row codex-thread-chip-row--detail">${threadChips}</div>` : ''}
           <p class="codex-thread-detail-excerpt">${escapeHtml(detail.summary.excerpt)}</p>
           ${detail.loadError ? `<p class="codex-thread-detail-warning">${escapeHtml(detail.loadError)}</p>` : ''}
         </header>
 
+        <section class="codex-thread-action-panel">
+          <p class="codex-section-label">Inbox Actions</p>
+          <div class="codex-thread-action-grid">
+            ${actionButtons}
+          </div>
+        </section>
+
         <section class="codex-thread-task-list">
-          <p class="codex-section-label">Task History</p>
+          <p class="codex-section-label">Codex Tasks</p>
           ${renderTaskHistory(detail)}
         </section>
 
         <section class="codex-thread-message-list">
-          <p class="codex-section-label">Email Text</p>
+          <p class="codex-section-label">Messages</p>
           ${renderMessages(detail.messages)}
         </section>
 
@@ -359,6 +450,18 @@ export class CodexMailboardView {
     this.composeBodyTextarea = this.threadPanel.querySelector('[data-codex-compose-body]');
     this.composeSendButton = this.threadPanel.querySelector('[data-codex-compose-send]');
 
+    for (const action of DETAIL_ACTION_ORDER) {
+      const button = this.threadPanel.querySelector<HTMLButtonElement>(`[data-codex-thread-action="${action}"]`);
+      if (!button) {
+        continue;
+      }
+
+      this.threadActionButtons.set(action, button);
+      button.addEventListener('click', () => {
+        this.callbacks.onApplyThreadAction(action);
+      });
+    }
+
     this.threadPanel.querySelector('[data-codex-reply-form]')?.addEventListener('submit', (event) => {
       event.preventDefault();
       this.callbacks.onSendReply({
@@ -374,8 +477,8 @@ export class CodexMailboardView {
       });
     });
 
-    this.setThreadActionAvailability(!this.locked && Boolean(this.selectedThreadId));
     this.setComposeOpen(this.composeOpen);
+    this.setThreadActionsPending(false);
   }
 
   public clearReplyDraft(): void {
@@ -401,14 +504,14 @@ export class CodexMailboardView {
   public setReplyPending(isPending: boolean): void {
     if (this.replyButton) {
       this.replyButton.disabled = isPending;
-      this.replyButton.textContent = isPending ? 'Sending Reply…' : 'Send Reply';
+      this.replyButton.textContent = isPending ? 'Sending Reply...' : 'Send Reply';
     }
   }
 
   public setComposePending(isPending: boolean): void {
     if (this.composeSendButton) {
       this.composeSendButton.disabled = isPending;
-      this.composeSendButton.textContent = isPending ? 'Sending…' : 'Send New Mail';
+      this.composeSendButton.textContent = isPending ? 'Sending...' : 'Send New Mail';
     }
   }
 
@@ -418,14 +521,16 @@ export class CodexMailboardView {
     const composeButton = this.actionButtons.get('compose');
     if (composeButton) {
       composeButton.classList.toggle('codex-mail-pad-button--active', isOpen);
-      composeButton.querySelector('span')!.textContent = isOpen ? 'Close' : 'Compose';
+      const label = composeButton.querySelector('span');
+      if (label) {
+        label.textContent = isOpen ? 'Close' : 'Compose';
+      }
     }
   }
 
-  private setThreadActionAvailability(canAct: boolean): void {
-    const markReadButton = this.actionButtons.get('mark-read');
-    if (markReadButton) {
-      markReadButton.disabled = !canAct;
+  public setThreadActionsPending(isPending: boolean): void {
+    for (const button of this.threadActionButtons.values()) {
+      button.disabled = isPending || this.locked;
     }
   }
 
@@ -440,19 +545,24 @@ export class CodexMailboardView {
       this.callbacks.onSelectThread(threadId);
     }
   };
+
+  private readonly handleSearchSubmit = (event: Event): void => {
+    event.preventDefault();
+    this.callbacks.onSearchSubmit(this.searchInput?.value ?? '');
+  };
 }
 
 function renderPadButtons(): string {
   const buttons = [
     {kind: 'view', id: 'inbox', label: 'Inbox'},
-    {kind: 'view', id: 'needs-reply', label: 'Needs Reply'},
-    {kind: 'view', id: 'waiting', label: 'Waiting'},
-    {kind: 'view', id: 'queued', label: 'Queued'},
-    {kind: 'view', id: 'working', label: 'Working'},
-    {kind: 'view', id: 'done', label: 'Done'},
+    {kind: 'view', id: 'unread', label: 'Unread'},
+    {kind: 'view', id: 'starred', label: 'Starred'},
+    {kind: 'view', id: 'sent', label: 'Sent'},
+    {kind: 'view', id: 'all-mail', label: 'All Mail'},
+    {kind: 'view', id: 'codex', label: 'Codex'},
     {kind: 'action', id: 'refresh', label: 'Refresh'},
     {kind: 'action', id: 'compose', label: 'Compose'},
-    {kind: 'action', id: 'mark-read', label: 'Mark Read'},
+    {kind: 'action', id: 'clear-search', label: 'Clear'},
   ] as const;
 
   return buttons
@@ -461,9 +571,36 @@ function renderPadButtons(): string {
         return `<button type="button" class="codex-mail-pad-button" data-codex-view-button="${button.id}"><span>${escapeHtml(button.label)}</span><strong>0</strong></button>`;
       }
 
-      return `<button type="button" class="codex-mail-pad-button" data-codex-action-button="${button.id}"><span>${escapeHtml(button.label)}</span><strong>•</strong></button>`;
+      return `<button type="button" class="codex-mail-pad-button" data-codex-action-button="${button.id}"><span>${escapeHtml(button.label)}</span><strong>*</strong></button>`;
     })
     .join('');
+}
+
+function renderThreadActions(detail: CodexMailThreadDetail): string {
+  const labels: Record<CodexMailThreadAction, string> = {
+    'mark-read': 'Mark Read',
+    'mark-unread': 'Mark Unread',
+    star: 'Star',
+    unstar: 'Unstar',
+    archive: 'Archive',
+    'move-to-inbox': 'Move To Inbox',
+  };
+
+  return DETAIL_ACTION_ORDER.map((action) => {
+    const visible =
+      (action === 'mark-read' && detail.actions.canMarkRead)
+      || (action === 'mark-unread' && detail.actions.canMarkUnread)
+      || (action === 'star' && detail.actions.canStar)
+      || (action === 'unstar' && detail.actions.canUnstar)
+      || (action === 'archive' && detail.actions.canArchive)
+      || (action === 'move-to-inbox' && detail.actions.canMoveToInbox);
+
+    if (!visible) {
+      return '';
+    }
+
+    return `<button type="button" class="codex-thread-action-button" data-codex-thread-action="${action}">${escapeHtml(labels[action])}</button>`;
+  }).join('');
 }
 
 function renderTaskHistory(detail: CodexMailThreadDetail): string {
@@ -473,7 +610,7 @@ function renderTaskHistory(detail: CodexMailThreadDetail): string {
 
   return detail.tasks
     .map((task) => {
-      const meta = [task.status, task.workflowStage, task.requestedAt].filter(Boolean).join(' · ');
+      const meta = [task.status, task.workflowStage, formatDateLabel(task.requestedAt)].filter(Boolean).join(' | ');
       return `
         <article class="codex-task-row">
           <h3>${escapeHtml(task.id)}</h3>
@@ -492,15 +629,58 @@ function renderMessages(messages: CodexMailMessage[]): string {
 
   return messages
     .map((message) => {
-      const meta = [message.from || 'unknown sender', message.sentAt].filter(Boolean).join(' · ');
+      const meta = [message.from || 'unknown sender', formatDateLabel(message.sentAt)].filter(Boolean).join(' | ');
+      const chips = message.labelNames.length
+        ? `<div class="codex-thread-chip-row codex-thread-chip-row--detail">${message.labelNames.map((label) => `<span class="codex-thread-chip">${escapeHtml(label)}</span>`).join('')}</div>`
+        : '';
       return `
         <article class="codex-message-row">
           <p class="codex-message-row-meta">${escapeHtml(meta)}</p>
+          ${chips}
           <pre>${escapeHtml(message.bodyText || message.snippet || '(empty message)')}</pre>
         </article>
       `;
     })
     .join('');
+}
+
+function buildThreadChips(thread: CodexMailThreadSummary): string {
+  const chips = new Set<string>();
+
+  if (thread.unread) {
+    chips.add('Unread');
+  }
+
+  if (thread.starred) {
+    chips.add('Starred');
+  }
+
+  for (const labelName of thread.labelNames.slice(0, 4)) {
+    chips.add(labelName);
+  }
+
+  return Array.from(chips)
+    .slice(0, 4)
+    .map((label) => `<span class="codex-thread-chip">${escapeHtml(label)}</span>`)
+    .join('');
+}
+
+function formatDateLabel(value: string | null): string {
+  if (!value) {
+    return '';
+  }
+
+  const date = new Date(value);
+  if (Number.isNaN(date.valueOf())) {
+    return value;
+  }
+
+  return date.toLocaleString([], {
+    month: 'short',
+    day: 'numeric',
+    hour: 'numeric',
+    minute: '2-digit',
+  });
 }
 
 function escapeHtml(value: string): string {
@@ -511,3 +691,4 @@ function escapeHtml(value: string): string {
     .replaceAll('"', '&quot;')
     .replaceAll("'", '&#39;');
 }
+

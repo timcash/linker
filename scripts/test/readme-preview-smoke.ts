@@ -12,6 +12,9 @@ export async function runReadmePreviewSmokeFlow(
   context.addBrowserLog('test', `Opening README preview route ${readmeUrl}.`);
   await context.page.goto(readmeUrl, {waitUntil: 'load'});
   await context.page.waitForFunction(() => document.body.classList.contains('readme-route'));
+  await context.page.waitForSelector('[data-site-menu-toggle]');
+  await context.page.click('[data-site-menu-toggle]');
+  await context.page.waitForSelector('[data-site-menu-overlay]:not([hidden])');
   await context.page.waitForFunction(() => {
     const preview = document.querySelector('.markdown-preview');
     return preview?.textContent?.includes('Live Onboarding') ?? false;
@@ -25,9 +28,12 @@ export async function runReadmePreviewSmokeFlow(
     return {
       bodyFontFamily: window.getComputedStyle(document.body).fontFamily,
       currentNavLabel:
-        document.querySelector('.site-nav a[aria-current="page"]')?.textContent?.trim() ?? '',
+        document.querySelector('[data-site-menu-link][aria-current="page"]')?.textContent?.trim() ?? '',
       headingCount: document.querySelectorAll('.markdown-preview h2').length,
       imageCount: document.querySelectorAll('.markdown-preview img').length,
+      navLabels: Array.from(document.querySelectorAll<HTMLElement>('[data-site-menu-link]')).map(
+        (link) => link.textContent?.trim() ?? '',
+      ),
       previewText: document.querySelector('.markdown-preview')?.textContent ?? '',
       title: document.title,
       codeFontFamily: codeElement ? window.getComputedStyle(codeElement).fontFamily : '',
@@ -35,7 +41,9 @@ export async function runReadmePreviewSmokeFlow(
   });
 
   assert.equal(previewState.title, 'Linker README', 'The /readme route should set a dedicated page title.');
-  assert.equal(previewState.currentNavLabel, 'README', 'The README preview nav should mark the active route.');
+  assert.match(previewState.currentNavLabel, /README/i, 'The README preview menu should mark the active route.');
+  assert.ok(previewState.navLabels.some((label) => /App/i.test(label)), 'The fullscreen menu should include the app route.');
+  assert.ok(previewState.navLabels.some((label) => /Codex/i.test(label)), 'The fullscreen menu should include the codex route.');
   assert.match(previewState.previewText, /Live Onboarding/u, 'The README preview should render the hosted onboarding section.');
   assert.match(previewState.previewText, /CLI Workflow/u, 'The README preview should render markdown sections into HTML.');
   assert.match(previewState.previewText, /Domain Language/u, 'The README preview should keep the domain language section visible.');
@@ -45,6 +53,8 @@ export async function runReadmePreviewSmokeFlow(
   assert.ok(previewState.imageCount >= 1, 'The README preview should render bundled README images.');
   assert.match(previewState.bodyFontFamily, /Space Grotesk/u, 'The docs shell should use the cad-pga body font.');
   assert.match(previewState.codeFontFamily, /Space Mono/u, 'The preview code blocks should use the cad-pga mono font.');
+  await context.page.click('[data-site-menu-toggle]');
+  await context.page.waitForSelector('[data-site-menu-overlay][hidden]');
 
   await saveReadmePreviewScreenshot(context, 'readme-preview');
   await openRoute(context.page, context.url);

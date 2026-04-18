@@ -2,6 +2,7 @@ import {
   CodexAccessError,
   CodexMailClient,
   type CodexMailHealth,
+  type CodexMailThreadAction,
   type CodexMailThreadDetail,
   type CodexMailThreadSummary,
   type CodexMailView,
@@ -20,6 +21,7 @@ export class CodexMailboardPage {
   private visibleThreads: CodexMailThreadSummary[] = [];
   private selectedThreadId: string | null = null;
   private selectedThreadDetail: CodexMailThreadDetail | null = null;
+  private searchQuery = '';
   private unlockPending = false;
   private unlocked = false;
   private composeOpen = false;
@@ -38,12 +40,18 @@ export class CodexMailboardPage {
       onRefresh: () => {
         void this.reloadMailbox();
       },
-      onMarkRead: () => {
-        void this.handleMarkRead();
+      onClearSearch: () => {
+        void this.handleClearSearch();
+      },
+      onSearchSubmit: (query) => {
+        void this.handleSearchSubmit(query);
       },
       onToggleCompose: () => {
         this.composeOpen = !this.composeOpen;
         this.view.setComposeOpen(this.composeOpen);
+      },
+      onApplyThreadAction: (action) => {
+        void this.handleThreadAction(action);
       },
       onSendReply: (input) => {
         void this.handleSendReply(input);
@@ -56,11 +64,16 @@ export class CodexMailboardPage {
 
   public render(): void {
     this.view.render();
+    this.view.setAuthorizeLink({
+      href: this.client.getAuthorizeUrl(),
+      label: resolveAuthorizeLabel(this.client.getMailOrigin()),
+    });
     this.view.setStatus('Waiting for Cloudflare Access.');
     this.view.setMailboxSummary('The shared gmail-agent mailbox will appear after unlock.');
     this.view.setHealthSummary(`Browser mail origin: ${this.client.getMailOrigin()}`);
     this.view.setAuthSummary('Cloudflare Access required.');
     this.view.setCurrentViewLabel('Inbox');
+    this.view.setSearchQuery('');
     this.view.focusUnlock();
   }
 
@@ -74,8 +87,8 @@ export class CodexMailboardPage {
     }
 
     this.unlockPending = true;
-    this.view.setUnlockPending(true, 'Checking Access…');
-    this.view.setStatus('Checking Cloudflare Access for the shared mailbox…');
+    this.view.setUnlockPending(true, 'Checking Access...');
+    this.view.setStatus('Checking Cloudflare Access for the shared mailbox...');
 
     try {
       const existingAccess = await this.tryFetchPublicConfig();
@@ -107,7 +120,7 @@ export class CodexMailboardPage {
     this.unlocked = true;
     this.view.setAuthSummary(`Cloudflare Access ready for ${publicOrigin}.`);
     this.view.setLockState(false, 'Cloudflare Access active.');
-    this.view.setStatus('Loading the shared mailbox…');
+    this.view.setStatus('Loading the shared mailbox...');
     await this.reloadMailbox();
   }
 
@@ -120,7 +133,7 @@ export class CodexMailboardPage {
       const [health, views, threads] = await Promise.all([
         this.client.fetchHealth(),
         this.client.fetchViews(),
-        this.client.fetchThreads(this.activeView),
+        this.client.fetchThreads(this.activeView, this.searchQuery),
       ]);
 
       this.availableViews = views;
@@ -129,6 +142,7 @@ export class CodexMailboardPage {
       this.view.setMailboxSummary(formatMailboxSummary(health));
       this.view.setHealthSummary(formatHealthSummary(health));
       this.view.setCurrentViewLabel(resolveViewLabel(views, this.activeView));
+      this.view.setSearchQuery(this.searchQuery);
 
       this.selectedThreadId = pickSelectedThreadId(threads, this.selectedThreadId);
       this.view.setThreads(threads, this.selectedThreadId);
@@ -136,12 +150,16 @@ export class CodexMailboardPage {
       if (!this.selectedThreadId) {
         this.selectedThreadDetail = null;
         this.view.setThreadDetail(null);
-        this.view.setStatus('This view is empty right now.');
+        this.view.setStatus(this.searchQuery ? 'No threads matched the current search.' : 'This mailbox view is empty right now.');
         return;
       }
 
       await this.loadThreadDetail(this.selectedThreadId);
-      this.view.setStatus(`Loaded ${threads.length} thread${threads.length === 1 ? '' : 's'} from ${resolveViewLabel(views, this.activeView)}.`);
+      this.view.setStatus(
+        this.searchQuery
+          ? `Loaded ${threads.length} matching thread${threads.length === 1 ? '' : 's'} from ${resolveViewLabel(views, this.activeView)}.`
+          : `Loaded ${threads.length} thread${threads.length === 1 ? '' : 's'} from ${resolveViewLabel(views, this.activeView)}.`,
+      );
     } catch (error) {
       const message = readErrorMessage(error, 'Unable to load the shared mailbox.');
       this.view.setStatus(message);
@@ -164,7 +182,7 @@ export class CodexMailboardPage {
     this.selectedThreadId = null;
     this.selectedThreadDetail = null;
     this.view.setThreadDetail(null);
-    this.view.setStatus(`Loading ${resolveViewLabel(this.availableViews, viewId)}…`);
+    this.view.setStatus(`Loading ${resolveViewLabel(this.availableViews, viewId)}...`);
     await this.reloadMailbox();
   }
 
@@ -175,7 +193,7 @@ export class CodexMailboardPage {
 
     this.selectedThreadId = threadId;
     this.view.setThreads(this.visibleThreads, this.selectedThreadId);
-    this.view.setStatus('Loading thread detail…');
+    this.view.setStatus('Loading thread detail...');
 
     try {
       await this.loadThreadDetail(threadId);
@@ -185,19 +203,54 @@ export class CodexMailboardPage {
     }
   }
 
-  private async handleMarkRead(): Promise<void> {
+  private async handleSearchSubmit(query: string): Promise<void> {
+    if (!this.unlocked) {
+      return;
+    }
+
+    this.searchQuery = query.trim();
+    this.selectedThreadId = null;
+    this.selectedThreadDetail = null;
+    this.view.setThreadDetail(null);
+    this.view.setSearchQuery(this.searchQuery);
+    this.view.setStatus(
+      this.searchQuery
+        ? `Searching ${resolveViewLabel(this.availableViews, this.activeView)}...`
+        : `Loading ${resolveViewLabel(this.availableViews, this.activeView)}...`,
+    );
+    await this.reloadMailbox();
+  }
+
+  private async handleClearSearch(): Promise<void> {
+    if (!this.unlocked || !this.searchQuery) {
+      return;
+    }
+
+    this.searchQuery = '';
+    this.selectedThreadId = null;
+    this.selectedThreadDetail = null;
+    this.view.setThreadDetail(null);
+    this.view.setSearchQuery('');
+    this.view.setStatus(`Loading ${resolveViewLabel(this.availableViews, this.activeView)}...`);
+    await this.reloadMailbox();
+  }
+
+  private async handleThreadAction(action: CodexMailThreadAction): Promise<void> {
     if (!this.unlocked || !this.selectedThreadId) {
       return;
     }
 
-    this.view.setStatus('Marking the thread as read…');
+    this.view.setThreadActionsPending(true);
+    this.view.setStatus(`${formatActionLabel(action)}...`);
 
     try {
-      await this.client.markThreadRead(this.selectedThreadId);
-      this.view.setStatus('Marked the selected thread as read.');
+      await this.client.applyThreadAction(this.selectedThreadId, action);
+      this.view.setStatus(`${formatActionCompleteLabel(action)}.`);
       await this.reloadMailbox();
     } catch (error) {
-      this.view.setStatus(readErrorMessage(error, 'Unable to mark the thread as read.'));
+      this.view.setStatus(readErrorMessage(error, `Unable to ${formatActionLabel(action).toLowerCase()}.`));
+    } finally {
+      this.view.setThreadActionsPending(false);
     }
   }
 
@@ -213,7 +266,7 @@ export class CodexMailboardPage {
     }
 
     this.view.setReplyPending(true);
-    this.view.setStatus('Sending the in-thread reply…');
+    this.view.setStatus('Sending the in-thread reply...');
 
     try {
       await this.client.replyToThread(this.selectedThreadId, {
@@ -245,7 +298,7 @@ export class CodexMailboardPage {
     }
 
     this.view.setComposePending(true);
-    this.view.setStatus('Sending the new email…');
+    this.view.setStatus('Sending the new email...');
 
     try {
       await this.client.composeEmail({to, subject, body});
@@ -315,7 +368,7 @@ function formatMailboxSummary(health: CodexMailHealth): string {
 function formatHealthSummary(health: CodexMailHealth): string {
   const queueDepth = health.counts.queueDepth;
   const runtimeOrigin = typeof health.runtime.publicOrigin === 'string' ? health.runtime.publicOrigin : 'local';
-  return `${health.counts.threads} threads · ${health.counts.tasks} tasks · queue ${queueDepth} · origin ${runtimeOrigin}`;
+  return `${health.counts.threads} mailbox threads | ${health.counts.tasks} codex tasks | queue ${queueDepth} | origin ${runtimeOrigin}`;
 }
 
 function resolveViewLabel(views: CodexMailView[], activeView: CodexMailViewId): string {
@@ -337,6 +390,40 @@ function pickSelectedThreadId(
   return threads[0]?.threadId ?? null;
 }
 
+function formatActionLabel(action: CodexMailThreadAction): string {
+  switch (action) {
+    case 'mark-read':
+      return 'Marking the thread as read';
+    case 'mark-unread':
+      return 'Marking the thread as unread';
+    case 'star':
+      return 'Starring the thread';
+    case 'unstar':
+      return 'Removing the thread star';
+    case 'archive':
+      return 'Archiving the thread';
+    case 'move-to-inbox':
+      return 'Moving the thread back to Inbox';
+  }
+}
+
+function formatActionCompleteLabel(action: CodexMailThreadAction): string {
+  switch (action) {
+    case 'mark-read':
+      return 'Marked the thread as read';
+    case 'mark-unread':
+      return 'Marked the thread as unread';
+    case 'star':
+      return 'Starred the thread';
+    case 'unstar':
+      return 'Removed the thread star';
+    case 'archive':
+      return 'Archived the thread';
+    case 'move-to-inbox':
+      return 'Moved the thread back to Inbox';
+  }
+}
+
 function readErrorMessage(error: unknown, fallback: string): string {
   if (error instanceof Error && error.message) {
     return error.message;
@@ -349,4 +436,13 @@ function delay(milliseconds: number): Promise<void> {
   return new Promise((resolve) => {
     window.setTimeout(resolve, milliseconds);
   });
+}
+
+function resolveAuthorizeLabel(origin: string): string {
+  const hostname = new URL(origin).hostname;
+  if (hostname === '127.0.0.1' || hostname === 'localhost') {
+    return 'Open Shared Mail Origin';
+  }
+
+  return 'Sign In With Cloudflare';
 }

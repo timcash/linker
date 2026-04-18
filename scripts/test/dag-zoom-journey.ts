@@ -54,7 +54,7 @@ export async function runDagZoomJourneyFlow(
   assert.equal(overviewStage.dagLabelPointWorkplaneCount, 0, 'The far DAG overview should not leave any label-point workplanes behind.');
   assert.equal(overviewStage.dagFullWorkplaneCount, 0, 'The far DAG overview should not leave any full workplanes behind.');
   assert.equal(overviewLine.lineVisibleLinkCount, overviewStage.dagVisibleEdgeCount, 'The far DAG overview should keep only DAG dependency lines visible.');
-  assert.equal(overviewText.visibleLabelCount, overviewStage.planeCount, 'The far DAG overview should show one graph marker label per workplane.');
+  assert.equal(overviewText.visibleLabelCount, 0, 'The far DAG overview should use square node symbols instead of text labels.');
   assert.equal(overviewCamera.canZoomOut, false, 'The far DAG overview should stop the discrete zoom-out button at the graph-point band.');
   assert.equal(overviewCamera.canZoomIn, true, 'The far DAG overview should still allow a single-step zoom into the next DAG band.');
   await assertOverlayShellPinned(context.page, {
@@ -124,10 +124,9 @@ export async function runDagZoomJourneyFlow(
     labelPointText.visibleGlyphCount > titleText.visibleGlyphCount,
     'The label-point DAG view should expose more text glyphs than the title-only view.',
   );
-  assert.equal(
-    labelPointLine.lineVisibleLinkCount,
-    labelPointStage.dagVisibleEdgeCount,
-    'The label-point DAG view should still keep local links hidden while dependency lines remain visible.',
+  assert.ok(
+    labelPointLine.lineVisibleLinkCount > labelPointStage.dagVisibleEdgeCount,
+    'The label-point DAG view should keep the DAG edges visible while beginning to expose local link hints.',
   );
   assert.equal(
     labelPointCamera.canZoomIn,
