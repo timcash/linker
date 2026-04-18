@@ -2546,7 +2546,7 @@ class LumaStageController {
     }
 
     this.setOnboardingStepState({
-      body: 'Linker is starting in the 3D DAG view so the first pass can build a small readable graph with the same hotkeys, menu pads, and title field the user gets.',
+      body: 'Linker starts in the 3D DAG so the first pass can quickly title workplanes, stitch a readable graph, and show the same calculator pad, menu, and hotkeys the user will keep using.',
       detail: 'This tour stays DAG-first: name workplanes in 3D, connect five nodes, zoom through the LOD bands, then drop into one 2D workplane for local editing.',
       stepCount: totalSteps,
       stepId: 'intro',
@@ -2568,7 +2568,7 @@ class LumaStageController {
       this.persistOnboardingCompletion();
       this.onboardingPhase = 'complete';
       this.setOnboardingStepState({
-        body: 'The guided run finished on a readable five-node DAG with titled workplanes, one stitched local 2D edit, and the menu reopened for manual exploration.',
+        body: 'The guided run finished on a readable five-node DAG with titled workplanes, bright curved links, one stitched local 2D edit, and the menu reopened for manual exploration.',
         detail: 'Tap Replay to watch the sequence again, or Stats to restore the live telemetry strip.',
         stepCount: totalSteps,
         stepId: 'complete',
@@ -2632,27 +2632,35 @@ class LumaStageController {
 
     await this.showOnboardingControlPadPage('menu', runId);
     await step({
-      body: 'The walkthrough starts in the 3D DAG because that is the root map for Linker. The menu hub keeps the main button sets readable: Map, Stage, DAG, Edit, and Style.',
-      detail: 'This first pass stays keyboard-first: C adds a child workplane, [ and ] move across the DAG, F focuses the root, Shift plus Up or Down changes LOD bands, and / swaps between 3D and 2D.',
+      body: 'Linker starts in the 3D DAG because the graph is the root map. The simple 3x3 menu keeps the calculator pads readable: Map moves the camera, Stage swaps 3D and 2D, DAG lays out workplanes, Edit titles them, and View tunes the scene.',
+      detail: 'This first pass stays hotkey-first: C adds a child workplane, [ and ] walk the active DAG node, F jumps to the root, Shift plus Up or Down steps through the LOD bands, and / swaps between the 3D DAG and the focused 2D plane.',
       stepId: 'menu-intro',
       targetSelectors: [
+        '.stage-canvas',
+        '.strategy-mode-panel',
+        '[data-testid="onboard-panel"]',
         'button[data-control-pad-target="navigate"]',
         'button[data-control-pad-target="stage"]',
         'button[data-control-pad-target="dag"]',
         'button[data-control-pad-target="edit"]',
         'button[data-control-pad-target="view"]',
       ],
-      title: 'Start from the 3D menu hub',
+      title: 'Start from the 3D DAG menu',
     });
 
     await this.showOnboardingControlPadPage('edit', runId);
     await this.typeOnboardingFocusedLabel(runId, rootTitle);
     await step({
-      body: 'The input field works in 3D too. The active workplane gets a readable title first, so each DAG node can be recognized before we ever drop into plane-focus detail.',
+      body: 'The title input works directly in 3D. The active workplane gets a readable name first, so every DAG node can be recognized immediately on the black-and-white graph.',
       detail: `This root is now titled ${rootTitle}. The same title field will name every new workplane as it becomes active.`,
       stepId: 'root-title',
-      targetSelectors: ['[data-testid="label-input-field"]', '[data-testid="label-input-submit"]'],
-      title: 'Title the root in 3D',
+      targetSelectors: [
+        '.stage-canvas',
+        '.strategy-mode-panel',
+        '[data-testid="label-input-field"]',
+        '[data-testid="label-input-submit"]',
+      ],
+      title: 'Title the root without leaving 3D',
     });
 
     await this.focusRootWithOnboarding(runId);
@@ -2676,11 +2684,11 @@ class LumaStageController {
     await this.focusRootWithOnboarding(runId);
     await this.showOnboardingControlPadPage('dag', runId);
     await step({
-      body: 'The first fanout stays entirely in the 3D DAG view. C creates a downstream workplane, F jumps back to the root, and the same title field names each node as it appears.',
+      body: 'The first fanout stays entirely in the 3D DAG view. C creates a downstream workplane, F jumps back to the root, and the same title field names each node as it appears, so the graph becomes legible in seconds.',
       detail: `${firstChildTitle} and ${secondChildTitle} are now linked under ${rootTitle}.`,
       stepId: 'first-rank',
-      targetSelectors: ['button[data-dag-action="spawn-child-workplane"]'],
-      title: 'Fan out two titled children',
+      targetSelectors: ['.stage-canvas', '.strategy-mode-panel', 'button[data-dag-action="spawn-child-workplane"]'],
+      title: 'Fan out two titled children in 3D',
     });
 
     await this.navigateToWorkplaneByButtons('wp-2', runId);
@@ -2704,59 +2712,61 @@ class LumaStageController {
     await this.focusRootWithOnboarding(runId);
     await this.showOnboardingControlPadPage('dag', runId);
     await step({
-      body: 'Now the DAG reaches five titled workplanes. The stage hotkeys [ and ] walk the active node, while C keeps extending the graph from the current workplane.',
-      detail: `${firstLeafTitle} hangs under ${firstChildTitle}, and ${secondLeafTitle} hangs under ${secondChildTitle}, so the graph already reads as a stitched dependency tree in 3D.`,
+      body: 'Now the DAG reaches five titled workplanes. The stage hotkeys [ and ] walk the active node, while C keeps extending the graph from the current workplane, so layout stays fast and thumb-friendly.',
+      detail: `${firstLeafTitle} hangs under ${firstChildTitle}, and ${secondLeafTitle} hangs under ${secondChildTitle}, so the graph already reads as a stitched 3D dependency tree before any 2D edit starts.`,
       stepId: 'second-rank',
       targetSelectors: [
+        '.stage-canvas',
+        '.strategy-mode-panel',
         'button[data-workplane-action="select-next-workplane"]',
         'button[data-dag-action="spawn-child-workplane"]',
       ],
-      title: 'Finish the five-node DAG in 3D',
+      title: 'Finish the five-node 3D DAG',
     });
 
     await this.zoomOnboardingDagToGraphOverview(runId);
     await step({
-      body: 'Shift plus Down snaps outward through the DAG zoom bands. At the far graph overview, every workplane compresses to one projected square symbol so the full dependency shape fits at once.',
-      detail: 'This band is for graph recognition: five square node symbols and four DAG links, with the root still centered.',
+      body: 'Shift plus Down snaps outward through the DAG zoom bands. At the far graph overview, every workplane compresses to one projected square symbol so the full dependency shape fits on one TRON-like black canvas.',
+      detail: 'This band is for graph recognition: five square node symbols, four bright curved DAG links, and the root still centered.',
       stepId: 'graph-overview',
-      targetSelectors: ['button[data-control="zoom-out"]'],
+      targetSelectors: ['.stage-canvas', '.strategy-mode-panel', 'button[data-control="zoom-out"]'],
       title: 'Zoom all the way out',
     });
 
     await this.navigateToWorkplaneByButtons('wp-4', runId);
     await this.zoomOnboardingDagToTitleOnly(runId);
     await step({
-      body: 'Shift plus Up steps inward to the title-only band. The camera auto-centers the active workplane in an isometric view and the nearby DAG nodes become readable title cards instead of square symbols.',
-      detail: `The selected workplane is ${firstLeafTitle}, but the other titles stay readable enough to understand the surrounding branch.`,
+      body: 'Shift plus Up steps inward to the title-only band. The camera auto-centers the active workplane in an isometric view and the nearby DAG nodes become readable grayscale title cards instead of square symbols.',
+      detail: `The selected workplane is ${firstLeafTitle}, while the surrounding titles stay readable enough to understand the branch without losing the overall graph.`,
       stepId: 'title-only',
-      targetSelectors: ['button[data-control="zoom-in"]'],
+      targetSelectors: ['.stage-canvas', '.strategy-mode-panel', 'button[data-control="zoom-in"]'],
       title: 'Reveal readable workplane titles',
     });
 
     await this.zoomOnboardingDagToLabelPoint(runId);
     await step({
-      body: 'One band closer, the titled workplanes begin exposing their local label markers. This makes it obvious which nodes already carry internal content before you commit to a 2D handoff.',
-      detail: 'Label-point is the preview band: more detail than title-only, but still light enough to read the wider DAG.',
+      body: 'One band closer, the titled workplanes begin exposing their local label markers. This preview band shows which nodes already carry internal content before you commit to a 2D handoff.',
+      detail: 'Label-point is the preview band: more detail than title-only, but still light enough to read the wider DAG and its links.',
       stepId: 'label-point',
-      targetSelectors: ['button[data-control="zoom-in"]'],
+      targetSelectors: ['.stage-canvas', '.strategy-mode-panel', 'button[data-control="zoom-in"]'],
       title: 'Reveal label markers and local link hints',
     });
 
     await this.zoomOnboardingDagToFullWorkplane(runId);
     await step({
-      body: 'At the closest 3D band, one workplane becomes fully readable without leaving the DAG view. Titles, local text, and local lines all stay legible while the graph context remains around it.',
-      detail: `This is the bridge into detailed editing: ${firstLeafTitle} is readable as a plane, but it is still visibly stitched into the wider DAG.`,
+      body: 'At the closest 3D band, one workplane becomes fully readable without leaving the DAG view. Titles, local text, and local lines all stay legible while the wider graph context remains around it.',
+      detail: `This is the bridge into detailed editing: ${firstLeafTitle} is readable as a plane, but it still looks stitched into the wider DAG.`,
       stepId: 'full-workplane',
-      targetSelectors: ['button[data-control="zoom-in"]'],
+      targetSelectors: ['.stage-canvas', '.strategy-mode-panel', 'button[data-control="zoom-in"]'],
       title: 'Read one full workplane in 3D',
     });
 
     await this.openOnboardingPlaneFocus(runId);
     await step({
-      body: 'Pressing / swaps cleanly from the 3D full-workplane band into the same workplane in 2D. The camera handoff should feel like one continuous zoom instead of a separate tool.',
-      detail: `The focus stays on ${firstLeafTitle}, so the local plane is ready for fast keyboard editing.`,
+      body: 'Pressing / swaps cleanly from the 3D full-workplane band into the same workplane in 2D. The camera handoff should feel like one continuous zoom instead of a separate tool change.',
+      detail: `The focus stays on ${firstLeafTitle}, so the local plane is ready for fast keyboard editing with the same calculator-style pad.`,
       stepId: 'plane-focus',
-      targetSelectors: ['button[data-stage-mode-action="set-2d-mode"]'],
+      targetSelectors: ['.stage-canvas', '.strategy-mode-panel', 'button[data-stage-mode-action="set-2d-mode"]'],
       title: 'Drop into the same workplane in 2D',
     });
 
@@ -2805,6 +2815,8 @@ class LumaStageController {
       detail: `${localDetailTitle} is now linked inside ${firstLeafTitle}, proving the DAG node can be stitched internally after it was created and titled in 3D.`,
       stepId: 'local-fill',
       targetSelectors: [
+        '.stage-canvas',
+        '.strategy-mode-panel',
         'button[data-editor-shortcut="toggle-selection-or-create"]',
         'button[data-editor-action="link-selection"]',
         'button[data-editor-action="clear-selection"]',
@@ -2823,9 +2835,11 @@ class LumaStageController {
     await this.showOnboardingControlPadPage('menu', runId);
     await step({
       body: 'Press / to lift the same workplane back into the DAG, then use F to recenter the root. The walkthrough ends on a readable five-node title view with the menu reopened for the next manual action.',
-      detail: `The graph now has titled nodes in 3D and one internal ${localDetailTitle} link in 2D, so both levels of CRUD are already visible in one finished scene.`,
+      detail: `The graph now has titled nodes in 3D and one internal ${localDetailTitle} link in 2D, so both layers of CRUD are visible in one clean scene.`,
       stepId: 'stitched-dag',
       targetSelectors: [
+        '.stage-canvas',
+        '.strategy-mode-panel',
         'button[data-control-pad-action="open-menu"]',
         'button[data-control-pad-target="dag"]',
         'button[data-control-pad-target="edit"]',

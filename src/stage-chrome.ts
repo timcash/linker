@@ -136,19 +136,19 @@ export function createStageChrome(root: HTMLElement): StageChromeElements {
         Edit
       </button>
       <button type="button" class="control-button control-button--tile" data-control-pad-target="view">
-        Style
+        View
       </button>
       <button type="button" class="control-button control-button--chip" disabled aria-disabled="true">
-        Local Links
+        3D DAG
       </button>
       <button type="button" class="control-button control-button--chip" disabled aria-disabled="true">
-        DAG Links
+        2D Plane
       </button>
       <button type="button" class="control-button control-button--chip" disabled aria-disabled="true">
-        2D <-> 3D
+        Title + Link
       </button>
       <button type="button" class="control-button control-button--chip" disabled aria-disabled="true">
-        Pan + Zoom
+        Hotkeys
       </button>
     </nav>
     <nav class="control-page-grid" data-control-pad-page="navigate" data-testid="control-pad-page-navigate" aria-label="Map controls">

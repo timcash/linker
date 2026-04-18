@@ -6,7 +6,7 @@ Linker is a `luma.gl` + WebGPU DAG workplane viewer and editor with aligned `12x
 
 First-time GitHub Pages visits now boot from `demoPreset=dag-empty` and replace the top stats strip with an `onboard-panel`. The guided run starts on the bottom `Menu` pad and uses the same visible buttons and label input that Linker exposes to the user:
 
-- open `Map`, `Stage`, `DAG`, `Edit`, and `Style` from the menu-first `3x3` control hub
+- open `Map`, `Stage`, `DAG`, `Edit`, and `View` from the menu-first `3x3` control hub
 - stay in `3d-mode` first and title the root plus four connected workplanes with the shared input field
 - build a readable five-node DAG from zero data with hotkeys: `C`, `[`, `]`, and `F`
 - step through the discrete `graph-point`, `title-only`, `label-point`, and `full-workplane` LOD bands with `Shift+ArrowDown` and `Shift+ArrowUp`, starting from projected square node symbols and then revealing titles and local detail
@@ -239,7 +239,7 @@ npm run perf:orbit-stutter -- --label-set benchmark --label-count 4096 --segment
 - `onboard panel`: the temporary top panel used during the automated first-run walkthrough; it replaces the stats body but keeps the embedded top-right `Menu` toggle in the same header
 - `settings page`: the `site menu` page with nested `Layout`, `View`, `Motion`, and `Install` sections
 - `install card`: the `site menu` install section that shows PWA availability, current display mode, and the install action
-- `menu pad`: the default bottom 3x3 hub with one entry button for each main control pad: `Map`, `Stage`, `DAG`, `Edit`, and `Style`, plus passive cue chips for `Local Links`, `DAG Links`, `2D <-> 3D`, and `Pan + Zoom`
+- `menu pad`: the default bottom 3x3 hub with one entry button for each main control pad: `Map`, `Stage`, `DAG`, `Edit`, and `View`, plus passive cue chips for `3D DAG`, `2D Plane`, `Title + Link`, and `Hotkeys`
 - `map controls`: the bottom 3x3 container for zoom, orbit, and 2D cursor movement
 - `stage controls`: the bottom 3x3 container for `2d-mode`, `3d-mode`, workplane switching, and root focus when a DAG is active
 - `dag controls`: the bottom 3x3 container for `new child`, `new parent`, and `rank/lane/depth` DAG placement moves

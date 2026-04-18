@@ -4,12 +4,10 @@
       "src/app.ts",
       "src/stage-snapshot.ts",
       "scripts/test/browser.ts",
-      "README.md",
-      "PLAN.md"
+      "README.md"
     ],
     "contextFiles": [
       "README.md",
-      "PLAN.md",
       "src/app.ts",
       "src/stage-snapshot.ts",
       "scripts/test/browser.ts",
@@ -39,7 +37,7 @@
     "currentSlice": 6,
     "currentTaskId": "export-dag-lod-dataset",
     "currentTaskTitle": "Export active DAG LOD buckets",
-    "generatedAt": "2026-04-16T00:50:48.804Z",
+    "generatedAt": "2026-04-18T03:00:27.347Z",
     "iteration": 10,
     "lastDecision": "revise",
     "lastRunId": "20260408-183023",
@@ -50,12 +48,10 @@
     {
       "allowedFiles": [
         "scripts/test/dag-view-smoke.ts",
-        "README.md",
-        "PLAN.md"
+        "README.md"
       ],
       "contextFiles": [
         "README.md",
-        "PLAN.md",
         "scripts/test/dag-view-smoke.ts",
         "scripts/test/browser.ts",
         "src/stage-snapshot.ts"
@@ -85,12 +81,10 @@
         "src/dag-view.ts",
         "scripts/test/unit.ts",
         "scripts/test/dag-view-smoke.ts",
-        "README.md",
-        "PLAN.md"
+        "README.md"
       ],
       "contextFiles": [
         "README.md",
-        "PLAN.md",
         "src/dag-view.ts",
         "scripts/test/unit.ts",
         "scripts/test/dag-view-smoke.ts",
@@ -100,7 +94,7 @@
       "decision": null,
       "doneWhen": [
         "Static and smoke coverage prove label-points and full-workplane states in addition to graph-point and title-only.",
-        "README.md and PLAN.md record the broadened Slice 6 proof without claiming screenshot readiness."
+        "README.md records the broadened Slice 6 proof without claiming screenshot readiness."
       ],
       "expectedResult": "pass",
       "id": "prove-mid-near-lod-states",
@@ -946,12 +940,10 @@
         "src/app.ts",
         "src/stage-snapshot.ts",
         "scripts/test/browser.ts",
-        "README.md",
-        "PLAN.md"
+        "README.md"
       ],
       "contextFiles": [
         "README.md",
-        "PLAN.md",
         "src/app.ts",
         "src/stage-snapshot.ts",
         "scripts/test/browser.ts",
@@ -980,12 +972,10 @@
     {
       "allowedFiles": [
         "scripts/test/dag-view-smoke.ts",
-        "README.md",
-        "PLAN.md"
+        "README.md"
       ],
       "contextFiles": [
         "README.md",
-        "PLAN.md",
         "scripts/test/dag-view-smoke.ts",
         "scripts/test/browser.ts",
         "src/stage-snapshot.ts"
@@ -1015,12 +1005,10 @@
         "src/dag-view.ts",
         "scripts/test/unit.ts",
         "scripts/test/dag-view-smoke.ts",
-        "README.md",
-        "PLAN.md"
+        "README.md"
       ],
       "contextFiles": [
         "README.md",
-        "PLAN.md",
         "src/dag-view.ts",
         "scripts/test/unit.ts",
         "scripts/test/dag-view-smoke.ts",
@@ -1030,7 +1018,7 @@
       "decision": null,
       "doneWhen": [
         "Static and smoke coverage prove label-points and full-workplane states in addition to graph-point and title-only.",
-        "README.md and PLAN.md record the broadened Slice 6 proof without claiming screenshot readiness."
+        "README.md records the broadened Slice 6 proof without claiming screenshot readiness."
       ],
       "expectedResult": "pass",
       "id": "prove-mid-near-lod-states",
