@@ -1,6 +1,6 @@
 # Linker
 
-Linker is a `luma.gl` + WebGPU DAG workplane viewer and editor with aligned `12x12x12` label grids, `rank/lane/depth` 3D navigation, a compact mobile-style menu-first control pad, an installable fullscreen PWA shell with a shared SVG icon and route manifest, a browser `/codex` Gmail inbox client that talks to the shared `gmail-agent` daemon through one Cloudflare Access unlock flow, a `/new-user/` route for bring-your-own-host setup, and a browser `/logs` terminal page for timestamped history with source-line filters.
+Linker is a `luma.gl` + WebGPU DAG workplane viewer and editor with aligned `12x12x12` label grids, `rank/lane/depth` 3D navigation, a compact mobile-style menu-first control pad, an installable fullscreen PWA shell with a shared SVG icon and route manifest, a browser `/codex` Gmail inbox client that talks to the shared `gmail-agent` daemon on this computer by default, a `/new-user/` route for optional custom-host setup, and a browser `/logs` terminal page for timestamped history with source-line filters.
 
 ## 1. Live Onboarding
 
@@ -21,7 +21,7 @@ Current proven invariant:
 - `npm run test:browser:onboarding` stays green as the explicit onboarding alias
 - `npm run test:browser:new-user` is green for the bring-your-own-host guide and local origin settings flow
 - `npm run test:browser:logs` is green for the xterm.js `/logs/` history and filter route
-- `npm run test:browser:codex` is green for the `/codex/` mailboard unlock, Gmail search, mailbox-view switching, inbox actions, reply, and compose screenshot proof
+- `npm run test:browser:codex` is green for the `/codex/` local-first mailboard connect, Gmail search, mailbox-view switching, inbox actions, reply, and compose screenshot proof
 - `npm run test:browser:dag-network-build` is green for the canonical zero-data 2D + 3D interaction proof
 - `npm run test:browser:suite` is green for the broader browser matrix around the onboarding-first product path
 - `npm run test:dag:static` is green for pure DAG validation, layout, edge, and model mutation rules
@@ -61,9 +61,9 @@ Current review queue:
 - the zero-data `dag-network-build` flow remains the clearest end-to-end CRUD proof for local labels, local links, workplane creation, leaf delete, `rank/lane/depth`, and 2D/3D mode handoff
 - the hosted onboarding screenshots under `artifacts/test-screenshots/` remain the visual contract for each guided step from empty root to the finished five-node DAG plus one stitched 2D local link
 - direct 3D workplane picking plus explicit DAG edge create/remove between already-existing workplanes are still the main product gaps
-- every publish should still end with a live pass over `/`, `/codex/`, `/readme/`, and `/logs/`
-- `/codex/` on GitHub Pages is expected to render as a locked mailboard until the hosted Cloudflare Access mail origin is reachable from this machine
-- `/new-user/` is the main privacy-safe onboarding route for replacing the generic repo, auth, and mail origins with local browser-only settings
+- every publish should still end with a live pass over `/`, `/auth/`, `/codex/`, `/readme/`, and `/logs/`
+- `/auth/` and `/codex/` on GitHub Pages should use `http://127.0.0.1:4192` on this computer by default when the shared `gmail-agent` daemon is running
+- `/new-user/` is the optional privacy-safe route for replacing the default This Computer path with local browser-only custom-host settings
 
 ## 2. Screenshot and Links
 
@@ -115,9 +115,9 @@ Example:
 https://your-user.github.io/linker/?demoPreset=dag-rank-fanout&cameraLabel=wp-10:1:1:1
 ```
 
-`/new-user/` is the recommended first stop on a fresh fork: it explains the 3D DAG-first walkthrough, the one-path sign-in flow, and stores your repo URL plus private auth and mail origins in local browser settings instead of hardcoding them into the repo.
+`/new-user/` is now the optional custom-host page: leave Auth and Mail blank to use This Computer, or save private origins in local browser settings if you want a different Linker server.
 
-`/codex/` on GitHub Pages stays static and now uses one Cloudflare Access unlock step to reach the shared `gmail-agent` mail API. The route behaves like a compact Gmail inbox client with search, Inbox/Unread/Starred/Sent/All Mail/Codex views, thread-level read-star-archive controls, reply, and compose. For local development:
+`/auth/` and `/codex/` on GitHub Pages now default to This Computer. If the shared `gmail-agent` daemon is running on `http://127.0.0.1:4192`, the live site can use it directly from this machine. `/codex/` behaves like a compact Gmail inbox client with search, Inbox/Unread/Starred/Sent/All Mail/Codex views, thread-level read-star-archive controls, reply, and compose. For local development:
 
 ```bash
 Copy-Item .env.codex.local.example .env.local
@@ -127,11 +127,7 @@ cd ..\\linker
 npm run dev -- --host 127.0.0.1
 ```
 
-The Linker browser app now defaults to `http://127.0.0.1:4192` for `/codex/` in local development. To reach this machine from GitHub Pages through Cloudflare, the shared `gmail-agent` daemon needs to publish the mail API at the single public origin:
-
-```bash
-https://mail.example.com
-```
+The Linker browser app now defaults to `http://127.0.0.1:4192` for `/auth/` and `/codex/` on this machine, including from the live GitHub Pages site. `gmail-agent` must answer the Private Network Access preflight for `https://timcash.github.io`, so the hosted page can reach the local loopback daemon from this browser.
 
 To prove the shared mailbox sync from this repo itself, run:
 
@@ -263,14 +259,14 @@ npm run perf:orbit-stutter -- --label-set benchmark --label-count 4096 --segment
 
 - `src/main.ts`: app entry point
 - `src/docs-shell.ts`: shared fullscreen site menu with breadcrumb hierarchy, `Navigation` plus nested `Settings` sections, embedded/floating placements, install-state UI, and repo/link helpers used by the app and docs routes
-- `src/remote-config.ts`: generic repo, auth, and mail origin defaults plus browser-side resolution helpers for local overrides and hosted fallbacks
+- `src/remote-config.ts`: generic repo plus browser-side auth and mail origin resolution helpers, with This Computer as the default live-site target
 - `src/pwa.ts`: shared PWA runtime for service worker registration, display-mode detection, and install-prompt state
-- `src/auth-page.ts`: Cloudflare Access auth/status route modeled on the cad-pga Legion page
-- `src/new-user-page.ts`: bring-your-own-host guide with private repo/auth/mail origin inputs stored in local browser settings
+- `src/auth-page.ts`: simple connection/status route that opens Codex on This Computer by default and falls back to saved custom hosts when present
+- `src/new-user-page.ts`: minimal custom-host guide with private repo/auth/mail origin inputs stored in local browser settings
 - `src/codex-page.ts`: `/codex/` route shell that mounts the mailboard UI inside the shared docs navigation
-- `src/codex/CodexMailboardPage.ts`: codex route controller for Cloudflare Access unlock, Gmail mailbox loading, search, view switching, inbox actions, reply, and compose
-- `src/codex/CodexMailClient.ts`: browser client for the shared `gmail-agent` mail API
-- `src/codex/CodexMailboardView.ts`: mobile-first monochrome mailboard DOM, Gmail search form, thread list, action grid, message pane, and bottom 3x3 mail pad
+- `src/codex/CodexMailboardPage.ts`: codex route controller for local-daemon auto-connect, saved-host fallback, Gmail mailbox loading, search, view switching, inbox actions, reply, and compose
+- `src/codex/CodexMailClient.ts`: browser client for the shared `gmail-agent` mail API with This Computer as the live-site default
+- `src/codex/CodexMailboardView.ts`: mobile-first monochrome mailboard DOM, local-first connect state, Gmail search form, thread list, action grid, message pane, and bottom 3x3 mail pad
 - `src/codex/codexMailboard.css`: `/codex/` mailboard layout and mobile-to-desktop route styling
 - `src/logs-page.ts`: `/logs/` route shell that mounts the browser log terminal UI inside the shared docs navigation
 - `src/logs/log-model.ts`: browser log entry types, source-line parsing, CLI command parsing, and filter helpers

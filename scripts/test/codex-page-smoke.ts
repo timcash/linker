@@ -3,7 +3,7 @@ import path from 'node:path';
 import assert from 'node:assert/strict';
 import type {HTTPRequest} from 'puppeteer';
 
-import {DEFAULT_REMOTE_MAIL_ORIGIN} from '../../src/remote-config';
+import {DEFAULT_LOCAL_MAIL_ORIGIN} from '../../src/remote-config';
 import type {BrowserTestContext} from './shared';
 
 type MockThread = {
@@ -322,7 +322,7 @@ export async function runCodexPageSmokeFlow(
       await respondJson(request, {
         ok: true,
         authRequired: true,
-        publicOrigin: DEFAULT_REMOTE_MAIL_ORIGIN,
+        publicOrigin: DEFAULT_LOCAL_MAIL_ORIGIN,
       });
       return;
     }
@@ -335,7 +335,7 @@ export async function runCodexPageSmokeFlow(
           emailAddress: 'owner@example.com',
         },
         runtime: {
-          publicOrigin: DEFAULT_REMOTE_MAIL_ORIGIN,
+          publicOrigin: DEFAULT_LOCAL_MAIL_ORIGIN,
         },
         counts: {
           threads: countThreads('all-mail'),
@@ -446,84 +446,88 @@ export async function runCodexPageSmokeFlow(
       `Codex route should not capture unexpected browser errors: ${pageErrors.join('\n\n')}`,
     );
 
-    const lockedState = await page.evaluate(() => {
-      const shell = document.querySelector<HTMLElement>('.codex-mail-shell');
+    const menuState = await page.evaluate(() => {
       const pad = document.querySelector<HTMLElement>('.codex-mail-pad');
       const lockActions = document.querySelector<HTMLElement>('[data-codex-lock-actions]');
       const authorizeLink = document.querySelector<HTMLAnchorElement>('[data-codex-authorize-link]');
       return {
         activeNavLabel:
           document.querySelector('[data-site-menu-link][aria-current="page"]')?.textContent?.trim() ?? '',
-        authText: document.querySelector<HTMLElement>('[data-codex-auth]')?.textContent?.trim() ?? '',
         authorizeHref: authorizeLink?.href ?? '',
         authorizeLabel: authorizeLink?.textContent?.trim() ?? '',
         buttonCount: document.querySelectorAll('.codex-mail-pad-button').length,
-        codexViewMode: document.body.dataset.codexViewMode ?? '',
         lockActionsColumns: lockActions ? window.getComputedStyle(lockActions).gridTemplateColumns.split(' ').length : 0,
         lockActionsDisplay: lockActions ? window.getComputedStyle(lockActions).display : '',
         navLabels: Array.from(document.querySelectorAll<HTMLElement>('[data-site-menu-link]')).map(
           (link) => link.textContent?.trim() ?? '',
         ),
         padColumns: pad ? window.getComputedStyle(pad).gridTemplateColumns.split(' ').length : 0,
-        shellLocked: shell?.classList.contains('codex-mail-shell--locked') ?? false,
-        statusText: document.querySelector<HTMLElement>('[data-codex-status]')?.textContent?.trim() ?? '',
         title: document.title,
-        unlockLabel:
-          document.querySelector<HTMLButtonElement>('[data-codex-unlock-button]')?.textContent?.trim() ?? '',
       };
     });
 
-    assert.equal(lockedState.title, 'Codex Mailboard - Linker', 'The codex route should set the new mailboard title.');
-    assert.match(lockedState.activeNavLabel, /Codex/i, 'The shared fullscreen menu should still mark the codex route.');
-    assert.equal(lockedState.shellLocked, true, 'The mailboard should begin in the locked state.');
-    assert.equal(lockedState.buttonCount, 9, 'The mailboard should expose one 3x3 bottom pad.');
-    assert.equal(lockedState.padColumns, 3, 'The mailboard pad should stay in a 3x3 grid.');
-    assert.equal(lockedState.lockActionsDisplay, 'grid', 'The lock actions should live inside a CSS grid.');
-    assert.equal(lockedState.lockActionsColumns, 2, 'The lock action grid should give the unlock button and access link their own cells.');
-    assert.ok(lockedState.navLabels.some((label) => /App/i.test(label)), 'The fullscreen menu should include the app route.');
-    assert.ok(lockedState.navLabels.some((label) => /Logs/i.test(label)), 'The fullscreen menu should include the logs route.');
-    assert.equal(lockedState.codexViewMode, 'locked', 'The locked mailboard should expose the locked view mode.');
-    assert.match(lockedState.authText, /cloudflare access required/i, 'The locked mailboard should explain the single unlock requirement.');
-    assert.match(lockedState.unlockLabel, /cloudflare access/i, 'The unlock button should keep the Cloudflare Access copy.');
-    assert.match(lockedState.authorizeLabel, /cloudflare|shared mail origin/i, 'The locked mailboard should expose a direct access link in the action grid.');
-    assert.match(lockedState.authorizeHref, /\/codex\/$/i, 'The access link should target the authorize route.');
-    assert.equal(seenRequests.length, 0, 'The locked mailboard should not fetch the mailbox before unlock.');
+    assert.equal(menuState.title, 'Codex Mailboard - Linker', 'The codex route should set the new mailboard title.');
+    assert.match(menuState.activeNavLabel, /Codex/i, 'The shared fullscreen menu should still mark the codex route.');
+    assert.equal(menuState.buttonCount, 9, 'The mailboard should expose one 3x3 bottom pad.');
+    assert.equal(menuState.padColumns, 3, 'The mailboard pad should stay in a 3x3 grid.');
+    assert.equal(menuState.lockActionsDisplay, 'grid', 'The lock actions should live inside a CSS grid.');
+    assert.equal(menuState.lockActionsColumns, 2, 'The lock action grid should give the primary and secondary actions their own cells.');
+    assert.ok(menuState.navLabels.some((label) => /App/i.test(label)), 'The fullscreen menu should include the app route.');
+    assert.ok(menuState.navLabels.some((label) => /Logs/i.test(label)), 'The fullscreen menu should include the logs route.');
+    assert.match(menuState.authorizeLabel, /custom host/i, 'The local-first codex page should keep the custom-host fallback visible.');
+    assert.match(menuState.authorizeHref, /\/new-user\/$/i, 'The custom-host fallback should point at the setup page.');
+
     await page.click('[data-site-menu-toggle]');
     await page.waitForSelector('[data-site-menu-overlay][hidden]');
 
-    await saveCodexScreenshot(context, 'codex-mailboard-locked');
-
-    await page.click('[data-codex-unlock-button]');
     await page.waitForFunction(() => (document.body.dataset.codexViewMode ?? '') === 'mailboard');
     await page.waitForSelector('.codex-thread-row');
 
     const unlockedState = await page.evaluate(() => {
       const shell = document.querySelector<HTMLElement>('.codex-mail-shell');
+      const pad = document.querySelector<HTMLElement>('.codex-mail-pad');
       const main = document.querySelector<HTMLElement>('.codex-mail-main');
       return {
         authText: document.querySelector<HTMLElement>('[data-codex-auth]')?.textContent?.trim() ?? '',
+        codexViewMode: document.body.dataset.codexViewMode ?? '',
         composeVisible:
           document.querySelector<HTMLElement>('[data-codex-compose-panel]')?.classList.contains('codex-compose-panel--open') ?? false,
         currentView: document.querySelector<HTMLElement>('[data-codex-view]')?.textContent?.trim() ?? '',
         mailboxText: document.querySelector<HTMLElement>('[data-codex-mailbox]')?.textContent?.trim() ?? '',
         mainColumns: main ? window.getComputedStyle(main).gridTemplateColumns.split(' ').length : 0,
-        searchPlaceholder:
-          document.querySelector<HTMLInputElement>('[data-codex-search-input]')?.placeholder ?? '',
+        padColumns: pad ? window.getComputedStyle(pad).gridTemplateColumns.split(' ').length : 0,
         shellLocked: shell?.classList.contains('codex-mail-shell--locked') ?? false,
         statusText: document.querySelector<HTMLElement>('[data-codex-status]')?.textContent?.trim() ?? '',
+        searchPlaceholder:
+          document.querySelector<HTMLInputElement>('[data-codex-search-input]')?.placeholder ?? '',
+        unlockLabel:
+          document.querySelector<HTMLButtonElement>('[data-codex-unlock-button]')?.textContent?.trim() ?? '',
         threadCount: document.querySelectorAll('.codex-thread-row').length,
       };
     });
 
-    assert.equal(unlockedState.shellLocked, false, 'The mailboard should unlock after the Access check succeeds.');
+    assert.equal(unlockedState.shellLocked, false, 'The local-first mailboard should unlock automatically when this computer responds.');
     assert.equal(unlockedState.currentView, 'Inbox', 'The unlocked mailboard should default to the Inbox view.');
     assert.equal(unlockedState.threadCount, 2, 'The unlocked mailboard should show the mocked inbox threads.');
     assert.equal(unlockedState.mainColumns, 1, 'The mobile mailboard should stay in a single column.');
+    assert.equal(unlockedState.padColumns, 3, 'The bottom pad should remain a 3x3 grid after auto-connect.');
     assert.equal(unlockedState.composeVisible, false, 'Compose should stay closed until the user opens it.');
     assert.match(unlockedState.mailboxText, /owner@example\.com/i, 'The mailbox card should show the shared daemon mailbox.');
-    assert.match(unlockedState.authText, /cloudflare access ready/i, 'The auth card should show the unlocked state.');
+    assert.match(unlockedState.authText, /connected to this computer/i, 'The auth card should show the local unlocked state.');
     assert.match(unlockedState.statusText, /loaded 2 threads/i, 'The status card should confirm the mailbox load.');
     assert.match(unlockedState.searchPlaceholder, /search the mailbox/i, 'The unlocked mailboard should expose a mailbox search input.');
+    assert.match(unlockedState.unlockLabel, /connected/i, 'The primary lock action should collapse into the connected state.');
+    assert.equal(unlockedState.codexViewMode, 'mailboard', 'The unlocked mailboard should expose the mailboard view mode.');
+    assert.ok(
+      seenRequests.some((request) => request.includes('GET /api/mail/public-config')),
+      'The local-first codex page should probe the local public-config route on load.',
+    );
+    assert.ok(
+      seenRequests.some((request) => request.includes('GET /api/mail/health')),
+      'The local-first codex page should load the local mailbox health on connect.',
+    );
+
+    await saveCodexScreenshot(context, 'codex-mailboard-local');
 
     await page.type('[data-codex-search-input]', 'Tuesday');
     await page.click('[data-codex-search-submit]');

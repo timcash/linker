@@ -1,4 +1,4 @@
-import {hasExplicitConfiguredOrigin, resolveConfiguredMailOrigin} from '../remote-config';
+import {hasExplicitConfiguredOrigin, isLoopbackOrigin, resolveConfiguredMailOrigin} from '../remote-config';
 import {readStoredAppSettings} from '../site-settings';
 
 export type CodexMailViewId = 'inbox' | 'unread' | 'starred' | 'sent' | 'all-mail' | 'codex';
@@ -110,13 +110,19 @@ const THREADS_PATH = '/api/mail/threads';
 
 export class CodexMailClient {
   public needsHostedSetup(): boolean {
+    const mailOrigin = this.getMailOrigin();
     return (
       window.location.hostname.endsWith('github.io') &&
+      !isLoopbackOrigin(mailOrigin) &&
       !hasExplicitConfiguredOrigin({
         configuredOrigin: import.meta.env.VITE_CODEX_MAIL_URL as string | undefined,
         storedOrigin: readStoredAppSettings().mailOrigin,
       })
     );
+  }
+
+  public usesLocalDaemon(): boolean {
+    return isLoopbackOrigin(this.getMailOrigin());
   }
 
   public getMailOrigin(): string {

@@ -32,8 +32,7 @@ import {
   createDefaultDagRankFanoutState,
 } from '../../src/data/dag-rank-fanout';
 import {
-  DEFAULT_REMOTE_AUTH_ORIGIN,
-  DEFAULT_REMOTE_MAIL_ORIGIN,
+  DEFAULT_LOCAL_MAIL_ORIGIN,
   resolveConfiguredAuthOrigin,
 } from '../../src/remote-config';
 import {
@@ -168,8 +167,8 @@ function runRemoteConfigTests(): void {
       hostname: 'your-user.github.io',
       locationOrigin: 'https://your-user.github.io',
     }),
-    DEFAULT_REMOTE_MAIL_ORIGIN,
-    'Hosted GitHub Pages should prefer the generic remote mail origin.',
+    DEFAULT_LOCAL_MAIL_ORIGIN,
+    'Hosted GitHub Pages should prefer this computer when no custom mail origin is configured.',
   );
   assert.equal(
     resolveCodexMailOrigin({
@@ -194,8 +193,8 @@ function runRemoteConfigTests(): void {
       hostname: 'github.io',
       locationOrigin: 'https://your-user.github.io',
     }),
-    DEFAULT_REMOTE_AUTH_ORIGIN,
-    'Hosted auth-origin resolution should still fall back to the generic remote default when no override is set.',
+    DEFAULT_LOCAL_MAIL_ORIGIN,
+    'Hosted auth-origin resolution should prefer this computer when no custom auth origin is set.',
   );
 }
 

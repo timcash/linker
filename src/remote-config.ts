@@ -37,10 +37,17 @@ export function hasExplicitConfiguredOrigin(input: {
 export function resolveConfiguredAuthOrigin(input: ResolveOriginInput): string {
   const configuredOrigin =
     normalizeAbsoluteHttpUrl(input.storedOrigin) ||
-    normalizeAbsoluteHttpUrl(input.configuredOrigin) ||
-    DEFAULT_REMOTE_AUTH_ORIGIN;
+    normalizeAbsoluteHttpUrl(input.configuredOrigin);
 
-  return configuredOrigin || input.locationOrigin;
+  if (configuredOrigin) {
+    return configuredOrigin;
+  }
+
+  if (input.hostname.endsWith('github.io')) {
+    return DEFAULT_LOCAL_MAIL_ORIGIN;
+  }
+
+  return DEFAULT_REMOTE_AUTH_ORIGIN || input.locationOrigin;
 }
 
 export function resolveConfiguredMailOrigin(input: ResolveOriginInput): string {
@@ -53,7 +60,7 @@ export function resolveConfiguredMailOrigin(input: ResolveOriginInput): string {
   }
 
   if (input.hostname.endsWith('github.io')) {
-    return DEFAULT_REMOTE_MAIL_ORIGIN;
+    return DEFAULT_LOCAL_MAIL_ORIGIN;
   }
 
   if (input.hostname === '127.0.0.1' || input.hostname === 'localhost') {
@@ -61,6 +68,18 @@ export function resolveConfiguredMailOrigin(input: ResolveOriginInput): string {
   }
 
   return input.locationOrigin;
+}
+
+export function isLoopbackHostname(hostname: string): boolean {
+  return hostname === '127.0.0.1' || hostname === 'localhost';
+}
+
+export function isLoopbackOrigin(origin: string): boolean {
+  try {
+    return isLoopbackHostname(new URL(origin).hostname);
+  } catch {
+    return false;
+  }
 }
 
 export function readConfiguredRepoUrl(configuredUrl?: string): string {

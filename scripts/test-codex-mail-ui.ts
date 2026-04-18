@@ -66,9 +66,21 @@ async function main(): Promise<void> {
 
     await page.goto(codexUrl, {waitUntil: 'load'});
     await page.waitForSelector('.codex-mail-shell');
-    await page.click('[data-codex-unlock-button]');
     await page.waitForFunction(() => (document.body.dataset.codexViewMode ?? '') === 'mailboard');
-    await page.waitForSelector('[data-codex-mailbox]');
+    const mailboxEmail = health.mailbox?.emailAddress ?? '';
+    await page.waitForFunction(
+      (expectedMailboxEmail) => {
+        const mailboxText = document.querySelector('[data-codex-mailbox]')?.textContent ?? '';
+        const statusText = document.querySelector('[data-codex-status]')?.textContent ?? '';
+        return (
+          mailboxText.includes(expectedMailboxEmail) ||
+          /Loaded \d+ thread/i.test(statusText) ||
+          /mailbox view is empty/i.test(statusText)
+        );
+      },
+      {},
+      mailboxEmail,
+    );
 
     assert.deepEqual(
       pageErrors,
@@ -85,13 +97,12 @@ async function main(): Promise<void> {
       emptyText: await getTextContent(page, '.codex-thread-empty'),
     };
 
-    const mailboxEmail = health.mailbox?.emailAddress ?? '';
     assert.match(
       mailboxState.mailboxText,
       new RegExp(escapeRegExp(mailboxEmail), 'i'),
       'The live codex UI should show the real synced Gmail mailbox address.',
     );
-    assert.match(mailboxState.authText, /cloudflare access ready/i, 'The live codex UI should unlock through the normal route.');
+    assert.match(mailboxState.authText, /connected to this computer/i, 'The live codex UI should connect to the local daemon on this computer.');
     assert.equal(mailboxState.currentView, 'Inbox', 'The live codex UI should land on the Inbox view after unlock.');
 
     if (health.counts.threads > 0 && mailboxState.threadCount > 0) {

@@ -2,7 +2,7 @@ import path from 'node:path';
 
 import assert from 'node:assert/strict';
 
-import {DEFAULT_REMOTE_AUTH_ORIGIN} from '../../src/remote-config';
+import {DEFAULT_LOCAL_MAIL_ORIGIN, DEFAULT_REMOTE_AUTH_ORIGIN} from '../../src/remote-config';
 import {openRoute, type BrowserTestContext} from './shared';
 
 type AuthTestHooks = {
@@ -97,6 +97,7 @@ export async function runAuthPageSmokeFlow(
 
   try {
     context.addBrowserLog('test', `Opening auth route ${authUrl}.`);
+    await context.page.setViewport({width: 393, height: 852, isMobile: true, hasTouch: true});
     await context.page.goto(authUrl, {waitUntil: 'load'});
     await context.page.waitForFunction(() => document.body.classList.contains('auth-route'));
     await context.page.waitForSelector('[data-site-menu-toggle]');
@@ -104,11 +105,11 @@ export async function runAuthPageSmokeFlow(
     await context.page.waitForSelector('[data-site-menu-overlay]:not([hidden])');
     await context.page.waitForFunction(() => {
       const heading = document.querySelector('h1');
-      return heading?.textContent?.includes('Static login and auth checks') ?? false;
+      return heading?.textContent?.includes('Connect Linker to this computer') ?? false;
     });
     await context.page.waitForFunction(() => {
       const health = document.querySelector('[data-auth-health]');
-      return health?.textContent?.includes('Cloudflare') ?? false;
+      return health?.textContent?.includes('Reachable') ?? false;
     });
     await context.page.click('[data-site-menu-toggle]');
     await context.page.waitForSelector('[data-site-menu-overlay][hidden]');
@@ -162,7 +163,11 @@ export async function runAuthPageSmokeFlow(
     });
     await context.page.waitForFunction(() => {
       const button = document.querySelector<HTMLButtonElement>('[data-auth-authorize]');
-      return button?.hidden ?? false;
+      return button?.textContent?.includes('Open Codex') ?? false;
+    });
+    await context.page.waitForFunction(() => {
+      const health = document.querySelector('[data-auth-health]');
+      return health?.textContent?.includes('This computer is reachable.') ?? false;
     });
 
     await context.page.$eval(
@@ -204,11 +209,14 @@ export async function runAuthPageSmokeFlow(
         healthText: document.querySelector('[data-auth-health]')?.textContent?.trim() ?? '',
         logEntryCount: document.querySelectorAll('.auth-log-entry').length,
         logFontFamily: logHost ? window.getComputedStyle(logHost).fontFamily : '',
+        overflowY: window.getComputedStyle(document.querySelector('#app') as HTMLElement).overflowY,
         navLabels: Array.from(document.querySelectorAll<HTMLElement>('[data-site-menu-link]')).map(
           (link) => link.textContent?.trim() ?? '',
         ),
         openCalls: hooks.openCalls,
         originText: document.querySelector('[data-auth-origin]')?.textContent?.trim() ?? '',
+        toolbarColumns:
+          window.getComputedStyle(document.querySelector('.auth-toolbar') as HTMLElement).gridTemplateColumns,
         sessionChecks: hooks.sessionChecks,
         title: document.title,
       };
@@ -220,8 +228,8 @@ export async function runAuthPageSmokeFlow(
     assert.ok(pageState.navLabels.some((label) => /README/i.test(label)), 'The fullscreen menu should include the README route.');
     assert.match(
       pageState.bodyText,
-      /Cloudflare Access/u,
-      'The /auth route should explain the Cloudflare Access flow.',
+      /Use This Computer for the shared local daemon\./u,
+      'The /auth route should keep the copy short and focused.',
     );
     assert.match(
       pageState.bodyFontFamily,
@@ -233,7 +241,9 @@ export async function runAuthPageSmokeFlow(
       /Space Mono/u,
       'The auth log should use the shared mono font.',
     );
-    assert.ok(pageState.logEntryCount >= 5, 'The auth route should record a visible auth event log.');
+    assert.ok(pageState.logEntryCount >= 2, 'The auth route should record a visible auth event log.');
+    assert.equal(pageState.overflowY, 'auto', 'The auth route should stay scrollable inside the fixed app shell.');
+    assert.equal(pageState.toolbarColumns.split(' ').length, 1, 'The auth actions should stack into one column on mobile.');
     assert.ok(
       pageState.fetchCalls.some((call) => call.includes('/api/auth/public-config')),
       'The auth route should probe the dedicated auth config route first.',
@@ -255,7 +265,7 @@ export async function runAuthPageSmokeFlow(
     assert.match(
       pageState.healthText,
       /Hosted mail API reachable\./u,
-      'The auth route should report the hosted mail access health when it falls back to the mail surface.',
+      'The auth route should report the saved-host mail access health when it falls back to the mail surface.',
     );
     assert.match(
       pageState.originText,
@@ -272,6 +282,11 @@ export async function runAuthPageSmokeFlow(
       pageState.openCalls[1] ?? '',
       new RegExp(`${DEFAULT_REMOTE_AUTH_ORIGIN.replace(/[.*+?^${}()|[\]\\]/gu, '\\$&')}/cdn-cgi/access/logout`, 'u'),
       'Sign out should open the standard Cloudflare Access logout target.',
+    );
+    assert.equal(
+      new RegExp(DEFAULT_LOCAL_MAIL_ORIGIN.replace(/[.*+?^${}()|[\]\\]/gu, '\\$&'), 'u').test(pageState.originText),
+      false,
+      'Returning to Saved Host mode should move back off the local loopback origin.',
     );
     await saveAuthScreenshot(context, 'auth-page');
     await openRoute(context.page, context.url);

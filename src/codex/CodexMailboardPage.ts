@@ -65,6 +65,7 @@ export class CodexMailboardPage {
 
   public render(): void {
     this.view.render();
+    const localDaemon = this.client.usesLocalDaemon();
     if (this.client.needsHostedSetup()) {
       const setupUrl = resolveSiteHref('new-user/');
       this.view.setAuthorizeLink({
@@ -83,18 +84,31 @@ export class CodexMailboardPage {
       return;
     }
 
-    this.view.setAuthorizeLink({
-      href: this.client.getAuthorizeUrl(),
-      label: resolveAuthorizeLabel(this.client.getMailOrigin()),
-    });
-    this.view.setUnlockPending(false, 'Unlock With Cloudflare Access');
-    this.view.setStatus('Waiting for Cloudflare Access.');
-    this.view.setMailboxSummary('Your hosted mailbox will appear after unlock.');
+    this.view.setAuthorizeLink(localDaemon
+      ? {
+          href: resolveSiteHref('new-user/'),
+          label: 'Use Custom Host',
+        }
+      : {
+          href: this.client.getAuthorizeUrl(),
+          label: resolveAuthorizeLabel(this.client.getMailOrigin()),
+        });
+    this.view.setUnlockPending(false, localDaemon ? 'Use This Computer' : 'Unlock With Cloudflare Access');
+    this.view.setStatus(localDaemon ? 'Checking this computer...' : 'Waiting for Cloudflare Access.');
+    this.view.setMailboxSummary(localDaemon ? 'Shared mailbox appears after this computer responds.' : 'Your hosted mailbox will appear after unlock.');
     this.view.setHealthSummary(`Browser mail origin: ${this.client.getMailOrigin()}`);
-    this.view.setAuthSummary('Cloudflare Access required.');
+    this.view.setAuthSummary(
+      localDaemon
+        ? 'This page will use the local gmail-agent daemon on this computer.'
+        : 'Cloudflare Access required.',
+    );
     this.view.setCurrentViewLabel('Inbox');
     this.view.setSearchQuery('');
     this.view.focusUnlock();
+
+    if (localDaemon) {
+      void this.connectLocalMailbox();
+    }
   }
 
   public dispose(): void {
@@ -102,6 +116,11 @@ export class CodexMailboardPage {
   }
 
   private async handleUnlock(): Promise<void> {
+    if (this.client.usesLocalDaemon()) {
+      await this.connectLocalMailbox();
+      return;
+    }
+
     if (this.client.needsHostedSetup()) {
       window.location.assign(resolveSiteHref('new-user/'));
       return;
@@ -142,10 +161,15 @@ export class CodexMailboardPage {
   }
 
   private async adoptUnlockedState(publicOrigin: string): Promise<void> {
+    const localDaemon = this.client.usesLocalDaemon();
     this.unlocked = true;
-    this.view.setAuthSummary(`Cloudflare Access ready for ${publicOrigin}.`);
-    this.view.setLockState(false, 'Cloudflare Access active.');
-    this.view.setStatus('Loading your hosted mailbox...');
+    this.view.setAuthSummary(
+      localDaemon
+        ? `Connected to this computer at ${publicOrigin}.`
+        : `Cloudflare Access ready for ${publicOrigin}.`,
+    );
+    this.view.setLockState(false, localDaemon ? 'This computer is connected.' : 'Cloudflare Access active.');
+    this.view.setStatus(localDaemon ? 'Loading the shared mailbox from this computer...' : 'Loading your hosted mailbox...');
     await this.reloadMailbox();
   }
 
@@ -186,7 +210,12 @@ export class CodexMailboardPage {
           : `Loaded ${threads.length} thread${threads.length === 1 ? '' : 's'} from ${resolveViewLabel(views, this.activeView)}.`,
       );
     } catch (error) {
-      const message = readErrorMessage(error, 'Unable to load your hosted mailbox.');
+      const message = readErrorMessage(
+        error,
+        this.client.usesLocalDaemon()
+          ? 'Unable to load the shared mailbox from this computer.'
+          : 'Unable to load your hosted mailbox.',
+      );
       this.view.setStatus(message);
       this.view.setHealthSummary(message);
     }
@@ -299,7 +328,11 @@ export class CodexMailboardPage {
         messageId: input.messageId,
       });
       this.view.clearReplyDraft();
-      this.view.setStatus('Reply sent through your hosted mailbox service.');
+      this.view.setStatus(
+        this.client.usesLocalDaemon()
+          ? 'Reply sent through this computer.'
+          : 'Reply sent through your hosted mailbox service.',
+      );
       await this.reloadMailbox();
     } catch (error) {
       this.view.setStatus(readErrorMessage(error, 'Unable to send the reply.'));
@@ -330,7 +363,11 @@ export class CodexMailboardPage {
       this.composeOpen = false;
       this.view.clearComposeDraft();
       this.view.setComposeOpen(false);
-      this.view.setStatus('New email sent through your hosted mailbox service.');
+      this.view.setStatus(
+        this.client.usesLocalDaemon()
+          ? 'New email sent through this computer.'
+          : 'New email sent through your hosted mailbox service.',
+      );
       await this.reloadMailbox();
     } catch (error) {
       this.view.setStatus(readErrorMessage(error, 'Unable to send the new email.'));
@@ -376,6 +413,33 @@ export class CodexMailboardPage {
     }
 
     window.open(this.client.getAuthorizeUrl(), '_blank', 'noopener,noreferrer');
+  }
+
+  private async connectLocalMailbox(): Promise<void> {
+    if (this.unlockPending) {
+      return;
+    }
+
+    this.unlockPending = true;
+    this.view.setUnlockPending(true, 'Checking This Computer...');
+    this.view.setStatus('Checking this computer...');
+    this.view.setHealthSummary(`Browser mail origin: ${this.client.getMailOrigin()}`);
+
+    try {
+      await this.client.fetchPublicConfig();
+      await this.adoptUnlockedState(this.client.getMailOrigin());
+    } catch (error) {
+      this.unlocked = false;
+      this.view.setStatus(readErrorMessage(error, 'This computer is not reachable yet.'));
+      this.view.setMailboxSummary('Local gmail-agent daemon unavailable.');
+      this.view.setHealthSummary(`Start gmail-agent on this computer at ${this.client.getMailOrigin()}.`);
+      this.view.setAuthSummary('Start the local daemon here, or save a custom host on New User.');
+      this.view.setLockState(true, 'This computer is not reachable yet.');
+      this.view.focusUnlock();
+    } finally {
+      this.unlockPending = false;
+      this.view.setUnlockPending(false, this.unlocked ? 'Connected' : 'Retry This Computer');
+    }
   }
 }
 

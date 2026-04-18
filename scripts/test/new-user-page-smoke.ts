@@ -4,8 +4,6 @@ import assert from 'node:assert/strict';
 
 import {openRoute, type BrowserTestContext} from './shared';
 import {
-  DEFAULT_REMOTE_AUTH_ORIGIN,
-  DEFAULT_REMOTE_MAIL_ORIGIN,
   DEFAULT_REPO_URL,
 } from '../../src/remote-config';
 
@@ -15,6 +13,7 @@ export async function runNewUserPageSmokeFlow(
   const routeUrl = new URL('new-user/', context.url).toString();
 
   context.addBrowserLog('test', `Opening new-user route ${routeUrl}.`);
+  await context.page.setViewport({width: 393, height: 852, isMobile: true, hasTouch: true});
   await context.page.goto(routeUrl, {waitUntil: 'load'});
   await context.page.waitForFunction(() => document.body.classList.contains('new-user-route'));
   await context.page.waitForSelector('[data-testid="new-user-page"]');
@@ -30,13 +29,13 @@ export async function runNewUserPageSmokeFlow(
   assert.equal(initialState.title, 'Linker New User', 'The new-user route should set a dedicated page title.');
   assert.equal(
     initialState.authValue,
-    DEFAULT_REMOTE_AUTH_ORIGIN,
-    'The new-user route should surface the generic hosted auth default.',
+    'This Computer',
+    'The new-user route should default auth to this computer when no custom host is saved.',
   );
   assert.equal(
     initialState.mailValue,
-    DEFAULT_REMOTE_MAIL_ORIGIN,
-    'The new-user route should surface the generic hosted mail default.',
+    'This Computer',
+    'The new-user route should default mail to this computer when no custom host is saved.',
   );
   assert.equal(
     initialState.repoValue,
@@ -54,7 +53,7 @@ export async function runNewUserPageSmokeFlow(
 
   await context.page.waitForFunction(() => {
     const status = document.querySelector('[data-new-user-status]');
-    return status?.textContent?.includes('Saved local private-host settings') ?? false;
+    return status?.textContent?.includes('Saved custom host settings') ?? false;
   });
 
   await context.page.click('[data-site-menu-toggle]');
@@ -71,21 +70,25 @@ export async function runNewUserPageSmokeFlow(
     navLabels: Array.from(document.querySelectorAll<HTMLElement>('[data-site-menu-link]')).map(
       (link) => link.textContent?.trim() ?? '',
     ),
+    overflowY: window.getComputedStyle(document.querySelector('#app') as HTMLElement).overflowY,
     repoValue: document.querySelector('[data-new-user-effective-repo]')?.textContent?.trim() ?? '',
     rootOnboardingHref:
       document.querySelector<HTMLAnchorElement>('a[href*="?onboarding=1"]')?.href ?? '',
+    actionColumns:
+      window.getComputedStyle(document.querySelector('.new-user-action-row') as HTMLElement).gridTemplateColumns,
   }));
 
   assert.match(savedState.currentNavLabel, /New User/i, 'The fullscreen menu should mark the new-user route as active.');
   assert.ok(savedState.navLabels.some((label) => /Auth/i.test(label)), 'The fullscreen menu should include the auth route.');
   assert.ok(savedState.navLabels.some((label) => /Codex/i.test(label)), 'The fullscreen menu should include the codex route.');
-  assert.match(savedState.bodyText, /3D DAG first/u, 'The new-user route should explain the DAG onboarding strategy.');
-  assert.match(savedState.bodyText, /One sign-in path/u, 'The new-user route should explain the sign-in onboarding strategy.');
+  assert.match(savedState.bodyText, /Leave Auth and Mail blank to use This Computer\./u, 'The new-user route should keep the setup copy short.');
   assert.match(savedState.repoValue, /https:\/\/github\.com\/acme\/linker-private/u, 'Saving the repo URL should update the effective value.');
   assert.match(savedState.authValue, /https:\/\/auth\.acme\.test/u, 'Saving the auth origin should update the effective value.');
   assert.match(savedState.mailValue, /https:\/\/mail\.acme\.test/u, 'Saving the mail origin should update the effective value.');
   assert.match(savedState.githubHref, /https:\/\/github\.com\/acme\/linker-private/u, 'Saving the repo URL should update the shared menu GitHub target too.');
   assert.match(savedState.rootOnboardingHref, /\?onboarding=1/u, 'The new-user page should link back to the DAG onboarding replay.');
+  assert.equal(savedState.overflowY, 'auto', 'The new-user route should stay scrollable inside the fixed app shell.');
+  assert.equal(savedState.actionColumns.split(' ').length, 1, 'The new-user actions should stack into one column on mobile.');
 
   await context.page.click('[data-site-menu-toggle]');
   await context.page.waitForSelector('[data-site-menu-overlay][hidden]');
@@ -95,8 +98,8 @@ export async function runNewUserPageSmokeFlow(
     const status = document.querySelector('[data-new-user-status]');
     const auth = document.querySelector('[data-new-user-effective-auth]');
     return (
-      (status?.textContent?.includes('Cleared local overrides') ?? false) &&
-      (auth?.textContent?.includes('https://auth.example.com') ?? false)
+      (status?.textContent?.includes('Cleared custom host settings') ?? false) &&
+      (auth?.textContent?.includes('This Computer') ?? false)
     );
   });
 

@@ -58,100 +58,68 @@ class NewUserPage {
     shell.innerHTML = `
       <header class="hero docs-hero new-user-hero">
         <p class="eyebrow">New User</p>
-        <h1>Bring your own private Linker host.</h1>
+        <h1>Set a custom host.</h1>
         <p class="lede">
-          Keep the DAG onboarding visual and local, then point the sign-in routes at your own protected auth and mail origins.
-          Nothing here needs a personal domain hardcoded into the repo.
+          Leave Auth and Mail blank to use This Computer. Save values here only if you want a different server.
         </p>
       </header>
 
-      <section class="section docs-section">
-        <p class="section-label">Onboarding Strategy</p>
-        <h2>Make the first ten minutes obvious.</h2>
-        <div class="new-user-grid">
-          <section class="new-user-card">
-            <h3>3D DAG first</h3>
-            <p>
-              Start in the root DAG, title a few workplanes immediately, and show the square-symbol, title-only, label-point,
-              and full-workplane LOD bands before dropping into a single 2D edit.
-            </p>
-          </section>
-          <section class="new-user-card">
-            <h3>One sign-in path</h3>
-            <p>
-              Treat auth as one simple unlock story: set your auth origin once, verify it on <code>/auth/</code>, then let
-              <code>/codex/</code> reuse the same protected host instead of asking for a second secret.
-            </p>
-          </section>
-          <section class="new-user-card">
-            <h3>Calculator controls</h3>
-            <p>
-              Keep the <code>3x3</code> menu, hotkeys, and title field visible while onboarding runs so users learn the real controls,
-              not a separate tutorial-only UI.
-            </p>
-          </section>
-        </div>
-      </section>
+      <section class="new-user-stack">
+        <section class="new-user-card">
+          <form class="new-user-config-form" data-new-user-config-form>
+            <label class="new-user-field">
+              <span class="new-user-field-label">Repository URL</span>
+              <input class="new-user-input" type="url" data-new-user-repo-input placeholder="${DEFAULT_REPO_URL}" />
+              <span class="new-user-field-help">Used for the GitHub link in the menu.</span>
+            </label>
+            <label class="new-user-field">
+              <span class="new-user-field-label">Auth Origin</span>
+              <input class="new-user-input" type="url" data-new-user-auth-input placeholder="${DEFAULT_REMOTE_AUTH_ORIGIN}" />
+              <span class="new-user-field-help">Optional.</span>
+            </label>
+            <label class="new-user-field">
+              <span class="new-user-field-label">Mail Origin</span>
+              <input class="new-user-input" type="url" data-new-user-mail-input placeholder="${DEFAULT_REMOTE_MAIL_ORIGIN}" />
+              <span class="new-user-field-help">Optional.</span>
+            </label>
+            <nav class="new-user-action-row" aria-label="New user configuration actions">
+              <button class="new-user-button new-user-button--primary" type="submit">Save</button>
+              <button class="new-user-button" type="button" data-new-user-reset>Reset</button>
+            </nav>
+            <p class="new-user-status" data-new-user-status>Ready.</p>
+          </form>
+        </section>
 
-      <section class="section docs-section">
-        <p class="section-label">Private Host Setup</p>
-        <h2>Store your own origins locally on this device.</h2>
-        <p>
-          These values live in local browser settings, not in the repo. Leave a field blank to fall back to the generic project defaults.
-        </p>
-        <form class="new-user-config-form" data-new-user-config-form>
-          <label class="new-user-field">
-            <span class="new-user-field-label">Repository URL</span>
-            <input class="new-user-input" type="url" data-new-user-repo-input placeholder="${DEFAULT_REPO_URL}" />
-            <span class="new-user-field-help">Used by the menu GitHub link and README markdown fallbacks.</span>
-          </label>
-          <label class="new-user-field">
-            <span class="new-user-field-label">Auth Origin</span>
-            <input class="new-user-input" type="url" data-new-user-auth-input placeholder="${DEFAULT_REMOTE_AUTH_ORIGIN}" />
-            <span class="new-user-field-help">Optional. If blank, <code>/auth/</code> reuses the hosted Mail Origin for the same Cloudflare Access flow.</span>
-          </label>
-          <label class="new-user-field">
-            <span class="new-user-field-label">Mail Origin</span>
-            <input class="new-user-input" type="url" data-new-user-mail-input placeholder="${DEFAULT_REMOTE_MAIL_ORIGIN}" />
-            <span class="new-user-field-help">Hosted mail API or Codex origin for the <code>/codex/</code> inbox client.</span>
-          </label>
-          <nav class="new-user-action-row" aria-label="New user configuration actions">
-            <button class="new-user-button new-user-button--primary" type="submit">Save Local Settings</button>
-            <button class="new-user-button" type="button" data-new-user-reset>Reset To Generic Defaults</button>
-          </nav>
-          <p class="new-user-status" data-new-user-status>Ready.</p>
-        </form>
-      </section>
+        <section class="new-user-card">
+          <h2>Current</h2>
+          <section class="new-user-summary" aria-label="Configured targets">
+            <article class="new-user-summary-row">
+              <span class="new-user-field-label">Repo</span>
+              <p data-new-user-effective-repo></p>
+            </article>
+            <article class="new-user-summary-row">
+              <span class="new-user-field-label">Auth</span>
+              <p data-new-user-effective-auth></p>
+            </article>
+            <article class="new-user-summary-row">
+              <span class="new-user-field-label">Mail</span>
+              <p data-new-user-effective-mail></p>
+            </article>
+          </section>
+        </section>
 
-      <section class="section docs-section">
-        <p class="section-label">Configured Targets</p>
-        <h2>Check the hosted values this browser will reuse.</h2>
-        <div class="new-user-grid">
-          <section class="new-user-card">
-            <h3>Repo</h3>
-            <p data-new-user-effective-repo></p>
-          </section>
-          <section class="new-user-card">
-            <h3>Auth</h3>
-            <p data-new-user-effective-auth></p>
-          </section>
-          <section class="new-user-card">
-            <h3>Mail</h3>
-            <p data-new-user-effective-mail></p>
-          </section>
-        </div>
         <nav class="new-user-link-grid" aria-label="Verification routes">
           <a class="site-menu-link site-menu-link--action" href="${resolveSiteHref('./?onboarding=1')}">
-            <span class="site-menu-link-label">Replay DAG Onboarding</span>
-            <span class="site-menu-link-meta">3D first</span>
+            <span class="site-menu-link-label">Open App</span>
+            <span class="site-menu-link-meta">Onboarding</span>
           </a>
           <a class="site-menu-link site-menu-link--action" href="${resolveSiteHref('auth/')}">
-            <span class="site-menu-link-label">Open Auth Check</span>
-            <span class="site-menu-link-meta">Session verify</span>
+            <span class="site-menu-link-label">Open Auth</span>
+            <span class="site-menu-link-meta">Check</span>
           </a>
           <a class="site-menu-link site-menu-link--action" href="${resolveSiteHref('codex/')}">
-            <span class="site-menu-link-label">Open Mailboard</span>
-            <span class="site-menu-link-meta">Unlock + inbox</span>
+            <span class="site-menu-link-label">Open Codex</span>
+            <span class="site-menu-link-meta">Mailboard</span>
           </a>
         </nav>
       </section>
@@ -195,7 +163,7 @@ class NewUserPage {
       mailOrigin: this.mailInput?.value ?? '',
       repoUrl: this.repoInput?.value ?? '',
     });
-    this.setStatus('Saved local private-host settings for this browser.');
+    this.setStatus('Saved custom host settings for this browser.');
     this.syncFields();
   };
 
@@ -205,7 +173,7 @@ class NewUserPage {
       mailOrigin: '',
       repoUrl: '',
     });
-    this.setStatus('Cleared local overrides. Generic project defaults are active again.');
+    this.setStatus('Cleared custom host settings. This Computer is active again.');
     this.syncFields();
   };
 
@@ -229,11 +197,11 @@ class NewUserPage {
     }
 
     if (this.effectiveAuthValue) {
-      this.effectiveAuthValue.textContent = this.currentSettings.authOrigin || DEFAULT_REMOTE_AUTH_ORIGIN;
+      this.effectiveAuthValue.textContent = this.currentSettings.authOrigin || 'This Computer';
     }
 
     if (this.effectiveMailValue) {
-      this.effectiveMailValue.textContent = this.currentSettings.mailOrigin || DEFAULT_REMOTE_MAIL_ORIGIN;
+      this.effectiveMailValue.textContent = this.currentSettings.mailOrigin || 'This Computer';
     }
   }
 

@@ -82,11 +82,11 @@ export class CodexMailboardView {
         <section class="codex-mail-meta-grid">
           <div class="codex-mail-meta-card">
             <span class="codex-mail-meta-label">Status</span>
-            <p class="codex-mail-meta-value" data-codex-status>Waiting for Cloudflare Access.</p>
+            <p class="codex-mail-meta-value" data-codex-status>Checking this computer.</p>
           </div>
           <div class="codex-mail-meta-card">
             <span class="codex-mail-meta-label">Mailbox</span>
-            <p class="codex-mail-meta-value" data-codex-mailbox>Hosted mailbox unavailable.</p>
+            <p class="codex-mail-meta-value" data-codex-mailbox>Shared mailbox unavailable.</p>
           </div>
           <div class="codex-mail-meta-card">
             <span class="codex-mail-meta-label">View</span>
@@ -94,11 +94,11 @@ export class CodexMailboardView {
           </div>
           <div class="codex-mail-meta-card codex-mail-meta-card--wide">
             <span class="codex-mail-meta-label">Health</span>
-            <p class="codex-mail-meta-value" data-codex-health>Health appears after Access is active.</p>
+            <p class="codex-mail-meta-value" data-codex-health>Health appears after the mailbox responds.</p>
           </div>
           <div class="codex-mail-meta-card codex-mail-meta-card--wide">
-            <span class="codex-mail-meta-label">Access</span>
-            <p class="codex-mail-meta-value" data-codex-auth>Cloudflare Access required.</p>
+            <span class="codex-mail-meta-label">Target</span>
+            <p class="codex-mail-meta-value" data-codex-auth>This page will use this computer first.</p>
           </div>
         </section>
 
@@ -131,13 +131,13 @@ export class CodexMailboardView {
 
           <div class="codex-mail-lock-overlay" data-codex-lock>
             <div class="codex-mail-lock-card">
-              <p class="codex-mail-lock-eyebrow">Cloudflare Access</p>
-              <h2 class="codex-mail-lock-title">Unlock your hosted mailbox.</h2>
+              <p class="codex-mail-lock-eyebrow">Mailbox</p>
+              <h2 class="codex-mail-lock-title">Connect the shared mailbox.</h2>
               <div class="codex-mail-lock-actions" data-codex-lock-actions>
-                <button class="codex-mail-primary-button" type="button" data-codex-unlock-button>Unlock With Cloudflare Access</button>
-                <a class="codex-mail-secondary-link" data-codex-authorize-link href="https://mail.example.com/codex/" target="_blank" rel="noopener noreferrer">Sign In With Cloudflare</a>
+                <button class="codex-mail-primary-button" type="button" data-codex-unlock-button>Use This Computer</button>
+                <a class="codex-mail-secondary-link" data-codex-authorize-link href="https://mail.example.com/codex/" target="_blank" rel="noopener noreferrer">Use Custom Host</a>
               </div>
-              <p class="codex-mail-lock-message" data-codex-unlock-message>Waiting for Cloudflare Access.</p>
+              <p class="codex-mail-lock-message" data-codex-unlock-message>Checking this computer.</p>
             </div>
           </div>
         </section>
@@ -202,7 +202,7 @@ export class CodexMailboardView {
     this.setComposeOpen(false);
     this.setThreadActionsPending(false);
     this.setSearchQuery('');
-    this.setLockState(true, 'Waiting for Cloudflare Access.');
+    this.setLockState(true, 'Checking this computer.');
   }
 
   public dispose(): void {

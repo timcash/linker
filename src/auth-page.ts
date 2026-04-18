@@ -1,8 +1,9 @@
 import {createSiteMenu, resolveSiteHref, type SiteMenuHandle} from './docs-shell';
 import {
-  DEFAULT_REMOTE_AUTH_ORIGIN,
   hasExplicitConfiguredOrigin,
+  isLoopbackOrigin,
   normalizeAbsoluteHttpUrl,
+  readConfiguredAuthOrigin,
 } from './remote-config';
 import {readStoredAppSettings} from './site-settings';
 
@@ -108,57 +109,55 @@ class AuthPage {
     this.siteMenu = createSiteMenu('auth');
     const shell = document.createElement('main');
     shell.className = 'page-shell docs-page auth-page auth-shell';
+    shell.dataset.testid = 'auth-page';
 
     shell.innerHTML = `
       <header class="docs-hero auth-hero">
-        <p class="eyebrow">Cloudflare Access</p>
-        <h1>Static login and auth checks for local or tunneled Linker services.</h1>
+        <p class="eyebrow">Auth</p>
+        <h1>Connect Linker to this computer.</h1>
         <p class="lede">
-          Keep this route static, decide whether to target localhost or your hosted access origin, then use one
-          Cloudflare-protected route to unlock the same host that powers the mailboard.
-        </p>
-        <p class="auth-note">
-          In remote mode, press <strong>Authorize</strong>, complete the access flow on the target origin, then return
-          here and press <strong>Check Session</strong>. If no separate auth service exists, this page will reuse the
-          hosted mail API instead.
+          Use This Computer for the shared local daemon. Save a custom host only if you want a different Linker server.
         </p>
       </header>
 
-      <section class="auth-grid">
-        <article class="auth-card auth-card--wide">
+      <section class="auth-stack">
+        <article class="auth-card">
           <span class="auth-label">Mode</span>
           <p class="auth-value" data-auth-mode-summary></p>
-          <div class="auth-mode-toggle" role="group" aria-label="Linker auth mode">
-            <button type="button" class="auth-mode-btn" data-auth-mode-button="auto">Auto</button>
-            <button type="button" class="auth-mode-btn" data-auth-mode-button="dev">Dev</button>
-            <button type="button" class="auth-mode-btn" data-auth-mode-button="auth">Auth</button>
-          </div>
+          <nav class="auth-mode-toggle" role="group" aria-label="Linker auth mode">
+            <button type="button" class="auth-mode-btn" data-auth-mode-button="auto">This Computer</button>
+            <button type="button" class="auth-mode-btn" data-auth-mode-button="auth">Saved Host</button>
+            <button type="button" class="auth-mode-btn" data-auth-mode-button="dev">This Tab</button>
+          </nav>
         </article>
 
         <article class="auth-card">
-          <span class="auth-label">Auth State</span>
-          <p class="auth-value" data-auth-status>Idle.</p>
+          <section class="auth-summary" aria-label="Auth status">
+            <article class="auth-summary-item">
+              <span class="auth-label">State</span>
+              <p class="auth-value" data-auth-status>Idle.</p>
+            </article>
+            <article class="auth-summary-item">
+              <span class="auth-label">Target</span>
+              <p class="auth-value" data-auth-origin>Resolving...</p>
+            </article>
+            <article class="auth-summary-item">
+              <span class="auth-label">Health</span>
+              <p class="auth-value" data-auth-health>Checking config route...</p>
+            </article>
+          </section>
         </article>
 
-        <article class="auth-card auth-card--wide">
-          <span class="auth-label">Target Origin</span>
-          <p class="auth-value" data-auth-origin>Resolving...</p>
+        <nav class="auth-toolbar" aria-label="Auth actions">
+          <button type="button" class="auth-action auth-action--primary" data-auth-authorize>Open Codex</button>
+          <button type="button" class="auth-action" data-auth-check-session>Check Connection</button>
+          <button type="button" class="auth-action" data-auth-sign-out>Sign Out</button>
+        </nav>
+
+        <article class="auth-card auth-card--log">
+          <span class="auth-label">Recent</span>
+          <div class="auth-log" data-auth-log></div>
         </article>
-
-        <article class="auth-card auth-card--wide">
-          <span class="auth-label">Health</span>
-          <p class="auth-value" data-auth-health>Checking config route...</p>
-        </article>
-      </section>
-
-      <section class="auth-toolbar">
-        <button type="button" class="auth-action auth-action--primary" data-auth-authorize>Authorize</button>
-        <button type="button" class="auth-action" data-auth-check-session>Check Session</button>
-        <button type="button" class="auth-action" data-auth-sign-out>Sign Out</button>
-      </section>
-
-      <section class="auth-console">
-        <div class="auth-log" data-auth-log></div>
       </section>
     `;
 
@@ -200,8 +199,8 @@ class AuthPage {
 
     this.syncModeUi();
     await this.refreshConfig();
-    this.setAuthPhase('idle', 'Ready. Choose a mode and check the session.');
-    this.appendLog('system', 'Auth page loaded. Waiting for an authorization check.');
+    this.setAuthPhase('idle', 'Ready. Open Codex or check the connection.');
+    this.appendLog('system', 'Auth page loaded.');
   }
 
   public destroy(): void {
@@ -226,6 +225,7 @@ class AuthPage {
 
   private async refreshConfig(): Promise<void> {
     const origin = this.resolveHttpOrigin();
+    const localTarget = isLoopbackOrigin(origin);
     const controller = new AbortController();
     const timeout = window.setTimeout(() => controller.abort(), CONFIG_TIMEOUT_MS);
 
@@ -233,28 +233,41 @@ class AuthPage {
     this.syncActionButtons(origin);
 
     if (this.requiresHostedSetup(origin)) {
-      this.setOriginText('No hosted auth or mail origin is configured yet.');
-      this.setHealthText('Open New User and save a private Auth Origin or Mail Origin first.');
-      this.appendLog('system', 'Hosted auth setup is missing. Open /new-user/ before checking Cloudflare Access.');
+      this.setOriginText('No saved custom host is configured yet.');
+      this.setHealthText('Open New User only if you want a custom host instead of This Computer.');
+      this.appendLog('system', 'Saved-host setup is empty. This Computer mode is still available.');
       window.clearTimeout(timeout);
       return;
     }
 
-    this.setOriginText(`${origin} -> checking access surface`);
-    this.setHealthText('Checking config route...');
+    this.setOriginText(localTarget ? `${origin} -> local mail daemon` : `${origin} -> checking access`);
+    this.setHealthText(localTarget ? 'Checking this computer...' : 'Checking saved host...');
 
     try {
       const config = await this.fetchAccessConfig(origin, controller.signal);
       this.activeConfig = config;
-      this.setOriginText(`${config.publicOrigin} -> ${config.sessionPath}`);
-      this.setHealthText(`Reachable. ${config.sessionLabel} via ${config.providerLabel}.`);
-      this.appendLog('system', `Config route is reachable at ${config.publicOrigin}${config.sessionPath}.`);
+      this.setOriginText(localTarget ? `${origin} -> ${config.sessionPath}` : `${config.publicOrigin} -> ${config.sessionPath}`);
+      this.setHealthText(
+        localTarget
+          ? 'This computer is reachable.'
+          : `Reachable. ${config.sessionLabel} via ${config.providerLabel}.`,
+      );
+      this.appendLog(
+        'system',
+        localTarget
+          ? `Connected to this computer at ${origin}.`
+          : `Config route is reachable at ${config.publicOrigin}${config.sessionPath}.`,
+      );
     } catch (error) {
+      if (localTarget) {
+        this.setHealthText('This computer is not reachable yet. Start gmail-agent here, then check again.');
+        this.appendLog('system', 'The local mail daemon is not reachable yet.');
+      } else
       if (this.requiresRemoteAccessLogin(origin)) {
         this.setHealthText(
-          'Cloudflare Access login is probably required. Press Authorize, complete the remote flow, then return here and check the session again.',
+          'Sign in to the saved host, then return here and check the connection again.',
         );
-        this.appendLog('system', 'Remote access auth is likely required before the config route can be reached.');
+        this.appendLog('system', 'Saved-host access is likely required before the config route can be reached.');
       } else {
         this.setHealthText(readErrorMessage(error, 'The target origin is not reachable yet.'));
       }
@@ -264,11 +277,13 @@ class AuthPage {
   }
 
   private async checkSession(): Promise<void> {
+    const origin = this.resolveHttpOrigin();
+    const localTarget = isLoopbackOrigin(origin);
     this.setAuthPhase('checking', 'Checking the session route...');
 
     const sessionUrl = this.resolveHttpUrl(
       this.activeConfig?.sessionPath ?? AUTH_SESSION_PATH,
-      this.resolveHttpOrigin(),
+      origin,
     );
     const controller = new AbortController();
     const timeout = window.setTimeout(() => controller.abort(), CONFIG_TIMEOUT_MS);
@@ -293,7 +308,7 @@ class AuthPage {
         }
 
         const detail = [
-          'Hosted mailbox authorized.',
+          localTarget ? 'This computer is connected.' : 'Saved host authorized.',
           health.mailbox?.emailAddress ? `Mailbox ${health.mailbox.emailAddress}.` : '',
           typeof health.counts?.threads === 'number' ? `${health.counts.threads} tracked threads.` : '',
         ]
@@ -366,10 +381,20 @@ class AuthPage {
   }
 
   private openAccessLogin(): void {
+    const origin = this.resolveHttpOrigin();
+    const localTarget = isLoopbackOrigin(origin);
+
+    if (localTarget) {
+      const codexUrl = resolveSiteHref('codex/');
+      window.location.assign(codexUrl);
+      this.appendLog('system', `Opened ${codexUrl}.`);
+      return;
+    }
+
     if (this.requiresHostedSetup()) {
       const setupUrl = resolveSiteHref('new-user/');
       window.location.assign(setupUrl);
-      this.appendLog('system', `Opened ${setupUrl} so you can configure a hosted auth or mail origin first.`);
+      this.appendLog('system', `Opened ${setupUrl} so you can save a custom host first.`);
       return;
     }
 
@@ -382,7 +407,7 @@ class AuthPage {
   }
 
   private openSignOut(): void {
-    if (this.requiresHostedSetup()) {
+    if (isLoopbackOrigin(this.resolveHttpOrigin()) || this.requiresHostedSetup()) {
       return;
     }
 
@@ -403,6 +428,11 @@ class AuthPage {
     entry.className = `auth-log-entry auth-log-entry--${kind}`;
     entry.textContent = `[${new Date().toLocaleTimeString()}] ${text}`;
     this.elements.logHost.append(entry);
+
+    while (this.elements.logHost.childElementCount > 4) {
+      this.elements.logHost.firstElementChild?.remove();
+    }
+
     this.elements.logHost.scrollTop = this.elements.logHost.scrollHeight;
   }
 
@@ -458,6 +488,10 @@ class AuthPage {
       return false;
     }
 
+    if (isLoopbackOrigin(origin)) {
+      return false;
+    }
+
     if (!this.requiresRemoteAccessLogin(origin)) {
       return false;
     }
@@ -475,26 +509,33 @@ class AuthPage {
       return;
     }
 
+    const localTarget = isLoopbackOrigin(origin);
     const needsRemoteLogin = this.requiresRemoteAccessLogin(origin);
     const needsHostedSetup = this.requiresHostedSetup(origin);
 
-    this.elements.authorizeButton.hidden = !needsRemoteLogin;
-    this.elements.authorizeButton.textContent = needsHostedSetup
-      ? 'Open New User Setup'
-      : 'Authorize';
-    this.elements.signOutButton.hidden = !needsRemoteLogin || needsHostedSetup;
+    this.elements.authorizeButton.hidden = false;
+    this.elements.authorizeButton.textContent = localTarget
+      ? 'Open Codex'
+      : needsHostedSetup
+        ? 'Open New User'
+        : 'Sign In';
+    this.elements.checkSessionButton.textContent = localTarget ? 'Check This Computer' : 'Check Connection';
+    this.elements.signOutButton.hidden = localTarget || !needsRemoteLogin || needsHostedSetup;
   }
 
   private resolveRemoteAccessOrigin(): string {
     const storedSettings = readStoredAppSettings();
-    const explicitAuthOrigin =
+    const explicitOrigin =
       normalizeAbsoluteHttpUrl(storedSettings.authOrigin) ||
-      normalizeAbsoluteHttpUrl(import.meta.env.VITE_LINKER_AUTH_ORIGIN as string | undefined);
-    const explicitMailOrigin =
       normalizeAbsoluteHttpUrl(storedSettings.mailOrigin) ||
+      normalizeAbsoluteHttpUrl(import.meta.env.VITE_LINKER_AUTH_ORIGIN as string | undefined) ||
       normalizeAbsoluteHttpUrl(import.meta.env.VITE_CODEX_MAIL_URL as string | undefined);
 
-    return explicitAuthOrigin || explicitMailOrigin || DEFAULT_REMOTE_AUTH_ORIGIN;
+    return readConfiguredAuthOrigin({
+      configuredOrigin: explicitOrigin,
+      hostname: window.location.hostname,
+      locationOrigin: window.location.origin,
+    });
   }
 
   private async fetchAccessConfig(origin: string, signal: AbortSignal): Promise<AccessConfigResponse> {
@@ -546,9 +587,9 @@ class AuthPage {
 }
 
 const modeCopyMap: Record<AuthMode, string> = {
-  auto: 'Auto mode uses localhost on local pages and switches to your configured hosted access origin on hosted pages.',
-  auth: 'Auth mode always targets your hosted access origin, preferring Auth Origin and falling back to Mail Origin.',
-  dev: 'Dev mode stays on the current page origin and expects a local auth service beside Vite.',
+  auto: 'This Computer uses the local shared daemon.',
+  auth: 'Saved Host uses the Auth or Mail origin from New User.',
+  dev: 'This Tab stays on the page you opened.',
 };
 
 const modeLabelMap: Record<AuthMode, string> = {
