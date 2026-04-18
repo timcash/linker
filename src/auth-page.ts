@@ -242,7 +242,7 @@ class AuthPage {
     }
 
     if (this.requiresLocalNetworkPermission(origin)) {
-      const permissionState = await readLocalNetworkAccessState();
+      const permissionState = await readLocalNetworkAccessState(origin);
       this.setOriginText(`${origin} -> this computer`);
       this.setHealthText(formatLocalPermissionHint(permissionState));
       this.syncActionButtons(origin);

@@ -472,7 +472,7 @@ export class CodexMailboardPage {
   }
 
   private async readLocalPermissionState(): Promise<LocalNetworkAccessState> {
-    return await readLocalNetworkAccessState();
+    return await readLocalNetworkAccessState(this.client.getMailOrigin());
   }
 }
 
