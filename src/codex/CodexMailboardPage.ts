@@ -10,6 +10,7 @@ import {
 } from './CodexMailClient';
 import {CodexMailboardView} from './CodexMailboardView';
 import {resolveSiteHref} from '../docs-shell';
+import {readLocalNetworkAccessState, type LocalNetworkAccessState} from '../local-network-access';
 
 const ACCESS_POLL_INTERVAL_MS = 1500;
 const ACCESS_POLL_TIMEOUT_MS = 60_000;
@@ -107,7 +108,7 @@ export class CodexMailboardPage {
     this.view.focusUnlock();
 
     if (localDaemon) {
-      void this.connectLocalMailbox();
+      void this.prepareLocalMailbox();
     }
   }
 
@@ -432,14 +433,46 @@ export class CodexMailboardPage {
       this.unlocked = false;
       this.view.setStatus(readErrorMessage(error, 'This computer is not reachable yet.'));
       this.view.setMailboxSummary('Local gmail-agent daemon unavailable.');
-      this.view.setHealthSummary(`Start gmail-agent on this computer at ${this.client.getMailOrigin()}.`);
-      this.view.setAuthSummary('Start the local daemon here, or save a custom host on New User.');
-      this.view.setLockState(true, 'This computer is not reachable yet.');
+      this.view.setHealthSummary(formatLocalMailboxHint(await this.readLocalPermissionState(), this.client.getMailOrigin()));
+      this.view.setAuthSummary('Press Use This Computer, or save a custom host on New User.');
+      this.view.setLockState(true, formatLocalMailboxHint(await this.readLocalPermissionState(), this.client.getMailOrigin()));
       this.view.focusUnlock();
     } finally {
       this.unlockPending = false;
       this.view.setUnlockPending(false, this.unlocked ? 'Connected' : 'Retry This Computer');
     }
+  }
+
+  private async prepareLocalMailbox(): Promise<void> {
+    if (!this.requiresLocalNetworkPermission()) {
+      await this.connectLocalMailbox();
+      return;
+    }
+
+    const permissionState = await this.readLocalPermissionState();
+    const hint = formatLocalMailboxHint(permissionState, this.client.getMailOrigin());
+
+    this.view.setStatus(hint);
+    this.view.setMailboxSummary('Shared mailbox appears after this computer allows local access.');
+    this.view.setHealthSummary(hint);
+    this.view.setAuthSummary(
+      permissionState === 'granted'
+        ? 'Local network access is already granted for this site.'
+        : 'Press Use This Computer to let Chrome request access to the local daemon.',
+    );
+    this.view.setLockState(true, hint);
+
+    if (permissionState === 'granted') {
+      await this.connectLocalMailbox();
+    }
+  }
+
+  private requiresLocalNetworkPermission(): boolean {
+    return window.location.hostname.endsWith('github.io') && this.client.usesLocalDaemon();
+  }
+
+  private async readLocalPermissionState(): Promise<LocalNetworkAccessState> {
+    return await readLocalNetworkAccessState();
   }
 }
 
@@ -534,4 +567,21 @@ function resolveAuthorizeLabel(origin: string): string {
   }
 
   return 'Sign In With Cloudflare';
+}
+
+function formatLocalMailboxHint(
+  permissionState: LocalNetworkAccessState,
+  origin: string,
+): string {
+  switch (permissionState) {
+    case 'granted':
+      return `This site can reach ${origin}.`;
+    case 'denied':
+      return 'Chrome denied local network access. Press Use This Computer after allowing this site to talk to local devices.';
+    case 'prompt':
+      return 'Press Use This Computer, then allow local network access in Chrome.';
+    case 'unsupported':
+    default:
+      return `Press Use This Computer to check ${origin}.`;
+  }
 }

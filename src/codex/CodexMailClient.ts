@@ -1,5 +1,6 @@
 import {hasExplicitConfiguredOrigin, isLoopbackOrigin, resolveConfiguredMailOrigin} from '../remote-config';
 import {readStoredAppSettings} from '../site-settings';
+import {withLocalNetworkAccess} from '../local-network-access';
 
 export type CodexMailViewId = 'inbox' | 'unread' | 'starred' | 'sent' | 'all-mail' | 'codex';
 export type CodexMailThreadAction =
@@ -221,7 +222,7 @@ export class CodexMailClient {
     }
 
     const response = await fetch(this.buildHttpUrl(pathname), {
-      ...init,
+      ...(this.usesLocalDaemon() ? withLocalNetworkAccess(init, this.getMailOrigin()) : init),
       credentials: 'include',
       headers,
       mode: 'cors',

@@ -5,6 +5,7 @@ import {
   normalizeAbsoluteHttpUrl,
   readConfiguredAuthOrigin,
 } from './remote-config';
+import {readLocalNetworkAccessState, withLocalNetworkAccess} from './local-network-access';
 import {readStoredAppSettings} from './site-settings';
 
 type AuthMode = 'auto' | 'auth' | 'dev';
@@ -240,6 +241,14 @@ class AuthPage {
       return;
     }
 
+    if (this.requiresLocalNetworkPermission(origin)) {
+      const permissionState = await readLocalNetworkAccessState();
+      this.setOriginText(`${origin} -> this computer`);
+      this.setHealthText(formatLocalPermissionHint(permissionState));
+      this.syncActionButtons(origin);
+      return;
+    }
+
     this.setOriginText(localTarget ? `${origin} -> local mail daemon` : `${origin} -> checking access`);
     this.setHealthText(localTarget ? 'Checking this computer...' : 'Checking saved host...');
 
@@ -258,6 +267,7 @@ class AuthPage {
           ? `Connected to this computer at ${origin}.`
           : `Config route is reachable at ${config.publicOrigin}${config.sessionPath}.`,
       );
+      this.syncActionButtons(origin);
     } catch (error) {
       if (localTarget) {
         this.setHealthText('This computer is not reachable yet. Start gmail-agent here, then check again.');
@@ -276,26 +286,35 @@ class AuthPage {
     }
   }
 
-  private async checkSession(): Promise<void> {
+  private async checkSession(openCodexOnSuccess = false): Promise<void> {
     const origin = this.resolveHttpOrigin();
     const localTarget = isLoopbackOrigin(origin);
     this.setAuthPhase('checking', 'Checking the session route...');
 
-    const sessionUrl = this.resolveHttpUrl(
-      this.activeConfig?.sessionPath ?? AUTH_SESSION_PATH,
-      origin,
-    );
     const controller = new AbortController();
     const timeout = window.setTimeout(() => controller.abort(), CONFIG_TIMEOUT_MS);
 
     try {
-      const response = await fetch(sessionUrl, {
-        headers: {
-          Accept: 'application/json',
-        },
-        mode: 'cors',
-        signal: controller.signal,
-      });
+      if (localTarget && !this.activeConfig) {
+        const config = await this.fetchAccessConfig(origin, controller.signal);
+        this.activeConfig = config;
+        this.setOriginText(`${origin} -> ${config.sessionPath}`);
+        this.setHealthText('This computer is reachable.');
+        this.syncActionButtons(origin);
+      }
+
+      const sessionUrl = this.resolveHttpUrl(
+        this.activeConfig?.sessionPath ?? AUTH_SESSION_PATH,
+        origin,
+      );
+        const response = await fetch(sessionUrl, {
+          headers: {
+            Accept: 'application/json',
+          },
+          ...(this.requiresLocalNetworkPermission(origin) ? withLocalNetworkAccess({}, origin) : {}),
+          mode: 'cors',
+          signal: controller.signal,
+        });
 
       if (!response.ok) {
         throw new Error(`Session request failed with status ${response.status}.`);
@@ -317,6 +336,11 @@ class AuthPage {
 
         this.setAuthPhase('authorized', detail);
         this.appendLog('remote', detail);
+
+        if (openCodexOnSuccess) {
+          window.location.assign(resolveSiteHref('codex/'));
+          return;
+        }
       } else {
         const session = (await response.json()) as AuthSessionResponse;
 
@@ -385,9 +409,13 @@ class AuthPage {
     const localTarget = isLoopbackOrigin(origin);
 
     if (localTarget) {
-      const codexUrl = resolveSiteHref('codex/');
-      window.location.assign(codexUrl);
-      this.appendLog('system', `Opened ${codexUrl}.`);
+      if (this.activeConfig) {
+        const codexUrl = resolveSiteHref('codex/');
+        window.location.assign(codexUrl);
+        this.appendLog('system', `Opened ${codexUrl}.`);
+      } else {
+        void this.checkSession(true);
+      }
       return;
     }
 
@@ -515,7 +543,9 @@ class AuthPage {
 
     this.elements.authorizeButton.hidden = false;
     this.elements.authorizeButton.textContent = localTarget
-      ? 'Open Codex'
+      ? this.activeConfig
+        ? 'Open Codex'
+        : 'Connect This Computer'
       : needsHostedSetup
         ? 'Open New User'
         : 'Sign In';
@@ -544,6 +574,7 @@ class AuthPage {
         headers: {
           Accept: 'application/json',
         },
+        ...(this.requiresLocalNetworkPermission(origin) ? withLocalNetworkAccess({}, origin) : {}),
         mode: 'cors',
         signal,
       });
@@ -562,6 +593,7 @@ class AuthPage {
         headers: {
           Accept: 'application/json',
         },
+        ...(this.requiresLocalNetworkPermission(origin) ? withLocalNetworkAccess({}, origin) : {}),
         mode: 'cors',
         signal,
       });
@@ -583,6 +615,10 @@ class AuthPage {
         surface: 'mail',
       };
     }
+  }
+
+  private requiresLocalNetworkPermission(origin = this.resolveHttpOrigin()): boolean {
+    return window.location.hostname.endsWith('github.io') && isLoopbackOrigin(origin);
   }
 }
 
@@ -612,4 +648,18 @@ function readErrorMessage(error: unknown, fallback: string): string {
   }
 
   return fallback;
+}
+
+function formatLocalPermissionHint(permissionState: PermissionState | 'unsupported'): string {
+  switch (permissionState) {
+    case 'granted':
+      return 'This computer is ready to check.';
+    case 'denied':
+      return 'Chrome denied local network access. Press Connect This Computer after allowing this site to talk to local devices.';
+    case 'prompt':
+      return 'Press Connect This Computer, then allow local network access in Chrome.';
+    case 'unsupported':
+    default:
+      return 'Press Connect This Computer to check the local daemon on this machine.';
+  }
 }

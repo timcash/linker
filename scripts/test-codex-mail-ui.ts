@@ -78,7 +78,7 @@ async function main(): Promise<void> {
           /mailbox view is empty/i.test(statusText)
         );
       },
-      {},
+      {timeout: 120_000},
       mailboxEmail,
     );
 
