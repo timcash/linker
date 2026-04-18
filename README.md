@@ -26,13 +26,11 @@ Current proven invariant:
 - `npm run test:dag:static` is green for pure DAG validation, layout, edge, and model mutation rules
 - `npm run build:pages` is green for the deployable GitHub Pages bundle
 - the shared site shell now advertises `site.webmanifest`, a monochrome SVG app icon, safe-area mobile meta tags, and a service worker-backed install surface
+- the app canvas now renders the 2D and 3D DAG views in a black-and-white `Tron`-style presentation: black field, white highlights, grayscale text, projected square graph symbols, and bright curved DAG links
 - workplane switches now animate through a camera handoff in both `plane-focus view` and the 3D DAG overview
 - the default twelve-workplane DAG boot still uses the deterministic rank-slice autogrid, so each downstream rank reads as a visible `lane x depth` grid in 3D
 - the onboarding proof now records `13` ordered screenshots, from `intro` through `complete`, in `artifacts/test-screenshots`
-
-Current focused diagnostic to keep explicit:
-
-- `npm run test:browser -- --flow dag-zoom-journey` is temporarily out of the shared suite while its five-workplane zoom-band expectation is recalibrated; the onboarding-first path remains the default product proof
+- `npm run test:browser -- --flow dag-zoom-journey` is green again for the five-workplane LOD ladder, including the square-symbol `graph-point` band
 
 Replay and skip:
 

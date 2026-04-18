@@ -17,7 +17,7 @@ export const LINE_STRATEGIES = [
 
 export type LineStrategy = (typeof LINE_STRATEGIES)[number];
 
-export const DEFAULT_LINE_STRATEGY: LineStrategy = 'rounded-step-links';
+export const DEFAULT_LINE_STRATEGY: LineStrategy = 'arc-links';
 
 export const LINE_STRATEGY_OPTIONS = [
   {mode: 'rounded-step-links', label: 'Step'},

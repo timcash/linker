@@ -51,12 +51,12 @@ const LINE_BLEND_PARAMETERS = {
 } as const;
 
 const VIEWPORT_PADDING = 24;
-const DIMMED_LINK_ALPHA_SCALE = 0.68;
-const DIMMED_LINK_RGB_SCALE = 0.72;
-const INPUT_LINK_ALPHA_SCALE = 1.9;
-const INPUT_LINK_BRIGHTEN = 0.28;
-const OUTPUT_LINK_ALPHA_SCALE = 2.1;
-const OUTPUT_LINK_BRIGHTEN = 0.4;
+const DIMMED_LINK_ALPHA_SCALE = 0.6;
+const DIMMED_LINK_RGB_SCALE = 0.64;
+const INPUT_LINK_ALPHA_SCALE = 1.72;
+const INPUT_LINK_BRIGHTEN = 0.22;
+const OUTPUT_LINK_ALPHA_SCALE = 1.9;
+const OUTPUT_LINK_BRIGHTEN = 0.3;
 
 type LineMesh = {
   colors: Float32Array;
@@ -395,8 +395,15 @@ function screenToClip(point: ScreenPoint, viewport: ViewportSize): {x: number; y
 }
 
 function getLineSegmentCount(mode: LineStrategy): number {
-  void mode;
-  return 20;
+  switch (mode) {
+    case 'orbit-links':
+      return 36;
+    case 'arc-links':
+      return 32;
+    case 'rounded-step-links':
+    default:
+      return 24;
+  }
 }
 
 function createCurveFingerprint(positions: number[]): string {

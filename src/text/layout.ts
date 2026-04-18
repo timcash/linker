@@ -1,6 +1,6 @@
 import type {GlyphAtlas, GlyphPlacement, LabelBounds, LabelDefinition, TextLayout} from './types';
 
-const DEFAULT_LABEL_COLOR = [0.92, 0.96, 1, 1] as const;
+const DEFAULT_LABEL_COLOR = [0.92, 0.92, 0.92, 1] as const;
 type MeasuredGlyphPlacement = Pick<
   GlyphPlacement,
   'height' | 'offsetX' | 'offsetY' | 'u0' | 'u1' | 'v0' | 'v1' | 'width'

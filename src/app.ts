@@ -165,6 +165,7 @@ import {getCharacterSetFromLabels} from './text/charset';
 import {TextLayer} from './text/layer';
 import {
   TEXT_STRATEGIES,
+  type RgbaColor,
   type TextStrategy,
 } from './text/types';
 
@@ -218,6 +219,7 @@ const QUAD_UVS = new Float32Array([
   0, 1,
   1, 1,
 ]);
+const TRON_REFERENCE_WHITE: RgbaColor = [1, 1, 1, 1];
 
 const DEMO_DEEP_ZOOM_STEP = GRID_LAYER_ZOOM_STEP;
 const STACK_CAMERA_CONTROL_AZIMUTH_STEP_RADIANS = Math.PI / 18;
@@ -429,8 +431,10 @@ class LumaStageController {
     this.scene = getActiveWorkplaneDocument(initialState).scene;
     const stackViewState =
       initialState.session.stageMode === '3d-mode' ? createStackViewState(initialState) : null;
-    this.renderScene =
-      initialState.session.stageMode === '3d-mode' && stackViewState ? stackViewState.scene : this.scene;
+    this.renderScene = createTronRenderScene(
+      initialState.session.stageMode === '3d-mode' && stackViewState ? stackViewState.scene : this.scene,
+      initialState.session.stageMode,
+    );
     this.stackBackplates = stackViewState?.backplates ?? [];
     if (stackViewState) {
       this.stackProjector.setSceneBounds(stackViewState.sceneBounds);
@@ -3795,10 +3799,13 @@ class LumaStageController {
     stackViewState?: StackViewState,
   ): StageScene {
     if (state.session.stageMode === '2d-mode') {
-      return getActiveWorkplaneDocument(state).scene;
+      return createTronRenderScene(getActiveWorkplaneDocument(state).scene, state.session.stageMode);
     }
 
-    return (stackViewState ?? createStackViewState(state)).scene;
+    return createTronRenderScene(
+      (stackViewState ?? createStackViewState(state)).scene,
+      state.session.stageMode,
+    );
   }
 
   private syncRenderSceneFromState(
@@ -4484,6 +4491,78 @@ function isLineStrategy(value: string | null | undefined): value is LineStrategy
 
 function isLayoutStrategy(value: string | null | undefined): value is LayoutStrategy {
   return LAYOUT_STRATEGIES.includes(value as LayoutStrategy);
+}
+
+function createTronRenderScene(scene: StageScene, stageMode: StageMode): StageScene {
+  const themedScene = cloneStageScene(scene);
+
+  themedScene.labels = themedScene.labels.map((label) => ({
+    ...label,
+    color: createTronLabelColor(label, stageMode),
+  }));
+  themedScene.links = themedScene.links.map((link) => ({
+    ...link,
+    color: createTronLinkColor(link.color, stageMode),
+    lineWidth: createTronLinkLineWidth(link.lineWidth, stageMode),
+  }));
+
+  return themedScene;
+}
+
+function createTronLabelColor(
+  label: StageScene['labels'][number],
+  stageMode: StageMode,
+): RgbaColor {
+  const sourceColor = label.color ?? TRON_REFERENCE_WHITE;
+  const sourceLuma = getPerceivedLuma(sourceColor);
+  const layer = label.navigation?.layer ?? null;
+
+  if (stageMode === '2d-mode') {
+    const brightness =
+      layer === null
+        ? clamp(Math.max(sourceLuma, 0.84), 0.72, 1)
+        : clamp(Math.max(sourceLuma, 1 - (layer - 1) * 0.12), 0.58, 1);
+    const alpha =
+      layer === null
+        ? clamp(sourceColor[3], 0.74, 1)
+        : clamp(sourceColor[3] * (layer === 1 ? 1 : 0.92), 0.7, 1);
+
+    return [brightness, brightness, brightness, alpha];
+  }
+
+  if (layer !== null) {
+    const brightness = clamp(Math.max(sourceLuma, 0.94 - (layer - 1) * 0.1), 0.56, 0.98);
+    const alpha = clamp(sourceColor[3] * (layer === 1 ? 1 : 0.88), 0.58, 1);
+    return [brightness, brightness, brightness, alpha];
+  }
+
+  const brightness = clamp(sourceLuma, 0.7, 1);
+  return [brightness, brightness, brightness, clamp(sourceColor[3], 0.62, 1)];
+}
+
+function createTronLinkColor(
+  color: StageScene['links'][number]['color'],
+  stageMode: StageMode,
+): RgbaColor {
+  const sourceLuma = getPerceivedLuma(color);
+
+  if (stageMode === '3d-mode') {
+    const brightness = clamp(Math.max(sourceLuma, 0.9), 0.9, 1);
+    return [brightness, brightness, brightness, clamp(Math.max(color[3], 0.8), 0.8, 1)];
+  }
+
+  const brightness = clamp(Math.max(sourceLuma, 0.78), 0.72, 0.96);
+  return [brightness, brightness, brightness, clamp(Math.max(color[3], 0.68), 0.64, 0.92)];
+}
+
+function createTronLinkLineWidth(lineWidth: number, stageMode: StageMode): number {
+  return stageMode === '3d-mode'
+    ? Math.max(2.6, lineWidth * 1.08)
+    : Math.max(2.2, lineWidth * 1.04);
+}
+
+function getPerceivedLuma(color: RgbaColor): number {
+  return color[0] * 0.2126 + color[1] * 0.7152 + color[2] * 0.0722;
 }
 
 async function createWebGpuDevice(props: DeviceProps): Promise<Device> {

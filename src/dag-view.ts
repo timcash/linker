@@ -36,7 +36,7 @@ const DAG_GRAPH_POINT_SYMBOL_ACTIVE_FILL: RgbaColor = [1, 1, 1, 0.34];
 const DAG_GRAPH_POINT_SYMBOL_ACTIVE_OUTLINE: RgbaColor = [1, 1, 1, 1];
 const DAG_GRAPH_POINT_SYMBOL_INACTIVE_FILL: RgbaColor = [1, 1, 1, 0.18];
 const DAG_GRAPH_POINT_SYMBOL_INACTIVE_OUTLINE: RgbaColor = [1, 1, 1, 0.8];
-const DAG_EDGE_COLOR: RgbaColor = [1, 1, 1, 0.96];
+const DAG_EDGE_COLOR: RgbaColor = [1, 1, 1, 1];
 const DAG_TITLE_ACTIVE_COLOR: RgbaColor = [1, 1, 1, 1];
 const DAG_TITLE_INACTIVE_COLOR: RgbaColor = [0.88, 0.88, 0.88, 0.97];
 const DAG_POINT_COLOR: RgbaColor = [1, 1, 1, 1];
@@ -761,14 +761,14 @@ function createDagEdgeLinkDefinition(
   return {
     bendDirection: 1,
     color: scaleColorAlpha(DAG_EDGE_COLOR, alphaScale),
-    curveBias: 0.24,
-    curveDepth: 0.16,
-    curveLift: 0.1,
+    curveBias: 0.32,
+    curveDepth: 0.22,
+    curveLift: 0.18,
     inputLabelKey: `dag:${edge.toWorkplaneId}:input`,
     inputLinkPoint: 'left-center',
     inputLocation: {...edge.input},
     linkKey: `bridge:dag:${edge.edgeKey}`,
-    lineWidth: 3,
+    lineWidth: 3.6,
     outputLabelKey: `dag:${edge.fromWorkplaneId}:output`,
     outputLinkPoint: 'right-center',
     outputLocation: {...edge.output},
