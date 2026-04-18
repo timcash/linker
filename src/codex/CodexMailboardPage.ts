@@ -69,7 +69,7 @@ export class CodexMailboardPage {
       label: resolveAuthorizeLabel(this.client.getMailOrigin()),
     });
     this.view.setStatus('Waiting for Cloudflare Access.');
-    this.view.setMailboxSummary('The shared gmail-agent mailbox will appear after unlock.');
+    this.view.setMailboxSummary('Your hosted mailbox will appear after unlock.');
     this.view.setHealthSummary(`Browser mail origin: ${this.client.getMailOrigin()}`);
     this.view.setAuthSummary('Cloudflare Access required.');
     this.view.setCurrentViewLabel('Inbox');
@@ -88,7 +88,7 @@ export class CodexMailboardPage {
 
     this.unlockPending = true;
     this.view.setUnlockPending(true, 'Checking Access...');
-    this.view.setStatus('Checking Cloudflare Access for the shared mailbox...');
+    this.view.setStatus('Checking Cloudflare Access for your hosted mailbox...');
 
     try {
       const existingAccess = await this.tryFetchPublicConfig();
@@ -120,7 +120,7 @@ export class CodexMailboardPage {
     this.unlocked = true;
     this.view.setAuthSummary(`Cloudflare Access ready for ${publicOrigin}.`);
     this.view.setLockState(false, 'Cloudflare Access active.');
-    this.view.setStatus('Loading the shared mailbox...');
+    this.view.setStatus('Loading your hosted mailbox...');
     await this.reloadMailbox();
   }
 
@@ -161,7 +161,7 @@ export class CodexMailboardPage {
           : `Loaded ${threads.length} thread${threads.length === 1 ? '' : 's'} from ${resolveViewLabel(views, this.activeView)}.`,
       );
     } catch (error) {
-      const message = readErrorMessage(error, 'Unable to load the shared mailbox.');
+      const message = readErrorMessage(error, 'Unable to load your hosted mailbox.');
       this.view.setStatus(message);
       this.view.setHealthSummary(message);
     }
@@ -274,7 +274,7 @@ export class CodexMailboardPage {
         messageId: input.messageId,
       });
       this.view.clearReplyDraft();
-      this.view.setStatus('Reply sent through the shared gmail-agent daemon.');
+      this.view.setStatus('Reply sent through your hosted mailbox service.');
       await this.reloadMailbox();
     } catch (error) {
       this.view.setStatus(readErrorMessage(error, 'Unable to send the reply.'));
@@ -305,7 +305,7 @@ export class CodexMailboardPage {
       this.composeOpen = false;
       this.view.clearComposeDraft();
       this.view.setComposeOpen(false);
-      this.view.setStatus('New email sent through the shared gmail-agent daemon.');
+      this.view.setStatus('New email sent through your hosted mailbox service.');
       await this.reloadMailbox();
     } catch (error) {
       this.view.setStatus(readErrorMessage(error, 'Unable to send the new email.'));

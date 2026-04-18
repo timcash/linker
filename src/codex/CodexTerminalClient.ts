@@ -4,6 +4,7 @@ import type {
   CodexBridgeServerMessage,
   TerminalSize,
 } from '../../shared/codex/CodexBridgeTypes';
+import {DEFAULT_REMOTE_AUTH_ORIGIN} from '../remote-config';
 
 export type CodexTerminalClientLifecycle = 'connecting' | 'connected' | 'disconnected' | 'error';
 
@@ -14,7 +15,7 @@ interface CodexTerminalClientOptions {
   onAccessRequired: (detail: string) => void;
 }
 
-const DEFAULT_REMOTE_ORIGIN = 'https://linker.dialtone.earth';
+const DEFAULT_REMOTE_ORIGIN = DEFAULT_REMOTE_AUTH_ORIGIN;
 const PUBLIC_CONFIG_PATH = '/api/codex/public-config';
 const HEALTH_PATH = '/api/codex/health';
 const TERMINAL_SOCKET_PATH = '/codex-bridge';

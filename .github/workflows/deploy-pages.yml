@@ -49,6 +49,8 @@ jobs:
     environment:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
+    outputs:
+      page_url: ${{ steps.deployment.outputs.page_url }}
     runs-on: ubuntu-latest
     needs: build
     steps:
@@ -73,4 +75,4 @@ jobs:
         run: npm ci --legacy-peer-deps
 
       - name: Verify deployed live page
-        run: npm run test:live -- --url "https://timcash.github.io/linker/" --allow-unsupported
+        run: npm run test:live -- --url "${{ needs.deploy.outputs.page_url }}" --allow-unsupported

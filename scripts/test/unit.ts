@@ -39,6 +39,10 @@ import {
   createDefaultDagRankFanoutState,
 } from '../../src/data/dag-rank-fanout';
 import {
+  DEFAULT_REMOTE_AUTH_ORIGIN,
+  resolveConfiguredAuthOrigin,
+} from '../../src/remote-config';
+import {
   createDefaultEditorLabState,
 } from '../../src/data/editor-lab';
 import {
@@ -166,8 +170,8 @@ export function runStaticUnitTests(): void {
 
 function runCodexBridgePolicyTests(): void {
   assert.equal(
-    buildDeferredBridgeHealthSummary('https://linker.dialtone.earth'),
-    'Cloudflare Access unlock will verify the Codex bridge at https://linker.dialtone.earth before the terminal connects.',
+    buildDeferredBridgeHealthSummary(DEFAULT_REMOTE_AUTH_ORIGIN),
+    `Cloudflare Access unlock will verify the Codex bridge at ${DEFAULT_REMOTE_AUTH_ORIGIN} before the terminal connects.`,
     'Deferred health copy should explain the single Cloudflare Access unlock flow and target origin.',
   );
   assert.equal(
@@ -177,9 +181,9 @@ function runCodexBridgePolicyTests(): void {
   );
   assert.equal(
     shouldFallbackToCloudflareAuthorizeWindow({
-      bridgeOrigin: 'https://linker.dialtone.earth',
+      bridgeOrigin: DEFAULT_REMOTE_AUTH_ORIGIN,
       error: new Error('Failed to fetch'),
-      locationOrigin: 'https://timcash.github.io',
+      locationOrigin: 'https://your-user.github.io',
     }),
     true,
     'Hosted codex unlock should still launch Cloudflare Access when the first bridge probe fails cross-origin.',
@@ -195,10 +199,10 @@ function runCodexBridgePolicyTests(): void {
   );
   assert.equal(
     resolveCodexBaseOrigin({
-      hostname: 'timcash.github.io',
-      locationOrigin: 'https://timcash.github.io',
+      hostname: 'your-user.github.io',
+      locationOrigin: 'https://your-user.github.io',
     }),
-    'https://linker.dialtone.earth',
+    DEFAULT_REMOTE_AUTH_ORIGIN,
     'Hosted GitHub Pages should prefer the public bridge origin.',
   );
   assert.equal(
@@ -209,6 +213,23 @@ function runCodexBridgePolicyTests(): void {
     }),
     'http://127.0.0.1:4186',
     'A configured codex bridge origin should override the default base-origin resolution.',
+  );
+  assert.equal(
+    resolveConfiguredAuthOrigin({
+      configuredOrigin: 'https://auth.acme.test',
+      hostname: 'localhost',
+      locationOrigin: 'http://127.0.0.1:5173',
+    }),
+    'https://auth.acme.test',
+    'Auth-mode origin resolution should honor an explicitly configured remote origin even on localhost.',
+  );
+  assert.equal(
+    resolveConfiguredAuthOrigin({
+      hostname: 'github.io',
+      locationOrigin: 'https://your-user.github.io',
+    }),
+    DEFAULT_REMOTE_AUTH_ORIGIN,
+    'Hosted auth-origin resolution should still fall back to the generic remote default when no override is set.',
   );
 }
 

@@ -5,10 +5,10 @@ Date: April 17, 2026
 Reviewed deploy:
 
 - commit `88c9081`
-- root: [https://timcash.github.io/linker/](https://timcash.github.io/linker/)
-- codex: [https://timcash.github.io/linker/codex/](https://timcash.github.io/linker/codex/)
-- readme: [https://timcash.github.io/linker/readme/](https://timcash.github.io/linker/readme/)
-- logs: [https://timcash.github.io/linker/logs/](https://timcash.github.io/linker/logs/)
+- root: [https://your-user.github.io/linker/](https://your-user.github.io/linker/)
+- codex: [https://your-user.github.io/linker/codex/](https://your-user.github.io/linker/codex/)
+- readme: [https://your-user.github.io/linker/readme/](https://your-user.github.io/linker/readme/)
+- logs: [https://your-user.github.io/linker/logs/](https://your-user.github.io/linker/logs/)
 
 ## Findings
 
@@ -42,7 +42,7 @@ The root onboarding completed on the live site and ended on the expected `12`-wo
 ## Evidence
 
 - root smoke command:
-  - `npm run test:live -- --url https://timcash.github.io/linker/?onboarding=1 --expect-onboarding`
+  - `npm run test:live -- --url https://your-user.github.io/linker/?onboarding=1 --expect-onboarding`
 - local route checks before publish:
   - `npm run test:browser:onboarding`
   - `npm run test:browser:boot`
@@ -57,3 +57,4 @@ The root onboarding completed on the live site and ended on the expected `12`-wo
   - [live-codex-review.png](C:/Users/timca/linker/artifacts/test-screenshots/live-codex-review.png)
   - [live-readme-review.png](C:/Users/timca/linker/artifacts/test-screenshots/live-readme-review.png)
   - [live-logs-review.png](C:/Users/timca/linker/artifacts/test-screenshots/live-logs-review.png)
+

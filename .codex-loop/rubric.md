@@ -29,7 +29,7 @@
   - `npm run test:dag:static`
   - `npm run lint`
   - `npm run test:browser -- --flow dag-view-smoke`
-  - `npm run test:live -- --url https://timcash.github.io/linker/`
+  - `npm run test:live -- --url https://your-user.github.io/linker/`
 - Required Report:
   - changed files
   - exact commands run

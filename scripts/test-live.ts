@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 
+import {DEFAULT_LIVE_SITE_URL} from '../src/remote-config';
 import {appendLogEvent, initializeUnifiedLog} from './logging';
 import {launchSmokeBrowser, runSmokeTest} from './test/smoke';
 
@@ -33,7 +34,7 @@ for (let index = 2; index < process.argv.length; index += 1) {
 const liveUrl =
   (typeof args.get('url') === 'string' ? String(args.get('url')) : '') ||
   process.env.LINKER_LIVE_URL ||
-  'https://timcash.github.io/linker/';
+  DEFAULT_LIVE_SITE_URL;
 const allowUnsupported = args.has('allow-unsupported') || process.env.LINKER_ALLOW_UNSUPPORTED === '1';
 const expectOnboarding = args.has('expect-onboarding');
 

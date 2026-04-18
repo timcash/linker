@@ -2,6 +2,7 @@ import path from 'node:path';
 
 import assert from 'node:assert/strict';
 
+import {DEFAULT_REMOTE_AUTH_ORIGIN} from '../../src/remote-config';
 import {openRoute, type BrowserTestContext} from './shared';
 
 type AuthTestHooks = {
@@ -105,7 +106,10 @@ export async function runAuthPageSmokeFlow(
     await context.page.click('[data-site-menu-toggle]');
     await context.page.waitForSelector('[data-site-menu-overlay][hidden]');
 
-    await context.page.click('[data-auth-authorize]');
+    await context.page.$eval(
+      '[data-auth-authorize]',
+      (element) => (element as HTMLButtonElement).click(),
+    );
     await context.page.waitForFunction(
       () =>
         (
@@ -115,7 +119,10 @@ export async function runAuthPageSmokeFlow(
         ).__LINKER_AUTH_TEST_HOOKS__?.openCalls.length === 1,
     );
 
-    await context.page.click('[data-auth-check-session]');
+    await context.page.$eval(
+      '[data-auth-check-session]',
+      (element) => (element as HTMLButtonElement).click(),
+    );
     await context.page.waitForFunction(() => {
       const state = document.querySelector('[data-auth-status]');
       return state?.textContent?.includes('Authorized.') ?? false;
@@ -125,7 +132,10 @@ export async function runAuthPageSmokeFlow(
       (element) => element.textContent?.trim() ?? '',
     );
 
-    await context.page.click('[data-auth-sign-out]');
+    await context.page.$eval(
+      '[data-auth-sign-out]',
+      (element) => (element as HTMLButtonElement).click(),
+    );
     await context.page.waitForFunction(
       () =>
         (
@@ -135,7 +145,10 @@ export async function runAuthPageSmokeFlow(
         ).__LINKER_AUTH_TEST_HOOKS__?.openCalls.length === 2,
     );
 
-    await context.page.click('[data-auth-mode-button="dev"]');
+    await context.page.$eval(
+      '[data-auth-mode-button="dev"]',
+      (element) => (element as HTMLButtonElement).click(),
+    );
     await context.page.waitForFunction(() => {
       const origin = document.querySelector('[data-auth-origin]');
       return origin?.textContent?.includes(window.location.origin) ?? false;
@@ -145,10 +158,13 @@ export async function runAuthPageSmokeFlow(
       return button?.hidden ?? false;
     });
 
-    await context.page.click('[data-auth-mode-button="auth"]');
+    await context.page.$eval(
+      '[data-auth-mode-button="auth"]',
+      (element) => (element as HTMLButtonElement).click(),
+    );
     await context.page.waitForFunction(() => {
       const origin = document.querySelector('[data-auth-origin]');
-      return origin?.textContent?.includes('https://linker.dialtone.earth') ?? false;
+      return origin?.textContent?.includes('https://auth.example.com') ?? false;
     });
     await context.page.waitForFunction(() => {
       const health = document.querySelector('[data-auth-health]');
@@ -232,18 +248,18 @@ export async function runAuthPageSmokeFlow(
     );
     assert.match(
       pageState.originText,
-      /https:\/\/linker\.dialtone\.earth/u,
+      new RegExp(DEFAULT_REMOTE_AUTH_ORIGIN.replace(/[.*+?^${}()|[\]\\]/gu, '\\$&'), 'u'),
       'The auth route should return to the remote Cloudflare origin in auth mode.',
     );
     assert.equal(pageState.openCalls.length, 2, 'The auth route should open both authorize and sign-out targets.');
     assert.match(
       pageState.openCalls[0] ?? '',
-      /https:\/\/linker\.dialtone\.earth\/cdn-cgi\/access\/login\/linker/u,
+      new RegExp(`${DEFAULT_REMOTE_AUTH_ORIGIN.replace(/[.*+?^${}()|[\]\\]/gu, '\\$&')}/cdn-cgi/access/login/linker`, 'u'),
       'Authorize should open the remote Cloudflare Access login target.',
     );
     assert.match(
       pageState.openCalls[1] ?? '',
-      /https:\/\/linker\.dialtone\.earth\/api\/auth\/logout/u,
+      new RegExp(`${DEFAULT_REMOTE_AUTH_ORIGIN.replace(/[.*+?^${}()|[\]\\]/gu, '\\$&')}/api/auth/logout`, 'u'),
       'Sign out should open the remote logout target.',
     );
     await saveAuthScreenshot(context, 'auth-page');

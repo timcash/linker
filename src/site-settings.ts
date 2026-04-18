@@ -7,10 +7,13 @@ export type AppMotionPreference = 'reduced' | 'smooth';
 export type AppOnboardingPreference = 'auto' | 'skip';
 
 export type StoredAppSettings = {
+  authOrigin: string;
   lineStrategy: LineStrategy;
+  mailOrigin: string;
   motionPreference: AppMotionPreference;
   onboardingPreference: AppOnboardingPreference;
   preferredStageMode: StageMode;
+  repoUrl: string;
   textStrategy: TextStrategy;
   uiLayout: AppUiLayout;
 };
@@ -69,6 +72,19 @@ export function writeStoredAppSettings(
     ...currentOverrides,
     ...nextSettings,
   });
+
+  if ('authOrigin' in nextSettings && !mergedOverrides.authOrigin) {
+    delete mergedOverrides.authOrigin;
+  }
+
+  if ('mailOrigin' in nextSettings && !mergedOverrides.mailOrigin) {
+    delete mergedOverrides.mailOrigin;
+  }
+
+  if ('repoUrl' in nextSettings && !mergedOverrides.repoUrl) {
+    delete mergedOverrides.repoUrl;
+  }
+
   const mergedSettings = normalizeStoredAppSettings(mergedOverrides);
 
   if (typeof window === 'undefined') {
@@ -115,7 +131,9 @@ function normalizeStoredAppSettings(
   input: Partial<StoredAppSettings>,
 ): StoredAppSettings {
   return {
+    authOrigin: normalizeOptionalAbsoluteUrl(input.authOrigin),
     lineStrategy: isLineStrategy(input.lineStrategy) ? input.lineStrategy : DEFAULT_LINE_STRATEGY,
+    mailOrigin: normalizeOptionalAbsoluteUrl(input.mailOrigin),
     motionPreference: isAppMotionPreference(input.motionPreference)
       ? input.motionPreference
       : DEFAULT_APP_MOTION_PREFERENCE,
@@ -125,6 +143,7 @@ function normalizeStoredAppSettings(
     preferredStageMode: isStageMode(input.preferredStageMode)
       ? input.preferredStageMode
       : DEFAULT_STAGE_MODE,
+    repoUrl: normalizeOptionalAbsoluteUrl(input.repoUrl),
     textStrategy: isTextStrategy(input.textStrategy) ? input.textStrategy : DEFAULT_TEXT_STRATEGY,
     uiLayout: isAppUiLayout(input.uiLayout) ? input.uiLayout : DEFAULT_APP_UI_LAYOUT,
   };
@@ -135,8 +154,18 @@ function normalizeStoredAppSettingsOverrides(
 ): StoredAppSettingsOverrides {
   const nextOverrides: StoredAppSettingsOverrides = {};
 
+  const authOrigin = normalizeOptionalAbsoluteUrl(input.authOrigin);
+  if (authOrigin) {
+    nextOverrides.authOrigin = authOrigin;
+  }
+
   if (isLineStrategy(input.lineStrategy)) {
     nextOverrides.lineStrategy = input.lineStrategy;
+  }
+
+  const mailOrigin = normalizeOptionalAbsoluteUrl(input.mailOrigin);
+  if (mailOrigin) {
+    nextOverrides.mailOrigin = mailOrigin;
   }
 
   if (isAppMotionPreference(input.motionPreference)) {
@@ -149,6 +178,11 @@ function normalizeStoredAppSettingsOverrides(
 
   if (isStageMode(input.preferredStageMode)) {
     nextOverrides.preferredStageMode = input.preferredStageMode;
+  }
+
+  const repoUrl = normalizeOptionalAbsoluteUrl(input.repoUrl);
+  if (repoUrl) {
+    nextOverrides.repoUrl = repoUrl;
   }
 
   if (isTextStrategy(input.textStrategy)) {
@@ -180,4 +214,28 @@ function isAppMotionPreference(value: unknown): value is AppMotionPreference {
 
 function isAppOnboardingPreference(value: unknown): value is AppOnboardingPreference {
   return value === 'auto' || value === 'skip';
+}
+
+function normalizeOptionalAbsoluteUrl(value: unknown): string {
+  if (typeof value !== 'string') {
+    return '';
+  }
+
+  const trimmed = value.trim();
+  if (!trimmed) {
+    return '';
+  }
+
+  try {
+    const parsed = new URL(trimmed);
+    if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
+      return '';
+    }
+    parsed.pathname = parsed.pathname.replace(/\/+$/u, '');
+    parsed.search = '';
+    parsed.hash = '';
+    return parsed.toString().replace(/\/$/u, '');
+  } catch {
+    return '';
+  }
 }

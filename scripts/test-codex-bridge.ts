@@ -6,10 +6,11 @@ import type {
   CodexBridgeHealth,
   CodexBridgePublicConfig,
 } from '../shared/codex/CodexBridgeTypes';
+import {DEFAULT_REMOTE_AUTH_ORIGIN} from '../src/remote-config';
 
 const TEST_HOST = '127.0.0.1';
 const TEST_PORT = 4191;
-const TEST_PUBLIC_ORIGIN = 'https://linker.dialtone.earth';
+const TEST_PUBLIC_ORIGIN = DEFAULT_REMOTE_AUTH_ORIGIN;
 type CodexErrorResponse = {
   error: string;
   ok: false;

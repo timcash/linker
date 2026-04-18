@@ -3,6 +3,7 @@ import path from 'node:path';
 import assert from 'node:assert/strict';
 import type {HTTPRequest} from 'puppeteer';
 
+import {DEFAULT_REMOTE_MAIL_ORIGIN} from '../../src/remote-config';
 import type {BrowserTestContext} from './shared';
 
 type MockThread = {
@@ -321,7 +322,7 @@ export async function runCodexPageSmokeFlow(
       await respondJson(request, {
         ok: true,
         authRequired: true,
-        publicOrigin: 'https://codex.dialtone.earth',
+        publicOrigin: DEFAULT_REMOTE_MAIL_ORIGIN,
       });
       return;
     }
@@ -334,7 +335,7 @@ export async function runCodexPageSmokeFlow(
           emailAddress: 'owner@example.com',
         },
         runtime: {
-          publicOrigin: 'https://codex.dialtone.earth',
+          publicOrigin: DEFAULT_REMOTE_MAIL_ORIGIN,
         },
         counts: {
           threads: countThreads('all-mail'),

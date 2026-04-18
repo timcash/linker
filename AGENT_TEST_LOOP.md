@@ -67,7 +67,7 @@ Latest experiment:
 
 - run `20260408-161302` proved the worker can update `README.md` and `PLAN.md` in a real worktree cycle while the monitor reads explicit docs-sync evidence from `check-results.json`
 - that run ended in `tighten-test`, which is the intended behavior for a partial Slice 6 step: the static LOD helper/test work was accepted as real progress, and the monitor pushed the next task back toward the missing browser smoke proof
-- browser-backed runs should now also track `npm run test:live -- --url https://timcash.github.io/linker/` so the GitHub Pages smoke result stays visible beside the local browser proof
+- browser-backed runs should now also track `npm run test:live -- --url https://your-user.github.io/linker/` so the GitHub Pages smoke result stays visible beside the local browser proof
 - run `20260408-174647` proved the full review-and-promote path: the worker updated `README.md` and `PLAN.md`, the monitor cited `[test.live.pass]` from `test.log`, the run wrote `review-worker-changes.md` plus `promotion-manifest.json`, and `.\agent.ps1 -PromoteRun 20260408-174647` applied the reviewed files back into root with hash checks
 - the loop now also prepares one explicit task packet per run and records the next few task ideas, which is the first concrete step toward the subtask-first model described later in this document
 - focused browser commands now only fail on unexpected structured errors from their own session, so an earlier intentional worker failure in the same shared `test.log` no longer poisons the later monitored check
@@ -753,7 +753,7 @@ For the current DAG flow, the narrow command ladder is:
 npm run test:dag:static
 npm run lint
 npm run test:browser -- --flow dag-view-smoke
-npm run test:live -- --url https://timcash.github.io/linker/
+npm run test:live -- --url https://your-user.github.io/linker/
 ```
 
 ## Implementation Map
@@ -818,3 +818,4 @@ The practical model is:
 - `monitor-steps.md` is the fastest artifact to inspect after each run
 
 The loop should continue evolving toward stricter evidence, smaller diffs, and narrower test-first progress.
+

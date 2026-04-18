@@ -11,7 +11,7 @@ const runtimeDir = resolve(workspaceRoot, '.runtime', 'codex-daemon');
 const statusFile = resolve(runtimeDir, 'status.json');
 const host = process.env.CODEX_BRIDGE_HOST ?? '127.0.0.1';
 const port = Number(process.env.CODEX_BRIDGE_PORT ?? 4186);
-const publicOrigin = process.env.CODEX_PUBLIC_ORIGIN ?? 'https://linker.dialtone.earth';
+const publicOrigin = process.env.CODEX_PUBLIC_ORIGIN ?? 'https://mail.example.com';
 const staticRoot = resolve(workspaceRoot, 'dist');
 const localUrl = `http://${host}:${port}`;
 const shouldStartTunnel = process.argv.includes('--tunnel') || process.env.CODEX_DAEMON_TUNNEL === '1';

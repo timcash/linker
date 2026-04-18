@@ -1,3 +1,6 @@
+import {resolveConfiguredMailOrigin} from '../remote-config';
+import {readStoredAppSettings} from '../site-settings';
+
 export type CodexMailViewId = 'inbox' | 'unread' | 'starred' | 'sent' | 'all-mail' | 'codex';
 export type CodexMailThreadAction =
   | 'mark-read'
@@ -100,8 +103,6 @@ export interface CodexMailHealth {
   views: CodexMailView[];
 }
 
-const DEFAULT_REMOTE_ORIGIN = 'https://codex.dialtone.earth';
-const DEFAULT_LOCAL_ORIGIN = 'http://127.0.0.1:4192';
 const PUBLIC_CONFIG_PATH = '/api/mail/public-config';
 const HEALTH_PATH = '/api/mail/health';
 const VIEWS_PATH = '/api/mail/views';
@@ -233,6 +234,7 @@ export class CodexMailClient {
         configuredOrigin: import.meta.env.VITE_CODEX_MAIL_URL as string | undefined,
         hostname: window.location.hostname,
         locationOrigin: window.location.origin,
+        storedOrigin: readStoredAppSettings().mailOrigin,
       }),
     );
   }
@@ -258,20 +260,9 @@ export function resolveCodexMailOrigin(input: {
   configuredOrigin?: string;
   hostname: string;
   locationOrigin: string;
+  storedOrigin?: string;
 }): string {
-  if (input.configuredOrigin) {
-    return input.configuredOrigin;
-  }
-
-  if (input.hostname.endsWith('github.io')) {
-    return DEFAULT_REMOTE_ORIGIN;
-  }
-
-  if (input.hostname === '127.0.0.1' || input.hostname === 'localhost') {
-    return DEFAULT_LOCAL_ORIGIN;
-  }
-
-  return input.locationOrigin;
+  return resolveConfiguredMailOrigin(input);
 }
 
 function parseJson<T>(text: string): T {

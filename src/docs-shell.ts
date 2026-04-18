@@ -14,20 +14,10 @@ import {
   type StoredAppSettings,
   writeStoredAppSettings,
 } from './site-settings';
+import {readConfiguredRepoUrl, resolveConfiguredRepoUrl} from './remote-config';
 import {TEXT_STRATEGY_OPTIONS, type TextStrategy} from './text/types';
 
-export type DocsRoute = 'app' | 'auth' | 'codex' | 'logs' | 'readme' | 'tasks';
-
-const GITHUB_REPO_URL = 'https://github.com/timcash/linker';
-const SITE_MENU_ENTRIES = [
-  {href: './', label: 'App', route: 'app' as const},
-  {href: 'auth/', label: 'Auth', route: 'auth' as const},
-  {href: 'codex/', label: 'Codex', route: 'codex' as const},
-  {href: 'logs/', label: 'Logs', route: 'logs' as const},
-  {href: 'tasks/', label: 'Tasks', route: 'tasks' as const},
-  {href: 'readme/', label: 'README', route: 'readme' as const},
-  {href: GITHUB_REPO_URL, label: 'GitHub', route: null},
-] as const;
+export type DocsRoute = 'app' | 'auth' | 'codex' | 'logs' | 'new-user' | 'readme' | 'tasks';
 
 type SiteMenuPage = 'nav' | 'settings';
 type SiteMenuPlacement = 'embedded' | 'floating';
@@ -66,6 +56,13 @@ export function createSiteMenu(
   let currentSettings = readStoredAppSettings();
   let activePage: SiteMenuPage = 'nav';
   let activeSettingsPanel: SiteMenuSettingsPanel = 'layout';
+  const resolveCurrentRepoUrl = (): string =>
+    resolveConfiguredRepoUrl({
+      configuredUrl: import.meta.env.VITE_LINKER_REPO_URL as string | undefined,
+      storedUrl: currentSettings.repoUrl,
+    });
+  const siteMenuEntries = buildSiteMenuEntries(resolveCurrentRepoUrl());
+  let repoMenuLink: HTMLAnchorElement | null = null;
 
   const root = document.createElement('section');
   root.className = `site-menu-root site-menu-root--${placement}`;
@@ -134,7 +131,7 @@ export function createSiteMenu(
   const list = document.createElement('ul');
   list.className = 'site-menu-list';
 
-  for (const entry of SITE_MENU_ENTRIES) {
+  for (const entry of siteMenuEntries) {
     const item = document.createElement('li');
     item.className = 'site-menu-item';
 
@@ -150,6 +147,9 @@ export function createSiteMenu(
     if (entry.route === null) {
       link.target = '_blank';
       link.rel = 'noreferrer';
+      if (entry.label === 'GitHub') {
+        repoMenuLink = link;
+      }
     }
 
     const label = document.createElement('span');
@@ -373,6 +373,9 @@ export function createSiteMenu(
     lineStrategyGroup.sync();
     motionGroup.sync();
     onboardingGroup.sync();
+    if (repoMenuLink) {
+      repoMenuLink.href = resolveCurrentRepoUrl();
+    }
   };
 
   const syncSettingsPanels = (): void => {
@@ -548,7 +551,20 @@ export function resolveSiteHref(relativePath: string): string {
 
 export function resolveRepoMarkdownUrl(relativePath: string): string {
   const normalized = relativePath.replace(/^\.?\//u, '');
-  return `${GITHUB_REPO_URL}/blob/main/${normalized}`;
+  return `${readConfiguredRepoUrl(import.meta.env.VITE_LINKER_REPO_URL as string | undefined)}/blob/main/${normalized}`;
+}
+
+function buildSiteMenuEntries(repoUrl = readConfiguredRepoUrl(import.meta.env.VITE_LINKER_REPO_URL as string | undefined)) {
+  return [
+    {href: './', label: 'App', route: 'app' as const},
+    {href: 'new-user/', label: 'New User', route: 'new-user' as const},
+    {href: 'auth/', label: 'Auth', route: 'auth' as const},
+    {href: 'codex/', label: 'Codex', route: 'codex' as const},
+    {href: 'logs/', label: 'Logs', route: 'logs' as const},
+    {href: 'tasks/', label: 'Tasks', route: 'tasks' as const},
+    {href: 'readme/', label: 'README', route: 'readme' as const},
+    {href: repoUrl, label: 'GitHub', route: null},
+  ] as const;
 }
 
 function createSiteMenuPageButton(

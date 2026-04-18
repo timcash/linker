@@ -86,7 +86,7 @@ export class CodexMailboardView {
           </div>
           <div class="codex-mail-meta-card">
             <span class="codex-mail-meta-label">Mailbox</span>
-            <p class="codex-mail-meta-value" data-codex-mailbox>Shared daemon mailbox unavailable.</p>
+            <p class="codex-mail-meta-value" data-codex-mailbox>Hosted mailbox unavailable.</p>
           </div>
           <div class="codex-mail-meta-card">
             <span class="codex-mail-meta-label">View</span>
@@ -132,10 +132,10 @@ export class CodexMailboardView {
           <div class="codex-mail-lock-overlay" data-codex-lock>
             <div class="codex-mail-lock-card">
               <p class="codex-mail-lock-eyebrow">Cloudflare Access</p>
-              <h2 class="codex-mail-lock-title">Unlock the shared gmail-agent mailbox.</h2>
+              <h2 class="codex-mail-lock-title">Unlock your hosted mailbox.</h2>
               <div class="codex-mail-lock-actions" data-codex-lock-actions>
                 <button class="codex-mail-primary-button" type="button" data-codex-unlock-button>Unlock With Cloudflare Access</button>
-                <a class="codex-mail-secondary-link" data-codex-authorize-link href="https://codex.dialtone.earth/codex/" target="_blank" rel="noopener noreferrer">Sign In With Cloudflare</a>
+                <a class="codex-mail-secondary-link" data-codex-authorize-link href="https://mail.example.com/codex/" target="_blank" rel="noopener noreferrer">Sign In With Cloudflare</a>
               </div>
               <p class="codex-mail-lock-message" data-codex-unlock-message>Waiting for Cloudflare Access.</p>
             </div>

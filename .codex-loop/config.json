@@ -159,7 +159,7 @@
         },
         {
           "id": "live-site",
-          "command": "npm run test:live -- --url https://timcash.github.io/linker/",
+          "command": "npm run test:live -- --url https://your-user.github.io/linker/",
           "kind": "live"
         }
       ],

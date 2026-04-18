@@ -7,7 +7,7 @@ loadCodexLocalEnv(workspaceRoot);
 const host = process.env.CODEX_BRIDGE_HOST ?? '127.0.0.1';
 const port = Number(process.env.CODEX_BRIDGE_PORT ?? 4186);
 const staticRoot = resolve(workspaceRoot, 'dist');
-const publicOrigin = process.env.CODEX_PUBLIC_ORIGIN ?? 'https://linker.dialtone.earth';
+const publicOrigin = process.env.CODEX_PUBLIC_ORIGIN ?? 'https://mail.example.com';
 
 const bridgeServer = new CodexBridgeServer({
   host,

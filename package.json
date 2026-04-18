@@ -26,6 +26,7 @@
     "test:browser:dag-control-pad": "tsx scripts/test.ts --flow dag-control-pad",
     "test:browser:dag-network-build": "tsx scripts/test.ts --flow dag-network-build",
     "test:browser:logs": "tsx scripts/test.ts --flow logs-page-smoke",
+    "test:browser:new-user": "tsx scripts/test.ts --flow new-user-page-smoke",
     "test:browser:onboarding": "tsx scripts/test.ts --flow onboarding-walkthrough",
     "test:browser:dag-rank-fanout": "tsx scripts/test.ts --flow dag-rank-fanout",
     "test:browser:dag-rank-fanout:open": "tsx scripts/test.ts --flow dag-rank-fanout --keep-open",

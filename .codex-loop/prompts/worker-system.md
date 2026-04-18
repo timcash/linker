@@ -36,5 +36,5 @@ Your JSON must include concrete evidence for:
 - `testsTouched`: list the test files or test cases you added or tightened first
 - `implementationFilesUsedByTests`: list the production files the tightened test now exercises
 - `logsReviewed`: list the command outputs or the shared `test.log` file you checked before stopping
-- include live-site smoke output in `logsReviewed` whenever the current cycle ran `npm run test:live -- --url https://timcash.github.io/linker/`
+- include live-site smoke output in `logsReviewed` whenever the current cycle ran `npm run test:live -- --url https://your-user.github.io/linker/`
 - `screenshotsReviewed`: list screenshot paths you checked, or return `["not-applicable"]` when this slice does not require screenshot review

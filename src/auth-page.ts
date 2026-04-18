@@ -1,4 +1,5 @@
 import {createSiteMenu, type SiteMenuHandle} from './docs-shell';
+import {readConfiguredAuthOrigin} from './remote-config';
 
 type AuthMode = 'auto' | 'auth' | 'dev';
 type AuthPhase = 'authorized' | 'checking' | 'error' | 'idle' | 'signed-out';
@@ -34,7 +35,6 @@ type AuthPageElements = {
 };
 
 const MODE_STORAGE_KEY = 'linker.auth.mode';
-const REMOTE_ORIGIN = 'https://linker.dialtone.earth';
 const CONFIG_PATH = '/api/auth/public-config';
 const DEFAULT_SESSION_PATH = '/api/auth/session';
 const DEFAULT_LOGOUT_PATH = '/api/auth/logout';
@@ -84,9 +84,8 @@ class AuthPage {
         <p class="eyebrow">Cloudflare Access</p>
         <h1>Static login and auth checks for local or tunneled Linker services.</h1>
         <p class="lede">
-          This page mirrors the Legion pattern from cad-pga: keep the route static, decide whether to target localhost
-          or a public origin, then use a protected config route to trigger Cloudflare Access login before checking
-          session state.
+          Keep this route static, decide whether to target localhost or your private auth origin, then use a protected
+          config route to trigger Cloudflare Access login before checking session state.
         </p>
         <p class="auth-note">
           In remote mode, press <strong>Authorize</strong>, complete the access flow on the target origin, then return
@@ -358,7 +357,11 @@ class AuthPage {
   }
 
   private resolveHttpOrigin(): string {
-    const configuredOrigin = String(import.meta.env.VITE_LINKER_AUTH_ORIGIN ?? REMOTE_ORIGIN);
+    const configuredOrigin = readConfiguredAuthOrigin({
+      configuredOrigin: import.meta.env.VITE_LINKER_AUTH_ORIGIN as string | undefined,
+      hostname: window.location.hostname,
+      locationOrigin: window.location.origin,
+    });
 
     switch (this.mode) {
       case 'dev':
@@ -390,8 +393,8 @@ class AuthPage {
 }
 
 const modeCopyMap: Record<AuthMode, string> = {
-  auto: 'Auto mode uses localhost on local pages and switches to the remote auth origin on GitHub Pages.',
-  auth: 'Auth mode always targets the public remote auth origin.',
+  auto: 'Auto mode uses localhost on local pages and switches to your configured remote auth origin on hosted pages.',
+  auth: 'Auth mode always targets the configured remote auth origin.',
   dev: 'Dev mode stays on the current page origin and expects a local auth service beside Vite.',
 };
 

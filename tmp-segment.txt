@@ -1,0 +1,55 @@
+private async zoomOnboardingDagToGraphOverview(runId: number): Promise<void> {
+    await this.showOnboardingControlPadPage('navigate', runId);
+
+    for (let attempt = 0; attempt < 16; attempt += 1) {
+      const dagSnapshot = this.getDagSnapshotState(true);
+      const planeCount = getPlaneCount(this.state);
+
+      if (
+        dagSnapshot &&
+        dagSnapshot.graphPointWorkplaneCount === planeCount &&
+        dagSnapshot.titleOnlyWorkplaneCount === 0 &&
+        dagSnapshot.labelPointWorkplaneCount === 0 &&
+        dagSnapshot.fullWorkplaneCount === 0
+      ) {
+        return;
+      }
+
+      await this.pressOnboardingHotkey(
+        runId,
+        {code: 'ArrowDown', key: 'ArrowDown', shiftKey: true},
+        {
+          highlightSelector: 'button[data-control="zoom-out"]',
+          waitForCamera: true,
+        },
+      });
+    }
+
+    throw new Error('Timed out while waiting for the onboarding DAG graph overview.');
+  }
+
+  private async zoomOnboardingDagToTitleOnly(runId: number): Promise<void> {
+    await this.showOnboardingControlPadPage('navigate', runId);
+
+    for (let attempt = 0; attempt < 16; attempt += 1) {
+      const dagSnapshot = this.getDagSnapshotState(true);
+      const planeCount = getPlaneCount(this.state);
+
+      if (
+        dagSnapshot &&
+        dagSnapshot.graphPointWorkplaneCount < planeCount &&
+        dagSnapshot.titleOnlyWorkplaneCount > 0 &&
+        dagSnapshot.labelPointWorkplaneCount === 0 &&
+        dagSnapshot.fullWorkplaneCount === 0
+      ) {
+        return;
+      }
+
+      const action =
+        dagSnapshot && dagSnapshot.graphPointWorkplaneCount === planeCount
+          ? 'zoom-in'
+          : 'zoom-out';
+
+      await this.pressOnboardingHotkey(
+        runId,
+        action === 'z

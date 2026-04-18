@@ -1,6 +1,6 @@
 # Linker
 
-Linker is a `luma.gl` + WebGPU DAG workplane viewer and editor with aligned `12x12x12` label grids, `rank/lane/depth` 3D navigation, a compact mobile-style menu-first control pad, an installable fullscreen PWA shell with a shared SVG icon and route manifest, a browser `/codex` Gmail inbox client that talks to the shared `gmail-agent` daemon through one Cloudflare Access unlock flow, and a browser `/logs` terminal page for timestamped history with source-line filters.
+Linker is a `luma.gl` + WebGPU DAG workplane viewer and editor with aligned `12x12x12` label grids, `rank/lane/depth` 3D navigation, a compact mobile-style menu-first control pad, an installable fullscreen PWA shell with a shared SVG icon and route manifest, a browser `/codex` Gmail inbox client that talks to the shared `gmail-agent` daemon through one Cloudflare Access unlock flow, a `/new-user/` route for bring-your-own-host setup, and a browser `/logs` terminal page for timestamped history with source-line filters.
 
 ## 1. Live Onboarding
 
@@ -19,6 +19,7 @@ Current proven invariant:
 
 - `npm run test:browser` is green and now means the hosted-style onboarding proof
 - `npm run test:browser:onboarding` stays green as the explicit onboarding alias
+- `npm run test:browser:new-user` is green for the bring-your-own-host guide and local origin settings flow
 - `npm run test:browser:logs` is green for the xterm.js `/logs/` history and filter route
 - `npm run test:browser:codex` is green for the `/codex/` mailboard unlock, Gmail search, mailbox-view switching, inbox actions, reply, and compose screenshot proof
 - `npm run test:browser:dag-network-build` is green for the canonical zero-data 2D + 3D interaction proof
@@ -50,7 +51,7 @@ npm run test:browser:dag-network-build
 npm run test:browser:dag-rank-fanout
 npm run test:browser:suite
 npm run build:pages
-npm run test:live -- --url https://timcash.github.io/linker/ --expect-onboarding
+npm run test:live -- --url https://your-user.github.io/linker/ --expect-onboarding
 ```
 
 `README.md` is now the repo-level source of truth for the live product path, the working loop, the domain language, the UI panels, and the current open review notes.
@@ -62,6 +63,7 @@ Current review queue:
 - direct 3D workplane picking plus explicit DAG edge create/remove between already-existing workplanes are still the main product gaps
 - every publish should still end with a live pass over `/`, `/codex/`, `/readme/`, and `/logs/`
 - `/codex/` on GitHub Pages is expected to render as a locked mailboard until the hosted Cloudflare Access mail origin is reachable from this machine
+- `/new-user/` is the main privacy-safe onboarding route for replacing the generic repo, auth, and mail origins with local browser-only settings
 
 ## 2. Screenshot and Links
 
@@ -69,15 +71,15 @@ Current review queue:
 
 <table>
   <tr>
-    <td align="center"><a href="https://timcash.github.io/linker/"><img src="./readme/screenshots/boot-ready.png" alt="Linker default DAG boot on the twelve-workplane overview" width="220" /></a><br/><sub>Boot</sub></td>
-    <td align="center"><a href="https://timcash.github.io/linker/?demoPreset=dag-rank-fanout&stageMode=3d-mode&workplane=wp-1&cameraLabel=wp-1%3A1%3A1%3A1"><img src="./readme/screenshots/dag-rank-fanout.png" alt="Linker twelve-workplane DAG overview" width="220" /></a><br/><sub>DAG Build</sub></td>
-    <td align="center"><a href="https://timcash.github.io/linker/?demoPreset=dag-rank-fanout&stageMode=3d-mode&workplane=wp-10&cameraLabel=wp-10%3A1%3A1%3A1"><img src="./readme/screenshots/dag-zoom-detail.png" alt="Linker DAG zoom into readable workplane detail" width="220" /></a><br/><sub>Zoom Detail</sub></td>
-    <td align="center"><a href="https://timcash.github.io/linker/codex/"><img src="./readme/screenshots/codex-mailboard.png" alt="Linker codex mailboard route" width="220" /></a><br/><sub>Codex</sub></td>
+    <td align="center"><a href="https://your-user.github.io/linker/"><img src="./readme/screenshots/boot-ready.png" alt="Linker default DAG boot on the twelve-workplane overview" width="220" /></a><br/><sub>Boot</sub></td>
+    <td align="center"><a href="https://your-user.github.io/linker/?demoPreset=dag-rank-fanout&stageMode=3d-mode&workplane=wp-1&cameraLabel=wp-1%3A1%3A1%3A1"><img src="./readme/screenshots/dag-rank-fanout.png" alt="Linker twelve-workplane DAG overview" width="220" /></a><br/><sub>DAG Build</sub></td>
+    <td align="center"><a href="https://your-user.github.io/linker/?demoPreset=dag-rank-fanout&stageMode=3d-mode&workplane=wp-10&cameraLabel=wp-10%3A1%3A1%3A1"><img src="./readme/screenshots/dag-zoom-detail.png" alt="Linker DAG zoom into readable workplane detail" width="220" /></a><br/><sub>Zoom Detail</sub></td>
+    <td align="center"><a href="https://your-user.github.io/linker/codex/"><img src="./readme/screenshots/codex-mailboard.png" alt="Linker codex mailboard route" width="220" /></a><br/><sub>Codex</sub></td>
   </tr>
 </table>
 
-- Live root: [timcash.github.io/linker](https://timcash.github.io/linker/)
-- GitHub repository: [github.com/timcash/linker](https://github.com/timcash/linker)
+- Live root: [your-user.github.io/linker](https://your-user.github.io/linker/)
+- GitHub repository: [github.com/your-org/linker](https://github.com/your-org/linker)
 
 The live root now opens into the automated onboarding walkthrough on a first visit, then settles on the same DAG-first product path shown in the screenshots below.
 <!-- README_SHOWCASE:END -->
@@ -89,6 +91,7 @@ Docs routes:
 - `/auth/`
 - `/codex/`
 - `/logs/`
+- `/new-user/`
 - `/tasks/`
 - `/readme/`
 
@@ -109,8 +112,10 @@ cameraLabel=workplane-id:layer:row:column
 Example:
 
 ```text
-https://timcash.github.io/linker/?demoPreset=dag-rank-fanout&cameraLabel=wp-10:1:1:1
+https://your-user.github.io/linker/?demoPreset=dag-rank-fanout&cameraLabel=wp-10:1:1:1
 ```
+
+`/new-user/` is the recommended first stop on a fresh fork: it explains the 3D DAG-first walkthrough, the one-path sign-in flow, and stores your repo URL plus private auth and mail origins in local browser settings instead of hardcoding them into the repo.
 
 `/codex/` on GitHub Pages stays static and now uses one Cloudflare Access unlock step to reach the shared `gmail-agent` mail API. The route behaves like a compact Gmail inbox client with search, Inbox/Unread/Starred/Sent/All Mail/Codex views, thread-level read-star-archive controls, reply, and compose. For local development:
 
@@ -125,7 +130,7 @@ npm run dev -- --host 127.0.0.1
 The Linker browser app now defaults to `http://127.0.0.1:4192` for `/codex/` in local development. To reach this machine from GitHub Pages through Cloudflare, the shared `gmail-agent` daemon needs to publish the mail API at the single public origin:
 
 ```bash
-https://codex.dialtone.earth
+https://mail.example.com
 ```
 
 To prove the shared mailbox sync from this repo itself, run:
@@ -160,6 +165,7 @@ npm run test:browser:codex:live
 npm run test:browser:dag-control-pad
 npm run test:browser:dag-network-build
 npm run test:browser:logs
+npm run test:browser:new-user
 npm run test:browser:onboarding
 npm run test:browser:dag-rank-fanout
 npm run test:browser:dag-rank-fanout:open
@@ -172,10 +178,10 @@ npm run test:browser:zero-data
 npm run test:codex:mail-sync
 npm run test:browser
 npm run test:preview
-npm run test:live -- --url https://timcash.github.io/linker/
-npm run test:live -- --url https://timcash.github.io/linker/ --expect-onboarding
-npm run test:live -- --url https://timcash.github.io/linker/codex/
-npm run test:live -- --url https://timcash.github.io/linker/ --allow-unsupported
+npm run test:live -- --url https://your-user.github.io/linker/
+npm run test:live -- --url https://your-user.github.io/linker/ --expect-onboarding
+npm run test:live -- --url https://your-user.github.io/linker/codex/
+npm run test:live -- --url https://your-user.github.io/linker/ --allow-unsupported
 npm test
 
 npm run perf:trace -- --stage-mode 3d-mode --label-set benchmark --label-count 4096 --orbit-count 1
@@ -224,7 +230,7 @@ npm run perf:orbit-stutter -- --label-set benchmark --label-count 4096 --segment
 - `thread action grid`: the `/codex/` detail-grid of Gmail controls like read, unread, star, and archive
 - `message pane`: the selected thread detail area on `/codex/`
 - `compose box`: the reply or new-mail text surface on `/codex/`
-- `site menu`: the fullscreen top-right overlay shared by the app, docs, `/codex/`, and `/logs/`; it now has `Navigation` and `Settings` pages
+- `site menu`: the fullscreen top-right overlay shared by the app, docs, `/codex/`, `/new-user/`, and `/logs/`; it now has `Navigation` and `Settings` pages
 - `embedded site menu`: the app-specific placement where the `Menu` toggle lives inside the top-right edge of the status strip or onboard panel instead of floating above the app
 - `settings page`: the `site menu` page that now drills into `Layout`, `View`, `Motion`, and `Install`
 - `ui layout`: the persisted shell density mode for the app route; current options are `Compact` and `Wide`
@@ -235,7 +241,7 @@ npm run perf:orbit-stutter -- --label-set benchmark --label-count 4096 --segment
 ## 5. UI Panels
 
 - `status strip`: the top telemetry table with the live stage stats and the embedded top-right `Menu` toggle
-- `site menu`: the fullscreen top-right route picker with a breadcrumb header, `Navigation` and `Settings` pages, plus `App`, `Auth`, `Codex`, `Logs`, `Tasks`, `README`, and `GitHub` links
+- `site menu`: the fullscreen top-right route picker with a breadcrumb header, `Navigation` and `Settings` pages, plus `App`, `New User`, `Auth`, `Codex`, `Logs`, `Tasks`, `README`, and `GitHub` links
 - `onboard panel`: the temporary top panel used during the automated first-run walkthrough; it replaces the stats body but keeps the embedded top-right `Menu` toggle in the same header
 - `settings page`: the `site menu` page with nested `Layout`, `View`, `Motion`, and `Install` sections
 - `install card`: the `site menu` install section that shows PWA availability, current display mode, and the install action
@@ -257,8 +263,10 @@ npm run perf:orbit-stutter -- --label-set benchmark --label-count 4096 --segment
 
 - `src/main.ts`: app entry point
 - `src/docs-shell.ts`: shared fullscreen site menu with breadcrumb hierarchy, `Navigation` plus nested `Settings` sections, embedded/floating placements, install-state UI, and repo/link helpers used by the app and docs routes
+- `src/remote-config.ts`: generic repo, auth, and mail origin defaults plus browser-side resolution helpers for local overrides and hosted fallbacks
 - `src/pwa.ts`: shared PWA runtime for service worker registration, display-mode detection, and install-prompt state
 - `src/auth-page.ts`: Cloudflare Access auth/status route modeled on the cad-pga Legion page
+- `src/new-user-page.ts`: bring-your-own-host guide with private repo/auth/mail origin inputs stored in local browser settings
 - `src/codex-page.ts`: `/codex/` route shell that mounts the mailboard UI inside the shared docs navigation
 - `src/codex/CodexMailboardPage.ts`: codex route controller for Cloudflare Access unlock, Gmail mailbox loading, search, view switching, inbox actions, reply, and compose
 - `src/codex/CodexMailClient.ts`: browser client for the shared `gmail-agent` mail API
@@ -299,6 +307,7 @@ npm run perf:orbit-stutter -- --label-set benchmark --label-count 4096 --segment
 - `scripts/test.ts`: browser test entry point
 - `scripts/test/codex-page-smoke.ts`: focused `/codex/` browser route proof
 - `scripts/test/logs-page-smoke.ts`: focused `/logs/` browser route proof for stored history, source filtering, and CLI follow mode
+- `scripts/test/new-user-page-smoke.ts`: focused `/new-user/` browser route proof for local private-host setup
 - `public/site.webmanifest`: installable PWA manifest for the hosted multi-route shell
 - `public/sw.js`: service worker that caches the route shell for standalone launches
 - `public/linker-icon.svg`: shared monochrome SVG app icon
@@ -313,3 +322,4 @@ npm run perf:orbit-stutter -- --label-set benchmark --label-count 4096 --segment
 - `scripts/test-live.ts`: deployed-site smoke test
 - `scripts/test/dag-view-smoke.ts`: focused browser DAG render smoke flow
 - `scripts/test/`: browser helpers, smoke helpers, and step-based interaction coverage
+

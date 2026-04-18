@@ -11,6 +11,7 @@ export default defineConfig({
         codex: path.resolve(__dirname, 'codex/index.html'),
         logs: path.resolve(__dirname, 'logs/index.html'),
         main: path.resolve(__dirname, 'index.html'),
+        'new-user': path.resolve(__dirname, 'new-user/index.html'),
         readme: path.resolve(__dirname, 'readme/index.html'),
         tasks: path.resolve(__dirname, 'tasks/index.html'),
       },

@@ -37,7 +37,7 @@
     "currentSlice": 6,
     "currentTaskId": "export-dag-lod-dataset",
     "currentTaskTitle": "Export active DAG LOD buckets",
-    "generatedAt": "2026-04-18T03:00:27.347Z",
+    "generatedAt": "2026-04-18T03:36:44.673Z",
     "iteration": 10,
     "lastDecision": "revise",
     "lastRunId": "20260408-183023",
@@ -648,7 +648,7 @@
         "README.md",
         "PLAN.md"
       ],
-      "liveStatus": "pass",
+      "liveStatus": "not-run",
       "localBrowserStatus": "pass",
       "monitorSummary": "The run shows real progress: docs were reviewed and updated, the DAG smoke was tightened around exported LOD dataset fields, and all required commands are green. It is still not acceptable for this packet because the diff escaped the allowed files into `src/app.ts` and also broadened into the next ladder step by changing `scripts/test/dag-view-smoke.ts` for root/selected assertions during an `export-dag-lod-dataset` run.",
       "promotionStatus": null,
@@ -681,7 +681,7 @@
         "README.md",
         "PLAN.md"
       ],
-      "liveStatus": "pass",
+      "liveStatus": "not-run",
       "localBrowserStatus": "fail",
       "monitorSummary": "The worker stayed inside the allowed files and added the LOD count dataset contract, but this run is not acceptable yet. The monitored `npm run test:browser -- --flow dag-view-smoke` check is red, README/PLAN were advanced to green anyway, and `scripts/test/dag-view-smoke.ts` still reconstructs bucket membership from production helpers instead of consuming the exported browser contract directly.",
       "promotionStatus": null,
@@ -715,7 +715,7 @@
         "README.md",
         "PLAN.md"
       ],
-      "liveStatus": "pass",
+      "liveStatus": "not-run",
       "localBrowserStatus": "pass",
       "monitorSummary": "Docs sync, scope, and required checks are present, but the Slice 6 browser proof is still too indirect. `scripts/test/dag-view-smoke.ts` reconstructs LOD buckets by rerunning `createProjectedDagVisibleNodes()` and `bucketVisibleDagNodes()` in test code instead of asserting a browser-exported DAG LOD dataset, so the smallest live invariant is not locked yet.",
       "promotionStatus": "applied",

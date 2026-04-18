@@ -94,7 +94,7 @@ Goal:
 
 Work:
 
-- restore or recreate the Cloudflare-published origin at `https://codex.dialtone.earth`
+- restore or recreate the Cloudflare-published origin at `https://mail.example.com`
 - verify `GET /api/mail/public-config` and `GET /api/mail/health` from the GitHub Pages origin
 - run a live `/codex/` review after publish
 
@@ -120,3 +120,4 @@ Work:
 - delete the unused terminal-first `/codex/` files
 - remove legacy bridge scripts and tests that are no longer part of the product path
 - keep README and the code index aligned with the cleaned tree
+

@@ -20,6 +20,8 @@ recordBrowserLog('info', `Bootstrapping the ${route} route.`);
 const app =
   route === 'auth'
     ? await import('./auth-page').then(({startAuthPage}) => startAuthPage(root))
+    : route === 'new-user'
+    ? await import('./new-user-page').then(({startNewUserPage}) => startNewUserPage(root))
     : route === 'codex'
     ? await import('./codex-page').then(({startCodexPage}) => startCodexPage(root))
     : route === 'logs'
@@ -36,7 +38,7 @@ if (import.meta.hot) {
   });
 }
 
-function resolveRoute(pathname: string): 'app' | 'auth' | 'codex' | 'logs' | 'readme' | 'tasks' {
+function resolveRoute(pathname: string): 'app' | 'auth' | 'codex' | 'logs' | 'new-user' | 'readme' | 'tasks' {
   const segments = pathname.split('/').filter((segment) => segment.length > 0);
   const lastSegment = segments[segments.length - 1];
 
@@ -46,6 +48,10 @@ function resolveRoute(pathname: string): 'app' | 'auth' | 'codex' | 'logs' | 're
 
   if (lastSegment === 'codex') {
     return 'codex';
+  }
+
+  if (lastSegment === 'new-user') {
+    return 'new-user';
   }
 
   if (lastSegment === 'logs') {

@@ -2,6 +2,7 @@ import {mkdir, readdir, stat, writeFile} from 'node:fs/promises';
 import path from 'node:path';
 import {fileURLToPath} from 'node:url';
 
+import {DEFAULT_LIVE_SITE_URL} from '../../src/remote-config';
 import type {
   TasksDashboardData,
   TasksDashboardLoopSummary,
@@ -160,7 +161,7 @@ function readCommandStatus(
   const command =
     id === 'dag-view-smoke'
       ? 'npm run test:browser -- --flow dag-view-smoke'
-      : 'npm run test:live -- --url https://timcash.github.io/linker/';
+      : `npm run test:live -- --url ${DEFAULT_LIVE_SITE_URL}`;
   const matched = checks?.commands.find((entry) => entry.command === command);
 
   if (!matched) {

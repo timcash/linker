@@ -3,8 +3,8 @@ const DEFAULT_ALLOWED_ORIGINS = [
   'http://127.0.0.1:5173',
   'http://localhost:4176',
   'http://127.0.0.1:4176',
-  'https://timcash.github.io',
-  'https://linker.dialtone.earth'
+  'https://your-user.github.io',
+  'https://mail.example.com'
 ];
 
 export function isAllowedOrigin(origin: string | undefined) {
