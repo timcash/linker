@@ -43,6 +43,7 @@ Replay and skip:
 Focused working loop:
 
 ```bash
+npm run diagnose
 npm run test:dag:static
 npm run lint
 npm run test:browser
@@ -92,7 +93,6 @@ Docs routes:
 - `/codex/`
 - `/logs/`
 - `/new-user/`
-- `/tasks/`
 - `/readme/`
 
 Install surface:
@@ -127,7 +127,7 @@ cd ..\\linker
 npm run dev -- --host 127.0.0.1
 ```
 
-The Linker browser app now defaults to `http://127.0.0.1:4192` for `/auth/` and `/codex/` on this machine, including from the live GitHub Pages site. `gmail-agent` must answer the Private Network Access preflight for `https://timcash.github.io`, so the hosted page can reach the local loopback daemon from this browser.
+The Linker browser app now defaults to `http://127.0.0.1:4192` for `/auth/` and `/codex/` on this machine, including from the live GitHub Pages site. `gmail-agent` must answer the Private Network Access preflight for the current GitHub Pages origin, so the hosted page can reach the local loopback daemon from this browser.
 
 To prove the shared mailbox sync from this repo itself, run:
 
@@ -137,12 +137,21 @@ npm run test:codex:mail-sync
 
 That command checks the sibling `gmail-agent` auth state, starts the shared daemon if needed, calls the live `/api/mail/*` surface, and writes a proof artifact to `artifacts/codex-mail-sync-proof.json` when the local Gmail sync is healthy.
 
+For a broader quick debug snapshot, run:
+
+```bash
+npm run diagnose
+```
+
+That command checks `gmail-agent` auth, whether the local codex daemon is running, `/api/mail/public-config`, `/api/mail/health`, inbox-thread fetch timing, and the live `App`, `Auth`, `Codex`, `Logs`, `New User`, and `README` routes. It writes the full report to `artifacts/system-diagnose.json`.
+
 ## 3. CLI Workflow
 
 ```bash
 npm install --legacy-peer-deps
 
 npm run dev -- --host 127.0.0.1
+npm run diagnose
 npm run lint
 npm run build
 npm run build:pages
@@ -169,7 +178,6 @@ npm run test:browser:dag-zoom-journey
 npm run test:browser -- --flow dag-view-smoke
 npm run test:browser:readme
 npm run test:browser:suite
-npm run test:browser:tasks
 npm run test:browser:onboarding
 npm run test:codex:mail-sync
 npm run test:browser
@@ -237,7 +245,7 @@ npm run perf:orbit-stutter -- --label-set benchmark --label-count 4096 --segment
 ## 5. UI Panels
 
 - `status strip`: the top telemetry table with the live stage stats and the embedded top-right `Menu` toggle
-- `site menu`: the fullscreen top-right route picker with a breadcrumb header, `Navigation` and `Settings` pages, plus `App`, `New User`, `Auth`, `Codex`, `Logs`, `Tasks`, `README`, and `GitHub` links
+- `site menu`: the fullscreen top-right route picker with a breadcrumb header, `Navigation` and `Settings` pages, plus `App`, `New User`, `Auth`, `Codex`, `Logs`, `README`, and `GitHub` links
 - `onboard panel`: the temporary top panel used during the automated first-run walkthrough; it replaces the stats body but keeps the embedded top-right `Menu` toggle in the same header
 - `settings page`: the `site menu` page with nested `Layout`, `View`, `Motion`, and `Install` sections
 - `install card`: the `site menu` install section that shows PWA availability, current display mode, and the install action

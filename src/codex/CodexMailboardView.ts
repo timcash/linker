@@ -365,6 +365,15 @@ export class CodexMailboardView {
     this.setThreadActionsPending(false);
   }
 
+  public setThreadsLoading(message: string): void {
+    if (!this.threadList) {
+      return;
+    }
+
+    this.threadList.innerHTML = `<p class="codex-thread-empty">${escapeHtml(message)}</p>`;
+    this.setThreadActionsPending(false);
+  }
+
   public setThreadDetail(detail: CodexMailThreadDetail | null): void {
     if (!this.threadPanel) {
       return;

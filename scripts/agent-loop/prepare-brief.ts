@@ -19,7 +19,6 @@ import {
   type LoopState,
   type PreparedSlice,
 } from './shared';
-import {writeTasksDashboard} from './write-tasks-dashboard';
 
 export async function prepareBrief(
   root: string,
@@ -53,7 +52,6 @@ export async function prepareBrief(
   await writeJsonFile(paths.currentTaskJsonPath, preparedSlice.currentTask);
   await writeMarkdownFile(paths.currentTaskMarkdownPath, currentTaskMarkdown);
   await writeMarkdownFile(paths.nextTaskIdeasPath, nextTaskIdeasMarkdown);
-  await writeTasksDashboard(root);
 
   return preparedSlice;
 }

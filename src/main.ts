@@ -26,8 +26,6 @@ const app =
     ? await import('./codex-page').then(({startCodexPage}) => startCodexPage(root))
     : route === 'logs'
     ? await import('./logs-page').then(({startLogsPage}) => startLogsPage(root))
-    : route === 'tasks'
-    ? await import('./tasks-page').then(({startTasksPage}) => startTasksPage(root))
     : route === 'readme'
       ? await import('./readme-page').then(({startReadmePage}) => startReadmePage(root))
       : await import('./app').then(({startApp}) => startApp(root));
@@ -38,7 +36,7 @@ if (import.meta.hot) {
   });
 }
 
-function resolveRoute(pathname: string): 'app' | 'auth' | 'codex' | 'logs' | 'new-user' | 'readme' | 'tasks' {
+function resolveRoute(pathname: string): 'app' | 'auth' | 'codex' | 'logs' | 'new-user' | 'readme' {
   const segments = pathname.split('/').filter((segment) => segment.length > 0);
   const lastSegment = segments[segments.length - 1];
 
@@ -56,10 +54,6 @@ function resolveRoute(pathname: string): 'app' | 'auth' | 'codex' | 'logs' | 'ne
 
   if (lastSegment === 'logs') {
     return 'logs';
-  }
-
-  if (lastSegment === 'tasks') {
-    return 'tasks';
   }
 
   if (lastSegment === 'readme') {

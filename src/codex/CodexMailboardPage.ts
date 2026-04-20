@@ -27,6 +27,7 @@ export class CodexMailboardPage {
   private unlockPending = false;
   private unlocked = false;
   private composeOpen = false;
+  private mailboxLoadVersion = 0;
 
   constructor(root: HTMLDivElement) {
     this.view = new CodexMailboardView(root, {
@@ -179,20 +180,74 @@ export class CodexMailboardPage {
       return;
     }
 
-    try {
-      const [health, views, threads] = await Promise.all([
-        this.client.fetchHealth(),
-        this.client.fetchViews(),
-        this.client.fetchThreads(this.activeView, this.searchQuery),
-      ]);
+    const mailboxLoadVersion = ++this.mailboxLoadVersion;
+    let activeViewLabel = resolveViewLabel(this.availableViews, this.activeView);
 
-      this.availableViews = views;
-      this.visibleThreads = threads;
-      this.view.setViews(views, this.activeView);
+    this.view.setCurrentViewLabel(activeViewLabel);
+    this.view.setSearchQuery(this.searchQuery);
+    this.view.setMailboxSummary(
+      this.client.usesLocalDaemon()
+        ? 'Loading mailbox summary from this computer...'
+        : 'Loading hosted mailbox summary...',
+    );
+    this.view.setHealthSummary(
+      this.client.usesLocalDaemon()
+        ? `Checking mailbox health at ${this.client.getMailOrigin()}`
+        : `Checking mailbox health at ${this.client.getMailOrigin()}`,
+    );
+    this.view.setThreadsLoading(
+      this.searchQuery
+        ? `Searching ${activeViewLabel}...`
+        : `Loading ${activeViewLabel} threads from this computer...`,
+    );
+
+    try {
+      const health = await this.client.fetchHealth();
+      if (mailboxLoadVersion !== this.mailboxLoadVersion) {
+        return;
+      }
+
       this.view.setMailboxSummary(formatMailboxSummary(health));
       this.view.setHealthSummary(formatHealthSummary(health));
-      this.view.setCurrentViewLabel(resolveViewLabel(views, this.activeView));
       this.view.setSearchQuery(this.searchQuery);
+
+      try {
+        const views = await this.client.fetchViews();
+        if (mailboxLoadVersion !== this.mailboxLoadVersion) {
+          return;
+        }
+
+        this.availableViews = views;
+        activeViewLabel = resolveViewLabel(views, this.activeView);
+        this.view.setViews(views, this.activeView);
+        this.view.setCurrentViewLabel(activeViewLabel);
+      } catch (error) {
+        if (mailboxLoadVersion !== this.mailboxLoadVersion) {
+          return;
+        }
+
+        this.view.setStatus(
+          readErrorMessage(error, 'Mailbox views are still loading.'),
+        );
+      }
+
+      this.view.setStatus(
+        this.searchQuery
+          ? `Searching ${activeViewLabel}...`
+          : `Connected to this computer. Loading ${activeViewLabel}...`,
+      );
+      this.view.setThreadsLoading(
+        this.searchQuery
+          ? `Searching ${activeViewLabel}...`
+          : `Loading ${activeViewLabel} threads from this computer...`,
+      );
+
+      const threads = await this.client.fetchThreads(this.activeView, this.searchQuery);
+      if (mailboxLoadVersion !== this.mailboxLoadVersion) {
+        return;
+      }
+
+      this.visibleThreads = threads;
 
       this.selectedThreadId = pickSelectedThreadId(threads, this.selectedThreadId);
       this.view.setThreads(threads, this.selectedThreadId);
@@ -200,15 +255,23 @@ export class CodexMailboardPage {
       if (!this.selectedThreadId) {
         this.selectedThreadDetail = null;
         this.view.setThreadDetail(null);
-        this.view.setStatus(this.searchQuery ? 'No threads matched the current search.' : 'This mailbox view is empty right now.');
+        this.view.setStatus(
+          this.searchQuery
+            ? 'No threads matched the current search.'
+            : 'This mailbox view is empty right now.',
+        );
         return;
       }
 
       await this.loadThreadDetail(this.selectedThreadId);
+      if (mailboxLoadVersion !== this.mailboxLoadVersion) {
+        return;
+      }
+
       this.view.setStatus(
         this.searchQuery
-          ? `Loaded ${threads.length} matching thread${threads.length === 1 ? '' : 's'} from ${resolveViewLabel(views, this.activeView)}.`
-          : `Loaded ${threads.length} thread${threads.length === 1 ? '' : 's'} from ${resolveViewLabel(views, this.activeView)}.`,
+          ? `Loaded ${threads.length} matching thread${threads.length === 1 ? '' : 's'} from ${activeViewLabel}.`
+          : `Loaded ${threads.length} thread${threads.length === 1 ? '' : 's'} from ${activeViewLabel}.`,
       );
     } catch (error) {
       const message = readErrorMessage(
@@ -217,8 +280,13 @@ export class CodexMailboardPage {
           ? 'Unable to load the shared mailbox from this computer.'
           : 'Unable to load your hosted mailbox.',
       );
+      if (mailboxLoadVersion !== this.mailboxLoadVersion) {
+        return;
+      }
+
       this.view.setStatus(message);
       this.view.setHealthSummary(message);
+      this.view.setThreadsLoading(message);
     }
   }
 
@@ -494,8 +562,17 @@ function formatHealthSummary(health: CodexMailHealth): string {
 }
 
 function resolveViewLabel(views: CodexMailView[], activeView: CodexMailViewId): string {
-  return views.find((view) => view.id === activeView)?.label ?? activeView;
+  return views.find((view) => view.id === activeView)?.label ?? DEFAULT_VIEW_LABELS[activeView];
 }
+
+const DEFAULT_VIEW_LABELS: Record<CodexMailViewId, string> = {
+  'all-mail': 'All Mail',
+  codex: 'Codex',
+  inbox: 'Inbox',
+  sent: 'Sent',
+  starred: 'Starred',
+  unread: 'Unread',
+};
 
 function pickSelectedThreadId(
   threads: CodexMailThreadSummary[],

@@ -618,7 +618,6 @@ body[data-app-motion-preference='reduced'] .site-menu-toggle {
 #app.auth-page-root,
 #app.new-user-page-root,
 #app.logs-page-root,
-#app.tasks-page-root,
 #app.readme-page-root {
   position: fixed;
   inset: 0;
@@ -627,6 +626,12 @@ body[data-app-motion-preference='reduced'] .site-menu-toggle {
 
 .page-shell {
   padding: 40px 24px 96px;
+}
+
+.page-shell.docs-page {
+  min-height: 100vh;
+  min-height: 100svh;
+  background: var(--bg);
 }
 
 .site-menu-root {
@@ -1522,175 +1527,6 @@ body[data-app-ui-layout='wide'] .strategy-mode-panel {
   color: var(--ink-strong);
 }
 
-.tasks-page {
-  --page-width: 1400px;
-  min-height: 100vh;
-  min-height: 100svh;
-  padding:
-    max(16px, env(safe-area-inset-top))
-    16px
-    max(24px, env(safe-area-inset-bottom))
-    16px;
-  display: grid;
-  gap: 16px;
-  align-content: start;
-  background:
-    linear-gradient(180deg, rgb(20 24 30 / 96%), rgb(8 10 14 / 98%)),
-    radial-gradient(circle at top left, rgb(110 170 255 / 10%), transparent 24%);
-}
-
-.tasks-hero,
-.tasks-section {
-  width: min(1400px, 100%);
-  margin: 0 auto;
-  border: 1px solid rgb(132 170 220 / 18%);
-  border-radius: 18px;
-  background: rgb(10 14 20 / 88%);
-  box-shadow: 0 22px 56px rgb(0 0 0 / 32%);
-}
-
-.tasks-hero {
-  padding: 20px;
-  padding-inline-end: clamp(92px, 18vw, 140px);
-}
-
-.tasks-hero h1,
-.tasks-section-title {
-  margin: 0;
-  letter-spacing: 0.02em;
-}
-
-.tasks-hero h1 {
-  max-width: none;
-  font-size: clamp(2rem, 5vw, 3.4rem);
-  line-height: 1.1;
-}
-
-.tasks-section-title {
-  font-size: clamp(1.3rem, 2.4vw, 1.8rem);
-  line-height: 1.16;
-}
-
-.tasks-hero p {
-  margin: 10px 0 0;
-  color: rgb(210 220 236 / 82%);
-  max-width: 78ch;
-}
-
-.tasks-hero-meta {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
-  gap: 10px;
-  margin-top: 18px;
-}
-
-.tasks-meta-badge {
-  display: grid;
-  gap: 4px;
-  padding: 10px 12px;
-  border-radius: 12px;
-  background: rgb(255 255 255 / 4%);
-  border: 1px solid rgb(255 255 255 / 8%);
-}
-
-.tasks-meta-label {
-  color: rgb(169 190 214 / 78%);
-  font-family: var(--font-mono);
-  font-size: 0.82rem;
-  text-transform: uppercase;
-  letter-spacing: 0.08em;
-}
-
-.tasks-meta-value {
-  color: rgb(248 250 255 / 94%);
-  font-size: 1rem;
-}
-
-.tasks-refresh-note {
-  margin: 16px 0 0;
-  color: rgb(176 196 219 / 76%);
-  font-family: var(--font-mono);
-  font-size: 0.92rem;
-}
-
-.tasks-refresh-note[data-state='refreshing'],
-.tasks-refresh-note[data-state='loading'] {
-  color: rgb(226 236 248 / 86%);
-}
-
-.tasks-refresh-note[data-state='error'] {
-  color: rgb(255 198 198 / 94%);
-}
-
-.tasks-section {
-  padding: 16px;
-}
-
-.tasks-refresh-banner {
-  width: min(1400px, 100%);
-  margin: 0 auto;
-}
-
-.tasks-table-wrap {
-  width: 100%;
-  overflow: auto;
-  border-radius: 14px;
-  border: 1px solid rgb(255 255 255 / 8%);
-  background: rgb(255 255 255 / 2%);
-}
-
-.tasks-table {
-  width: 100%;
-  border-collapse: collapse;
-  min-width: 760px;
-}
-
-.tasks-table th,
-.tasks-table td {
-  padding: 10px 12px;
-  border-bottom: 1px solid rgb(255 255 255 / 8%);
-  vertical-align: top;
-  text-align: left;
-}
-
-.tasks-table th {
-  position: sticky;
-  top: 0;
-  z-index: 1;
-  background: rgb(17 22 30 / 98%);
-  color: rgb(186 206 230 / 88%);
-  font-family: var(--font-mono);
-  text-transform: uppercase;
-  letter-spacing: 0.08em;
-  font-size: 0.78rem;
-}
-
-.tasks-table tbody tr:nth-child(even) {
-  background: rgb(255 255 255 / 2%);
-}
-
-.tasks-cell {
-  display: grid;
-  gap: 4px;
-  line-height: 1.45;
-  white-space: pre-wrap;
-  word-break: break-word;
-}
-
-.tasks-state {
-  padding: 16px;
-  border-radius: 14px;
-  border: 1px dashed rgb(255 255 255 / 18%);
-  color: rgb(214 224 238 / 82%);
-  background: rgb(255 255 255 / 3%);
-}
-
-.tasks-state-error {
-  border-color: rgb(230 112 112 / 42%);
-  color: rgb(255 196 196 / 92%);
-  background: rgb(82 18 18 / 32%);
-}
-
 @media (max-width: 720px) {
   .site-menu-shell {
     width: 100%;
@@ -1713,19 +1549,5 @@ body[data-app-ui-layout='wide'] .strategy-mode-panel {
 
   .auth-mode-toggle {
     grid-template-columns: repeat(3, minmax(0, 1fr));
-  }
-
-  .tasks-page {
-    padding:
-      max(12px, env(safe-area-inset-top))
-      10px
-      max(18px, env(safe-area-inset-bottom))
-      10px;
-  }
-
-  .tasks-hero,
-  .tasks-section {
-    border-radius: 14px;
-    padding: 14px;
   }
 }

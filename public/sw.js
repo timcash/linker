@@ -1,11 +1,11 @@
-const CACHE_NAME = 'linker-shell-v1';
+const CACHE_NAME = 'linker-shell-v2';
 const APP_SHELL_PATHS = [
   '',
   'auth/',
   'codex/',
   'logs/',
+  'new-user/',
   'readme/',
-  'tasks/',
   'site.webmanifest',
   'linker-icon.svg',
   'linker-icon-maskable.svg',

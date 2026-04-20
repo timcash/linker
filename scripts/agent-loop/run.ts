@@ -33,7 +33,6 @@ import {
   type ResolvedWorkerWorkspace,
 } from './shared';
 import {writeReviewPrompt} from './write-review-prompt';
-import {writeTasksDashboard} from './write-tasks-dashboard';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
 const cliOptions = parseLoopCliOptions(process.argv.slice(2));
@@ -95,7 +94,6 @@ while (iterationCount < cliOptions.maxIterations) {
     workerWorkspaceMode: workerWorkspace.mode,
   };
   await writeJsonFile(paths.statePath, state);
-  await writeTasksDashboard(root);
 
   await writeMarkdownFile(
     path.join(runDir, 'brief.md'),
@@ -151,7 +149,6 @@ while (iterationCount < cliOptions.maxIterations) {
     status: cliOptions.reviewOnly ? 'reviewing' : 'reviewing',
   };
   await writeJsonFile(paths.statePath, state);
-  await writeTasksDashboard(root);
 
   const checkResults = await runChecks(root, workerWorkspace.path, runDir, {
     enforceRequiredDocUpdates: !cliOptions.reviewOnly,
@@ -187,7 +184,6 @@ while (iterationCount < cliOptions.maxIterations) {
     buildMonitorStepsMarkdown(runId, review.steps),
   );
   state = await advanceLoop(root, runId);
-  await writeTasksDashboard(root);
 
   printSection(
     'Monitor Decision',
@@ -229,7 +225,6 @@ ${await readUnifiedLogTail(resolveUnifiedLogPath(root))}
 
   if (cliOptions.promoteAccepted && review.decision === 'accept') {
     const promotionResult = await promoteRunChanges(root, runId);
-    await writeTasksDashboard(root);
     printSection(
       'Promotion',
       [

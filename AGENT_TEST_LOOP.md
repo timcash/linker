@@ -48,8 +48,6 @@ Current per-run task artifacts:
 - [.codex-loop/current-task.json](.codex-loop/current-task.json)
 - [.codex-loop/current-task.md](.codex-loop/current-task.md)
 - [.codex-loop/next-task-ideas.md](.codex-loop/next-task-ideas.md)
-- [public/tasks-data.json](public/tasks-data.json)
-- `/tasks`
 
 Current prompt and schema files:
 
@@ -72,8 +70,6 @@ Latest experiment:
 - the loop now also prepares one explicit task packet per run and records the next few task ideas, which is the first concrete step toward the subtask-first model described later in this document
 - focused browser commands now only fail on unexpected structured errors from their own session, so an earlier intentional worker failure in the same shared `test.log` no longer poisons the later monitored check
 - run `20260408-183023` proved the task packet is already useful in practice: the worker got all required commands green, including the live GitHub Pages smoke, and the monitor rejected the run for the right reason `scope-review` because the diff escaped the current task into `src/app.ts` and `scripts/test/dag-view-smoke.ts`
-- the repo now exports the loop into `public/tasks-data.json` and renders it at `/tasks` as HTML tables for loop summary, current task, next tasks, task ladder, run history, and monitor review steps
-- the repo now also has a focused browser smoke for that loop UI through `npm run test:browser:tasks`, so the worker and monitor dashboard stays under the same regression discipline as the app
 
 ## Windows-First Workflow
 
@@ -93,9 +89,6 @@ Recommended loop:
 
 # review a run and apply its worker diff back into root
 .\agent.ps1 -PromoteRun 20260408-174647
-
-# verify the loop dashboard itself
-npm run test:browser:tasks
 ```
 
 Supported flags today:

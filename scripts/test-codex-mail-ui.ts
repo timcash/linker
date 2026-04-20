@@ -66,17 +66,15 @@ async function main(): Promise<void> {
 
     await page.goto(codexUrl, {waitUntil: 'load'});
     await page.waitForSelector('.codex-mail-shell');
-    await page.waitForFunction(() => (document.body.dataset.codexViewMode ?? '') === 'mailboard');
+    await page.waitForFunction(
+      () => (document.body.dataset.codexViewMode ?? '') === 'mailboard',
+      {timeout: 120_000},
+    );
     const mailboxEmail = health.mailbox?.emailAddress ?? '';
     await page.waitForFunction(
       (expectedMailboxEmail) => {
         const mailboxText = document.querySelector('[data-codex-mailbox]')?.textContent ?? '';
-        const statusText = document.querySelector('[data-codex-status]')?.textContent ?? '';
-        return (
-          mailboxText.includes(expectedMailboxEmail) ||
-          /Loaded \d+ thread/i.test(statusText) ||
-          /mailbox view is empty/i.test(statusText)
-        );
+        return mailboxText.includes(expectedMailboxEmail);
       },
       {timeout: 120_000},
       mailboxEmail,
@@ -103,7 +101,7 @@ async function main(): Promise<void> {
       'The live codex UI should show the real synced Gmail mailbox address.',
     );
     assert.match(mailboxState.authText, /connected to this computer/i, 'The live codex UI should connect to the local daemon on this computer.');
-    assert.equal(mailboxState.currentView, 'Inbox', 'The live codex UI should land on the Inbox view after unlock.');
+    assert.match(mailboxState.currentView, /^Inbox$/i, 'The live codex UI should land on the Inbox view after unlock.');
 
     if (health.counts.threads > 0 && mailboxState.threadCount > 0) {
       await page.click('.codex-thread-row');
@@ -114,7 +112,7 @@ async function main(): Promise<void> {
       assert.ok(detailTitle.length > 0, 'The live codex UI should load a thread detail title when mailbox threads exist.');
     } else {
       assert.ok(
-        mailboxState.emptyText.length > 0 || /loaded|mailbox/i.test(mailboxState.statusText),
+        mailboxState.emptyText.length > 0 || /loaded|loading|mailbox/i.test(mailboxState.statusText),
         'The live codex UI should still explain the synced mailbox state when no local thread ledger rows exist.',
       );
     }

@@ -4,8 +4,8 @@
 
 body.codex-route {
   min-height: 100svh;
-  background: #000000;
-  color: #f5f5f5;
+  background: var(--bg);
+  color: var(--ink);
 }
 
 #app.codex-route-root {
@@ -25,7 +25,7 @@ body.codex-route {
     max(10px, env(safe-area-inset-bottom))
     max(10px, env(safe-area-inset-left));
   box-sizing: border-box;
-  background: #000000;
+  background: var(--bg);
   overflow: hidden;
 }
 
@@ -40,8 +40,8 @@ body.codex-route {
   display: grid;
   gap: 4px;
   padding: 10px;
-  border: 1px solid #202020;
-  background: #060606;
+  border: 1px solid var(--border);
+  background: var(--panel);
 }
 
 .codex-mail-eyebrow {
@@ -68,8 +68,8 @@ body.codex-route {
   display: grid;
   gap: 4px;
   padding: 10px;
-  border: 1px solid #202020;
-  background: #060606;
+  border: 1px solid var(--border);
+  background: var(--panel);
 }
 
 .codex-mail-meta-card--wide {
@@ -111,8 +111,8 @@ body.codex-route {
 .codex-thread-list-shell,
 .codex-thread-panel {
   min-height: 0;
-  border: 1px solid #202020;
-  background: #050505;
+  border: 1px solid var(--border);
+  background: var(--panel);
 }
 
 .codex-thread-list-shell {
@@ -124,7 +124,7 @@ body.codex-route {
   display: grid;
   gap: 8px;
   padding: 10px;
-  border-bottom: 1px solid #181818;
+  border-bottom: 1px solid var(--border);
 }
 
 .codex-mail-search-form {
@@ -152,16 +152,16 @@ body.codex-route {
   display: grid;
   gap: 6px;
   padding: 10px;
-  border: 1px solid #1d1d1d;
-  background: #090909;
-  color: #ffffff;
+  border: 1px solid var(--border);
+  background: var(--bg-soft);
+  color: var(--ink-strong);
   text-align: left;
   font: inherit;
   cursor: pointer;
 }
 
 .codex-thread-row--active {
-  border-color: #ffffff;
+  border-color: var(--border-strong);
 }
 
 .codex-thread-row-subject {
@@ -184,9 +184,9 @@ body.codex-route {
 
 .codex-thread-chip {
   padding: 2px 7px;
-  border: 1px solid #2d2d2d;
-  background: #101010;
-  color: #f1f1f1;
+  border: 1px solid var(--border);
+  background: var(--bg-soft);
+  color: var(--ink-strong);
   font-family: "Space Mono", monospace;
   font-size: 0.68rem;
   line-height: 1.3;
@@ -212,8 +212,8 @@ body.codex-route {
   display: grid;
   gap: 8px;
   padding: 12px;
-  border: 1px solid #1d1d1d;
-  background: #070707;
+  border: 1px solid var(--border);
+  background: var(--bg-soft);
 }
 
 .codex-thread-action-grid {
@@ -228,10 +228,10 @@ body.codex-route {
 .codex-mail-inline-button,
 .codex-mail-secondary-link {
   min-height: 42px;
-  border: 1px solid #252525;
+  border: 1px solid var(--border);
   border-radius: 0;
-  background: #101010;
-  color: #ffffff;
+  background: var(--bg-soft);
+  color: var(--ink-strong);
   font: inherit;
   cursor: pointer;
 }
@@ -255,8 +255,8 @@ body.codex-route {
   display: grid;
   gap: 6px;
   padding: 10px;
-  border: 1px solid #1b1b1b;
-  background: #090909;
+  border: 1px solid var(--border);
+  background: var(--bg-soft);
 }
 
 .codex-task-row h3 {
@@ -271,15 +271,15 @@ body.codex-route {
   font-family: "Space Mono", monospace;
   font-size: 0.76rem;
   line-height: 1.45;
-  color: #ffffff;
+  color: var(--ink-strong);
 }
 
 .codex-form-input,
 .codex-form-textarea {
   width: 100%;
-  border: 1px solid #232323;
-  background: #000000;
-  color: #ffffff;
+  border: 1px solid var(--border);
+  background: var(--bg);
+  color: var(--ink-strong);
   padding: 10px;
   box-sizing: border-box;
   font: inherit;
@@ -318,11 +318,13 @@ body.codex-route {
 
 .codex-mail-pad-button strong {
   font-size: 0.72rem;
-  color: #bfbfbf;
+  color: var(--muted);
 }
 
 .codex-mail-pad-button--active {
-  border-color: #ffffff;
+  border-color: var(--border-strong);
+  background: var(--ink-strong);
+  color: var(--bg);
 }
 
 .codex-mail-lock-overlay {
@@ -344,8 +346,8 @@ body.codex-route {
   display: grid;
   gap: 10px;
   padding: 16px;
-  border: 1px solid #222222;
-  background: #050505;
+  border: 1px solid var(--border);
+  background: var(--panel-strong);
 }
 
 .codex-mail-lock-eyebrow,

@@ -75,7 +75,7 @@ function createReadmeHero(requestedDoc: string, found: boolean): HTMLElement {
   const lede = document.createElement('p');
   lede.className = 'lede';
   lede.textContent = found
-    ? 'A live preview of the repo markdown, rendered in the same notes-first shell style used in cad-pga.'
+    ? 'A live preview of the repo markdown, rendered in the same monochrome Linker shell as the rest of the site.'
     : `The requested markdown document "${requestedDoc}" is not bundled into this preview route.`;
 
   hero.append(eyebrow, title, lede);

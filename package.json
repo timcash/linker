@@ -5,6 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
+    "diagnose": "tsx scripts/diagnose.ts",
     "build": "tsc && vite build",
     "build:pages": "tsx scripts/build-pages.ts",
     "lint": "eslint .",
@@ -28,7 +29,6 @@
     "test:browser:dag-zoom-journey": "tsx scripts/test.ts --flow dag-zoom-journey",
     "test:browser:readme": "tsx scripts/test.ts --flow readme-preview-smoke",
     "test:browser:suite": "tsx scripts/test.ts --flow full",
-    "test:browser:tasks": "tsx scripts/test.ts --flow tasks-dashboard-smoke",
     "test:codex:mail-sync": "tsx scripts/test-codex-mail-sync.ts",
     "test:live": "tsx scripts/test-live.ts",
     "test:preview": "tsx scripts/test-preview.ts"

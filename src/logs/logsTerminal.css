@@ -1,7 +1,7 @@
 body.logs-route {
   min-height: 100svh;
-  background: #050505;
-  color: #d7d7d7;
+  background: var(--bg);
+  color: var(--ink);
 }
 
 #app.logs-route-root {
@@ -19,9 +19,7 @@ body.logs-route {
     max(16px, env(safe-area-inset-bottom))
     max(16px, env(safe-area-inset-left));
   box-sizing: border-box;
-  background:
-    radial-gradient(circle at top, rgb(255 255 255 / 5%), transparent 28%),
-    #050505;
+  background: var(--bg);
 }
 
 .logs-topbar,
@@ -69,7 +67,8 @@ body.logs-route {
   gap: 6px;
   min-height: 88px;
   padding: 14px;
-  background: rgb(13 13 13 / 90%);
+  border: 1px solid var(--border);
+  background: var(--panel);
 }
 
 .logs-meta-card--wide {
@@ -93,7 +92,8 @@ body.logs-route {
 
 .logs-terminal-frame {
   min-height: 0;
-  background: #000;
+  border: 1px solid var(--border);
+  background: var(--panel-strong);
   overflow: hidden;
 }
 
@@ -112,11 +112,11 @@ body.logs-route {
 
 .logs-action-btn {
   min-height: 54px;
-  border: 0;
+  border: 1px solid var(--border);
   border-radius: 0;
   padding: 12px 14px;
-  background: #111;
-  color: #f1ede6;
+  background: var(--bg-soft);
+  color: var(--ink-strong);
   font: inherit;
   font-family: var(--font-mono);
   font-size: 0.94rem;
@@ -125,18 +125,18 @@ body.logs-route {
 }
 
 .logs-action-btn[data-active='true'] {
-  background: #f1ede6;
-  color: #000;
+  background: var(--ink-strong);
+  color: var(--bg);
 }
 
 .logs-action-btn:focus-visible,
 .logs-action-btn:hover {
   outline: none;
-  background: #181818;
+  background: var(--panel);
 }
 
 .logs-action-btn[data-active='true']:hover {
-  background: #faf6ee;
+  background: #fff;
 }
 
 .logs-action-btn:focus-visible {

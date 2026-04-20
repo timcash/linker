@@ -23,7 +23,6 @@ import {runLogsPageSmokeFlow} from './test/logs-page-smoke';
 import {runNewUserPageSmokeFlow} from './test/new-user-page-smoke';
 import {runOnboardingWalkthroughFlow} from './test/onboarding-walkthrough';
 import {runReadmePreviewSmokeFlow} from './test/readme-preview-smoke';
-import {runTasksDashboardSmokeFlow} from './test/tasks-dashboard-smoke';
 import {
   INTENTIONAL_ERROR_MARKER,
   type BrowserTestContext,
@@ -42,8 +41,7 @@ type BrowserFlowName =
   | 'logs-page-smoke'
   | 'new-user-page-smoke'
   | 'onboarding-walkthrough'
-  | 'readme-preview-smoke'
-  | 'tasks-dashboard-smoke';
+  | 'readme-preview-smoke';
 type CliOptions = {
   flow: BrowserFlowName;
   keepOpen: boolean;
@@ -191,12 +189,6 @@ async function runSelectedBrowserFlows(
     return;
   }
 
-  if (options.flow === 'tasks-dashboard-smoke') {
-    context.addBrowserLog('test', `Running focused browser flow ${options.flow}.`);
-    await runTasksDashboardSmokeFlow(context);
-    return;
-  }
-
   if (options.flow === 'logs-page-smoke') {
     context.addBrowserLog('test', `Running focused browser flow ${options.flow}.`);
     await runLogsPageSmokeFlow(context);
@@ -236,7 +228,6 @@ async function runSelectedBrowserFlows(
   await runLogsPageSmokeFlow(context);
   await runNewUserPageSmokeFlow(context);
   await runAuthPageSmokeFlow(context);
-  await runTasksDashboardSmokeFlow(context);
   await runReadmePreviewSmokeFlow(context);
 }
 
@@ -268,8 +259,7 @@ function parseCliOptions(args: string[]): CliOptions {
         requestedFlow === 'new-user-page-smoke' ||
         requestedFlow === 'onboarding-walkthrough' ||
         requestedFlow === 'auth-page-smoke' ||
-        requestedFlow === 'readme-preview-smoke' ||
-        requestedFlow === 'tasks-dashboard-smoke'
+        requestedFlow === 'readme-preview-smoke'
       ) {
         flow = requestedFlow;
         index += 1;
@@ -277,7 +267,7 @@ function parseCliOptions(args: string[]): CliOptions {
       }
 
       throw new Error(
-        `Unsupported --flow value "${requestedFlow ?? ''}". Expected one of: onboarding-walkthrough, full, boot, codex-page-smoke, logs-page-smoke, new-user-page-smoke, dag-view-smoke, dag-control-pad, dag-network-build, dag-rank-fanout, dag-zoom-journey, auth-page-smoke, tasks-dashboard-smoke, readme-preview-smoke.`,
+        `Unsupported --flow value "${requestedFlow ?? ''}". Expected one of: onboarding-walkthrough, full, boot, codex-page-smoke, logs-page-smoke, new-user-page-smoke, dag-view-smoke, dag-control-pad, dag-network-build, dag-rank-fanout, dag-zoom-journey, auth-page-smoke, readme-preview-smoke.`,
       );
     }
 

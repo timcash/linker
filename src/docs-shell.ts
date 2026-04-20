@@ -17,7 +17,7 @@ import {
 import {readConfiguredRepoUrl, resolveConfiguredRepoUrl} from './remote-config';
 import {TEXT_STRATEGY_OPTIONS, type TextStrategy} from './text/types';
 
-export type DocsRoute = 'app' | 'auth' | 'codex' | 'logs' | 'new-user' | 'readme' | 'tasks';
+export type DocsRoute = 'app' | 'auth' | 'codex' | 'logs' | 'new-user' | 'readme';
 
 type SiteMenuPage = 'nav' | 'settings';
 type SiteMenuPlacement = 'embedded' | 'floating';
@@ -561,7 +561,6 @@ function buildSiteMenuEntries(repoUrl = readConfiguredRepoUrl(import.meta.env.VI
     {href: 'auth/', label: 'Auth', route: 'auth' as const},
     {href: 'codex/', label: 'Codex', route: 'codex' as const},
     {href: 'logs/', label: 'Logs', route: 'logs' as const},
-    {href: 'tasks/', label: 'Tasks', route: 'tasks' as const},
     {href: 'readme/', label: 'README', route: 'readme' as const},
     {href: repoUrl, label: 'GitHub', route: null},
   ] as const;

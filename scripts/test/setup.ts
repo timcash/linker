@@ -213,10 +213,10 @@ async function ensureScreenshotUsesStackView(
   const shouldKeepCurrentRoute = await context.page.evaluate(() => {
     return (
       document.querySelector('.codex-page-shell') instanceof HTMLElement ||
+      document.querySelector('.codex-mail-shell') instanceof HTMLElement ||
       document.querySelector('[data-testid="logs-page"]') instanceof HTMLElement ||
       document.querySelector('[data-testid="auth-page"]') instanceof HTMLElement ||
-      document.querySelector('[data-testid="readme-preview"]') instanceof HTMLElement ||
-      document.querySelector('[data-testid="tasks-dashboard"]') instanceof HTMLElement
+      document.querySelector('[data-testid="readme-preview"]') instanceof HTMLElement
     );
   }).catch(() => false);
 
