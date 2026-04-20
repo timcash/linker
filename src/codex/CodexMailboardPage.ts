@@ -175,8 +175,8 @@ export class CodexMailboardPage {
     );
     this.view.setLockState(false, localDaemon ? 'This computer is connected.' : 'Cloudflare Access active.');
     this.view.setStatus(localDaemon ? 'Loading codex threads from this computer...' : 'Loading codex threads...');
-    this.startEventStream();
     await this.reloadMailbox();
+    this.startEventStream();
   }
 
   private async reloadMailbox(options: {refreshDetail?: boolean} = {}): Promise<void> {
@@ -577,7 +577,7 @@ export class CodexMailboardPage {
 
     this.streamReloadHandle = window.setTimeout(() => {
       this.streamReloadHandle = null;
-      void this.reloadMailbox({refreshDetail: false});
+      void this.reloadMailbox({refreshDetail: this.selectedThreadDetail === null});
     }, 250);
   }
 }
