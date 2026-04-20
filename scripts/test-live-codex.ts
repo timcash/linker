@@ -82,6 +82,7 @@ try {
     () => document.querySelectorAll('.codex-thread-row').length > 0,
     {timeout: 120_000},
   );
+  await clickElement(page, '.codex-thread-row');
   await page.waitForFunction(() => {
     const title = document.querySelector('.codex-thread-detail-title')?.textContent?.trim() ?? '';
     return title.length > 0;

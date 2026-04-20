@@ -306,7 +306,7 @@ export class CodexMailboardPage {
   }
 
   private async handleSelectThread(threadId: string): Promise<void> {
-    if (!this.unlocked || this.selectedThreadId === threadId) {
+    if (!this.unlocked || (this.selectedThreadId === threadId && this.selectedThreadDetail !== null)) {
       return;
     }
 
@@ -547,8 +547,10 @@ export class CodexMailboardPage {
     }
 
     this.eventSource = this.client.openEventStream({
-      onChange: () => {
-        this.scheduleStreamReload();
+      onChange: (event) => {
+        if (shouldRefreshForEvent(event)) {
+          this.scheduleStreamReload();
+        }
       },
       onError: () => {
         this.scheduleStreamReload();
@@ -699,4 +701,24 @@ function formatLocalMailboxHint(
     default:
       return `Press Use This Computer to check ${origin}.`;
   }
+}
+
+function shouldRefreshForEvent(event: {type: string}): boolean {
+  const type = String(event.type || '').trim().toLowerCase();
+
+  if (!type) {
+    return false;
+  }
+
+  return type.startsWith('task_')
+    || type.startsWith('worker_')
+    || type.startsWith('reply_')
+    || type.startsWith('workspace_')
+    || type.startsWith('thread_mark')
+    || type.startsWith('mail_api_')
+    || type === 'mail_triaged'
+    || type === 'direct_command'
+    || type === 'blocked_empty_request'
+    || type === 'workspace_pinned'
+    || type === 'workspace_not_found';
 }
