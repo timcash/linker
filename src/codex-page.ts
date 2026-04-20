@@ -11,8 +11,12 @@ export function startCodexPage(root: HTMLElement): CodexPageHandle {
   document.body.classList.add('docs-route', 'codex-route');
   root.classList.add('codex-page-root');
   const siteMenu = createSiteMenu('codex');
+  const diagnosticsHost = document.createElement('section');
+  const settingsPage = siteMenu.element.querySelector<HTMLElement>('[data-site-menu-page="settings"]');
+  const settingsSections = siteMenu.element.querySelector<HTMLElement>('.site-menu-settings-sections');
+  settingsPage?.insertBefore(diagnosticsHost, settingsSections ?? null);
 
-  const page = new CodexMailboardPage(root as HTMLDivElement);
+  const page = new CodexMailboardPage(root as HTMLDivElement, diagnosticsHost);
   page.render();
 
   const pageShell = root.querySelector('.codex-mail-shell');

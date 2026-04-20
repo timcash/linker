@@ -33,6 +33,7 @@ const DETAIL_ACTION_ORDER: CodexMailThreadAction[] = [
 export class CodexMailboardView {
   private readonly root: HTMLDivElement;
   private readonly callbacks: CodexMailboardViewCallbacks;
+  private readonly diagnosticsHost: HTMLElement | null;
   private shell: HTMLDivElement | null = null;
   private lockOverlay: HTMLDivElement | null = null;
   private unlockButton: HTMLButtonElement | null = null;
@@ -60,10 +61,20 @@ export class CodexMailboardView {
   private composeOpen = false;
   private locked = true;
   private searchQuery = '';
+  private statusSummary = 'Checking this computer.';
+  private mailboxSummary = 'Codex mailbox unavailable.';
+  private healthSummary = 'Health appears after codex responds.';
+  private authSummary = 'This page will use this computer first.';
+  private currentViewSummary = 'Codex';
 
-  constructor(root: HTMLDivElement, callbacks: CodexMailboardViewCallbacks) {
+  constructor(
+    root: HTMLDivElement,
+    callbacks: CodexMailboardViewCallbacks,
+    diagnosticsHost?: HTMLElement | null,
+  ) {
     this.root = root;
     this.callbacks = callbacks;
+    this.diagnosticsHost = diagnosticsHost ?? null;
   }
 
   public render(): void {
@@ -78,29 +89,6 @@ export class CodexMailboardView {
             <h1 class="codex-mail-title">Codex task mailbox.</h1>
           </section>
         </header>
-
-        <section class="codex-mail-meta-grid">
-          <div class="codex-mail-meta-card">
-            <span class="codex-mail-meta-label">Status</span>
-            <p class="codex-mail-meta-value" data-codex-status>Checking this computer.</p>
-          </div>
-          <div class="codex-mail-meta-card">
-            <span class="codex-mail-meta-label">Mailbox</span>
-            <p class="codex-mail-meta-value" data-codex-mailbox>Codex mailbox unavailable.</p>
-          </div>
-          <div class="codex-mail-meta-card">
-            <span class="codex-mail-meta-label">View</span>
-            <p class="codex-mail-meta-value" data-codex-view>Codex</p>
-          </div>
-          <div class="codex-mail-meta-card codex-mail-meta-card--wide">
-            <span class="codex-mail-meta-label">Health</span>
-            <p class="codex-mail-meta-value" data-codex-health>Health appears after codex responds.</p>
-          </div>
-          <div class="codex-mail-meta-card codex-mail-meta-card--wide">
-            <span class="codex-mail-meta-label">Target</span>
-            <p class="codex-mail-meta-value" data-codex-auth>This page will use this computer first.</p>
-          </div>
-        </section>
 
         <section class="codex-mail-main">
           <div class="codex-thread-list-shell">
@@ -203,6 +191,7 @@ export class CodexMailboardView {
     this.setThreadActionsPending(false);
     this.setSearchQuery('');
     this.setLockState(true, 'Checking this computer.');
+    this.syncDiagnostics();
   }
 
   public dispose(): void {
@@ -228,33 +217,43 @@ export class CodexMailboardView {
   }
 
   public setStatus(message: string): void {
+    this.statusSummary = message;
     if (this.statusValue) {
       this.statusValue.textContent = message;
     }
+    this.syncDiagnostics();
   }
 
   public setMailboxSummary(message: string): void {
+    this.mailboxSummary = message;
     if (this.mailboxValue) {
       this.mailboxValue.textContent = message;
     }
+    this.syncDiagnostics();
   }
 
   public setHealthSummary(message: string): void {
+    this.healthSummary = message;
     if (this.healthValue) {
       this.healthValue.textContent = message;
     }
+    this.syncDiagnostics();
   }
 
   public setAuthSummary(message: string): void {
+    this.authSummary = message;
     if (this.authValue) {
       this.authValue.textContent = message;
     }
+    this.syncDiagnostics();
   }
 
   public setCurrentViewLabel(message: string): void {
+    this.currentViewSummary = message;
     if (this.currentViewValue) {
       this.currentViewValue.textContent = message;
     }
+    this.syncDiagnostics();
   }
 
   public setSearchQuery(query: string): void {
@@ -562,6 +561,25 @@ export class CodexMailboardView {
     event.preventDefault();
     this.callbacks.onSearchSubmit(this.searchInput?.value ?? '');
   };
+
+  private syncDiagnostics(): void {
+    if (!this.diagnosticsHost) {
+      return;
+    }
+
+    this.diagnosticsHost.className = 'site-menu-setting-group codex-menu-diagnostics';
+    this.diagnosticsHost.innerHTML = `
+      <p class="site-menu-setting-title">Codex Mailbox</p>
+      <p class="site-menu-setting-description">Hidden from the main route so mail can use the screen. Open Menu / Settings to inspect the current codex connection.</p>
+      <dl class="site-menu-diagnostic-list">
+        ${renderDiagnosticItem('Status', this.statusSummary, 'status')}
+        ${renderDiagnosticItem('Mailbox', this.mailboxSummary, 'mailbox')}
+        ${renderDiagnosticItem('View', this.currentViewSummary, 'view')}
+        ${renderDiagnosticItem('Health', this.healthSummary, 'health')}
+        ${renderDiagnosticItem('Target', this.authSummary, 'auth')}
+      </dl>
+    `;
+  }
 }
 
 function renderPadButtons(): string {
@@ -590,6 +608,15 @@ function renderPadButtons(): string {
 
 function renderPadButtonContent(label: string, meta: string): string {
   return `<span class="codex-mail-pad-label">${escapeHtml(label)}</span><span class="codex-mail-pad-meta">${escapeHtml(meta)}</span>`;
+}
+
+function renderDiagnosticItem(label: string, value: string, key: string): string {
+  return `
+    <div class="site-menu-diagnostic-item">
+      <dt class="site-menu-diagnostic-label">${escapeHtml(label)}</dt>
+      <dd class="site-menu-diagnostic-value" data-codex-menu-${escapeHtml(key)}>${escapeHtml(value)}</dd>
+    </div>
+  `;
 }
 
 function resolveActionMeta(actionId: 'refresh' | 'compose' | 'clear-search'): string {

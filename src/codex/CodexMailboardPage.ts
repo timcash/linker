@@ -31,7 +31,7 @@ export class CodexMailboardPage {
   private eventSource: EventSource | null = null;
   private streamReloadHandle: number | null = null;
 
-  constructor(root: HTMLDivElement) {
+  constructor(root: HTMLDivElement, diagnosticsHost?: HTMLElement | null) {
     this.view = new CodexMailboardView(root, {
       onUnlock: () => {
         void this.handleUnlock();
@@ -64,7 +64,7 @@ export class CodexMailboardPage {
       onSendCompose: (input) => {
         void this.handleSendCompose(input);
       },
-    });
+    }, diagnosticsHost);
   }
 
   public render(): void {

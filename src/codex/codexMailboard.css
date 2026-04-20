@@ -17,8 +17,8 @@ body.codex-route {
   height: 100svh;
   display: grid;
   grid-template-columns: minmax(0, 1fr);
-  grid-template-rows: auto auto minmax(0, 1fr) auto;
-  gap: 10px;
+  grid-template-rows: auto minmax(0, 1fr) auto;
+  gap: 8px;
   padding:
     max(10px, env(safe-area-inset-top))
     max(10px, env(safe-area-inset-right))
@@ -33,13 +33,14 @@ body.codex-route {
   display: grid;
   grid-template-columns: minmax(0, 1fr);
   gap: 6px;
-  padding-inline-end: clamp(92px, 24vw, 140px);
+  padding-inline-end: clamp(88px, 22vw, 128px);
 }
 
 .codex-mail-topbar-copy {
   display: grid;
-  gap: 4px;
-  padding: 10px;
+  gap: 2px;
+  min-height: 42px;
+  padding: 8px 10px;
   border: 1px solid var(--border);
   background: var(--panel);
 }
@@ -54,26 +55,8 @@ body.codex-route {
 
 .codex-mail-title {
   margin: 0;
-  font-size: clamp(1.1rem, 5vw, 1.45rem);
-  line-height: 1.12;
-}
-
-.codex-mail-meta-grid {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr);
-  gap: 8px;
-}
-
-.codex-mail-meta-card {
-  display: grid;
-  gap: 4px;
-  padding: 10px;
-  border: 1px solid var(--border);
-  background: var(--panel);
-}
-
-.codex-mail-meta-card--wide {
-  grid-column: 1 / -1;
+  font-size: clamp(1rem, 4.4vw, 1.2rem);
+  line-height: 1.08;
 }
 
 .codex-mail-meta-label,
@@ -428,7 +411,7 @@ body.codex-route {
 @media (min-width: 900px) {
   .codex-mail-shell {
     grid-template-columns: minmax(320px, 360px) minmax(0, 1fr);
-    grid-template-rows: auto auto minmax(0, 1fr) auto;
+    grid-template-rows: auto minmax(0, 1fr) auto;
     gap: 14px;
     padding:
       max(16px, env(safe-area-inset-top))
@@ -438,19 +421,17 @@ body.codex-route {
   }
 
   .codex-mail-topbar {
-    grid-template-columns: minmax(120px, 140px) minmax(0, 1fr);
-    align-items: stretch;
+    align-items: start;
   }
 
   .codex-mail-topbar,
-  .codex-mail-meta-grid,
   .codex-mail-pad {
     grid-column: 1;
   }
 
   .codex-mail-main {
     grid-column: 2;
-    grid-row: 1 / span 4;
+    grid-row: 1 / span 3;
     grid-template-columns: minmax(300px, 360px) minmax(0, 1fr);
     grid-template-rows: minmax(0, 1fr);
     gap: 12px;
@@ -459,13 +440,5 @@ body.codex-route {
   .codex-thread-list-shell,
   .codex-thread-panel {
     min-height: calc(100svh - 32px);
-  }
-
-  .codex-mail-meta-grid {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
-
-  .codex-mail-meta-card--wide {
-    grid-column: 1 / -1;
   }
 }

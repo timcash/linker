@@ -75,7 +75,7 @@ try {
   );
 
   await page.waitForFunction(() => {
-    const mailbox = document.querySelector('[data-codex-mailbox]')?.textContent ?? '';
+    const mailbox = document.querySelector('[data-codex-menu-mailbox]')?.textContent ?? '';
     return /@/.test(mailbox);
   }, {timeout: 120_000});
   await page.waitForFunction(
@@ -89,11 +89,12 @@ try {
   }, {timeout: 120_000});
 
   const initialState = await page.evaluate(() => ({
-    authText: document.querySelector('[data-codex-auth]')?.textContent?.trim() ?? '',
-    currentView: document.querySelector('[data-codex-view]')?.textContent?.trim() ?? '',
-    mailboxText: document.querySelector('[data-codex-mailbox]')?.textContent?.trim() ?? '',
-    statusText: document.querySelector('[data-codex-status]')?.textContent?.trim() ?? '',
+    authText: document.querySelector('[data-codex-menu-auth]')?.textContent?.trim() ?? '',
+    currentView: document.querySelector('[data-codex-menu-view]')?.textContent?.trim() ?? '',
+    mailboxText: document.querySelector('[data-codex-menu-mailbox]')?.textContent?.trim() ?? '',
+    statusText: document.querySelector('[data-codex-menu-status]')?.textContent?.trim() ?? '',
     threadCount: document.querySelectorAll('.codex-thread-row').length,
+    usesMainMetaGrid: document.querySelector('.codex-mail-meta-grid') instanceof HTMLElement,
   }));
 
   const filterState = await page.evaluate(() => {
@@ -115,6 +116,7 @@ try {
   assert.match(initialState.currentView, /^Codex$/i, 'The hosted codex page should unlock into Codex.');
   assert.match(initialState.authText, /cloudflare access ready|connected to this computer/i, 'The hosted codex page should report an unlocked auth state.');
   assert.ok(initialState.threadCount >= 1, 'The hosted codex page should render at least one thread row.');
+  assert.equal(initialState.usesMainMetaGrid, false, 'The hosted codex route should keep diagnostics out of the main mail surface.');
   assert.equal(filterState.justifyContent, 'center', 'The hosted codex filter pad should center fixed-size buttons.');
   assert.ok(
     filterState.buttonWidths.every((width) => width === filterState.buttonWidths[0]),
@@ -128,7 +130,7 @@ try {
 
   await clickElement(page, '[data-codex-view-button="blocked"]');
   await page.waitForFunction(() => {
-    return (document.querySelector('[data-codex-view]')?.textContent?.trim() ?? '') === 'Blocked';
+    return document.querySelector('[data-codex-view-button="blocked"]')?.classList.contains('codex-mail-pad-button--active') === true;
   }, {timeout: 60_000});
   await page.waitForFunction(
     (expectedCount) => document.querySelectorAll('.codex-thread-row').length === expectedCount,
@@ -138,7 +140,7 @@ try {
 
   await clickElement(page, '[data-codex-view-button="done"]');
   await page.waitForFunction(() => {
-    return (document.querySelector('[data-codex-view]')?.textContent?.trim() ?? '') === 'Done';
+    return document.querySelector('[data-codex-view-button="done"]')?.classList.contains('codex-mail-pad-button--active') === true;
   }, {timeout: 60_000});
   await page.waitForFunction(
     (expectedCount) => document.querySelectorAll('.codex-thread-row').length === expectedCount,
@@ -148,7 +150,7 @@ try {
 
   await clickElement(page, '[data-codex-view-button="codex"]');
   await page.waitForFunction(() => {
-    return (document.querySelector('[data-codex-view]')?.textContent?.trim() ?? '') === 'Codex';
+    return document.querySelector('[data-codex-view-button="codex"]')?.classList.contains('codex-mail-pad-button--active') === true;
   }, {timeout: 60_000});
   await page.waitForFunction(
     () => document.querySelectorAll('.codex-thread-row').length > 0,
@@ -167,7 +169,7 @@ try {
     await page.waitForFunction(
       (expectedQuery) => {
         const input = document.querySelector<HTMLInputElement>('[data-codex-search-input]');
-        const status = document.querySelector('[data-codex-status]')?.textContent ?? '';
+        const status = document.querySelector('[data-codex-menu-status]')?.textContent ?? '';
         return input?.value === expectedQuery && /matching thread|loaded|search/i.test(status);
       },
       {timeout: 60_000},
@@ -190,9 +192,9 @@ try {
   }
 
   const finalState = await page.evaluate(() => ({
-    currentView: document.querySelector('[data-codex-view]')?.textContent?.trim() ?? '',
+    currentView: document.querySelector('[data-codex-menu-view]')?.textContent?.trim() ?? '',
     detailTitle: document.querySelector('.codex-thread-detail-title')?.textContent?.trim() ?? '',
-    statusText: document.querySelector('[data-codex-status]')?.textContent?.trim() ?? '',
+    statusText: document.querySelector('[data-codex-menu-status]')?.textContent?.trim() ?? '',
     threadCount: document.querySelectorAll('.codex-thread-row').length,
   }));
 

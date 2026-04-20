@@ -73,7 +73,7 @@ async function main(): Promise<void> {
     const mailboxEmail = health.mailbox?.emailAddress ?? '';
     await page.waitForFunction(
       (expectedMailboxEmail) => {
-        const mailboxText = document.querySelector('[data-codex-mailbox]')?.textContent ?? '';
+        const mailboxText = document.querySelector('[data-codex-menu-mailbox]')?.textContent ?? '';
         return mailboxText.includes(expectedMailboxEmail);
       },
       {timeout: 120_000},
@@ -87,12 +87,13 @@ async function main(): Promise<void> {
     );
 
     const mailboxState = {
-      authText: await getTextContent(page, '[data-codex-auth]'),
-      currentView: await getTextContent(page, '[data-codex-view]'),
-      mailboxText: await getTextContent(page, '[data-codex-mailbox]'),
-      statusText: await getTextContent(page, '[data-codex-status]'),
+      authText: await getTextContent(page, '[data-codex-menu-auth]'),
+      currentView: await getTextContent(page, '[data-codex-menu-view]'),
+      mailboxText: await getTextContent(page, '[data-codex-menu-mailbox]'),
+      statusText: await getTextContent(page, '[data-codex-menu-status]'),
       threadCount: await getElementCount(page, '.codex-thread-row'),
       emptyText: await getTextContent(page, '.codex-thread-empty'),
+      hasMetaGrid: await page.evaluate(() => document.querySelector('.codex-mail-meta-grid') instanceof HTMLElement),
     };
 
     assert.match(
@@ -100,6 +101,7 @@ async function main(): Promise<void> {
       new RegExp(escapeRegExp(mailboxEmail), 'i'),
       'The live codex UI should show the real synced Gmail mailbox address.',
     );
+    assert.equal(mailboxState.hasMetaGrid, false, 'The live codex UI should keep diagnostics out of the main screen.');
     assert.match(mailboxState.authText, /connected to this computer/i, 'The live codex UI should connect to the local daemon on this computer.');
     assert.match(mailboxState.currentView, /^Codex$/i, 'The live codex UI should land on the Codex view after unlock.');
 

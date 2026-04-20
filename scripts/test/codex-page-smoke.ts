@@ -519,18 +519,15 @@ export async function runCodexPageSmokeFlow(
       const main = document.querySelector<HTMLElement>('.codex-mail-main');
       const viewButtons = Array.from(document.querySelectorAll<HTMLElement>('[data-codex-view-button]'));
       return {
-        authText: document.querySelector<HTMLElement>('[data-codex-auth]')?.textContent?.trim() ?? '',
         buttonWidths: viewButtons.map((button) => Math.round(button.getBoundingClientRect().width)),
         codexViewMode: document.body.dataset.codexViewMode ?? '',
         composeVisible:
           document.querySelector<HTMLElement>('[data-codex-compose-panel]')?.classList.contains('codex-compose-panel--open') ?? false,
-        currentView: document.querySelector<HTMLElement>('[data-codex-view]')?.textContent?.trim() ?? '',
-        mailboxText: document.querySelector<HTMLElement>('[data-codex-mailbox]')?.textContent?.trim() ?? '',
+        hasMetaGrid: document.querySelector('.codex-mail-meta-grid') instanceof HTMLElement,
         mainColumns: main ? window.getComputedStyle(main).gridTemplateColumns.split(' ').length : 0,
         padColumns: pad ? window.getComputedStyle(pad).gridTemplateColumns.split(' ').length : 0,
         padJustifyContent: pad ? window.getComputedStyle(pad).justifyContent : '',
         shellLocked: shell?.classList.contains('codex-mail-shell--locked') ?? false,
-        statusText: document.querySelector<HTMLElement>('[data-codex-status]')?.textContent?.trim() ?? '',
         searchPlaceholder:
           document.querySelector<HTMLInputElement>('[data-codex-search-input]')?.placeholder ?? '',
         unlockLabel:
@@ -546,8 +543,8 @@ export async function runCodexPageSmokeFlow(
     });
 
     assert.equal(unlockedState.shellLocked, false, 'The local-first mailboard should unlock automatically when this computer responds.');
-    assert.equal(unlockedState.currentView, 'Codex', 'The unlocked mailboard should default to the codex view.');
     assert.equal(unlockedState.threadCount, 3, 'The unlocked mailboard should only show mocked codex threads.');
+    assert.equal(unlockedState.hasMetaGrid, false, 'The main codex route should no longer spend space on the old diagnostics grid.');
     assert.equal(unlockedState.mainColumns, 1, 'The mobile mailboard should stay in a single column.');
     assert.equal(unlockedState.padColumns, 3, 'The bottom pad should remain a 3x3 grid after auto-connect.');
     assert.equal(unlockedState.padJustifyContent, 'center', 'The bottom pad should center the fixed-size buttons instead of stretching them.');
@@ -556,9 +553,6 @@ export async function runCodexPageSmokeFlow(
       'All codex filter buttons should keep the same fixed width.',
     );
     assert.equal(unlockedState.composeVisible, false, 'Compose should stay closed until the user opens it.');
-    assert.match(unlockedState.mailboxText, /owner@example\.com/i, 'The mailbox card should show the shared daemon mailbox.');
-    assert.match(unlockedState.authText, /connected to this computer/i, 'The auth card should show the local unlocked state.');
-    assert.match(unlockedState.statusText, /loaded 3 codex threads/i, 'The status card should confirm the codex thread load.');
     assert.match(unlockedState.searchPlaceholder, /search codex threads/i, 'The unlocked mailboard should expose a codex search input.');
     assert.match(unlockedState.unlockLabel, /connected/i, 'The primary lock action should collapse into the connected state.');
     assert.equal(unlockedState.codexViewMode, 'mailboard', 'The unlocked mailboard should expose the mailboard view mode.');
@@ -583,6 +577,18 @@ export async function runCodexPageSmokeFlow(
       'The local-first codex page should load the local mailbox health on connect.',
     );
 
+    const diagnosticsState = await page.evaluate(() => ({
+      authText: document.querySelector<HTMLElement>('[data-codex-menu-auth]')?.textContent?.trim() ?? '',
+      currentView: document.querySelector<HTMLElement>('[data-codex-menu-view]')?.textContent?.trim() ?? '',
+      mailboxText: document.querySelector<HTMLElement>('[data-codex-menu-mailbox]')?.textContent?.trim() ?? '',
+      statusText: document.querySelector<HTMLElement>('[data-codex-menu-status]')?.textContent?.trim() ?? '',
+    }));
+
+    assert.match(diagnosticsState.mailboxText, /owner@example\.com/i, 'The menu diagnostics should show the shared daemon mailbox.');
+    assert.match(diagnosticsState.authText, /connected to this computer/i, 'The menu diagnostics should show the local unlocked state.');
+    assert.match(diagnosticsState.statusText, /loaded 3 codex threads/i, 'The menu diagnostics should confirm the codex thread load.');
+    assert.equal(diagnosticsState.currentView, 'Codex', 'The menu diagnostics should show the active codex view.');
+
     await saveCodexScreenshot(context, 'codex-mailboard-local');
 
     await page.type('[data-codex-search-input]', 'logs');
@@ -590,7 +596,7 @@ export async function runCodexPageSmokeFlow(
     await page.waitForFunction(() => {
       return (
         document.querySelectorAll('.codex-thread-row').length === 1
-        && /matching codex thread/i.test(document.querySelector('[data-codex-status]')?.textContent ?? '')
+        && /matching codex thread/i.test(document.querySelector('[data-codex-menu-status]')?.textContent ?? '')
       );
     });
 
@@ -598,7 +604,7 @@ export async function runCodexPageSmokeFlow(
       return {
         threadCount: document.querySelectorAll('.codex-thread-row').length,
         threadTitle: document.querySelector('.codex-thread-detail-title')?.textContent?.trim() ?? '',
-        statusText: document.querySelector('[data-codex-status]')?.textContent?.trim() ?? '',
+        statusText: document.querySelector('[data-codex-menu-status]')?.textContent?.trim() ?? '',
       };
     });
 
@@ -646,14 +652,14 @@ export async function runCodexPageSmokeFlow(
     });
     await page.waitForFunction(() => {
       return (
-        (document.querySelector('[data-codex-view]')?.textContent?.trim() ?? '') === 'Done'
+        document.querySelector('[data-codex-view-button="done"]')?.classList.contains('codex-mail-pad-button--active') === true
         && document.querySelectorAll('.codex-thread-row').length === 1
       );
     });
 
     const codexState = await page.evaluate(() => {
       return {
-        currentView: document.querySelector<HTMLElement>('[data-codex-view]')?.textContent?.trim() ?? '',
+        currentView: document.querySelector<HTMLElement>('[data-codex-menu-view]')?.textContent?.trim() ?? '',
         messageText: Array.from(document.querySelectorAll('.codex-message-row pre'))
           .map((node) => node.textContent?.trim() ?? '')
           .join(' '),
@@ -672,7 +678,7 @@ export async function runCodexPageSmokeFlow(
     });
     await page.waitForFunction(() => {
       return (
-        (document.querySelector('[data-codex-view]')?.textContent?.trim() ?? '') === 'Working'
+        document.querySelector('[data-codex-view-button="working"]')?.classList.contains('codex-mail-pad-button--active') === true
         && document.querySelectorAll('.codex-thread-row').length === 1
       );
     });
@@ -688,7 +694,7 @@ export async function runCodexPageSmokeFlow(
       'The mailboard should post the reply body plus the latest reply target message id.',
     );
     await page.waitForFunction(() => {
-      const statusText = document.querySelector('[data-codex-status]')?.textContent ?? '';
+      const statusText = document.querySelector('[data-codex-menu-status]')?.textContent ?? '';
       const replyValue = document.querySelector<HTMLTextAreaElement>('[data-codex-reply-body]')?.value ?? '';
       return /loaded 1 codex thread/i.test(statusText) && replyValue === '';
     });
