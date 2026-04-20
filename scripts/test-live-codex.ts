@@ -96,18 +96,18 @@ try {
   }));
 
   assert.match(initialState.mailboxText, /@/i, 'The hosted codex page should show a live mailbox address.');
-  assert.match(initialState.currentView, /^Inbox$/i, 'The hosted codex page should unlock into Inbox.');
+  assert.match(initialState.currentView, /^Codex$/i, 'The hosted codex page should unlock into Codex.');
   assert.match(initialState.authText, /cloudflare access ready|connected to this computer/i, 'The hosted codex page should report an unlocked auth state.');
   assert.ok(initialState.threadCount >= 1, 'The hosted codex page should render at least one thread row.');
 
-  await clickElement(page, '[data-codex-view-button="sent"]');
+  await clickElement(page, '[data-codex-view-button="done"]');
   await page.waitForFunction(() => {
-    return (document.querySelector('[data-codex-view]')?.textContent?.trim() ?? '') === 'Sent';
+    return (document.querySelector('[data-codex-view]')?.textContent?.trim() ?? '') === 'Done';
   }, {timeout: 60_000});
 
-  await clickElement(page, '[data-codex-view-button="inbox"]');
+  await clickElement(page, '[data-codex-view-button="codex"]');
   await page.waitForFunction(() => {
-    return (document.querySelector('[data-codex-view]')?.textContent?.trim() ?? '') === 'Inbox';
+    return (document.querySelector('[data-codex-view]')?.textContent?.trim() ?? '') === 'Codex';
   }, {timeout: 60_000});
   await page.waitForFunction(
     () => document.querySelectorAll('.codex-thread-row').length > 0,
@@ -155,9 +155,9 @@ try {
     threadCount: document.querySelectorAll('.codex-thread-row').length,
   }));
 
-  assert.match(finalState.currentView, /^Inbox$/i, 'The hosted codex page should return to Inbox after the view smoke.');
+  assert.match(finalState.currentView, /^Codex$/i, 'The hosted codex page should return to Codex after the view smoke.');
   assert.ok(finalState.detailTitle.length > 0, 'The hosted codex page should load a thread detail after selecting a row.');
-  assert.ok(finalState.threadCount >= 1, 'The hosted codex page should still have inbox rows after the smoke interactions.');
+  assert.ok(finalState.threadCount >= 1, 'The hosted codex page should still have codex rows after the smoke interactions.');
 
   const screenshotDir = path.resolve(process.cwd(), 'artifacts', 'test-screenshots');
   await mkdir(screenshotDir, {recursive: true});

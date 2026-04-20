@@ -101,7 +101,7 @@ async function main(): Promise<void> {
       'The live codex UI should show the real synced Gmail mailbox address.',
     );
     assert.match(mailboxState.authText, /connected to this computer/i, 'The live codex UI should connect to the local daemon on this computer.');
-    assert.match(mailboxState.currentView, /^Inbox$/i, 'The live codex UI should land on the Inbox view after unlock.');
+    assert.match(mailboxState.currentView, /^Codex$/i, 'The live codex UI should land on the Codex view after unlock.');
 
     if (health.counts.threads > 0 && mailboxState.threadCount > 0) {
       await page.click('.codex-thread-row');

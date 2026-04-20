@@ -95,8 +95,8 @@ async function main(): Promise<void> {
     assert.equal(health.ok, true, 'The shared mail API should report ok.');
     assert.notEqual(health.mailbox, null, 'The shared mail API should report a mailbox.');
 
-    const inbox = await fetchJson<MailThreadsResponse>('/api/mail/threads?view=inbox');
-    assert.equal(inbox.ok, true, 'The inbox thread list should report ok.');
+    const codexThreads = await fetchJson<MailThreadsResponse>('/api/mail/threads?view=codex');
+    assert.equal(codexThreads.ok, true, 'The codex thread list should report ok.');
 
     const proof = {
       checkedAt: new Date().toISOString(),
@@ -105,7 +105,7 @@ async function main(): Promise<void> {
       mailbox: health.mailbox,
       counts: health.counts,
       views: health.views,
-      inboxPreview: inbox.threads.slice(0, 5).map((thread) => ({
+      codexPreview: codexThreads.threads.slice(0, 5).map((thread) => ({
         threadId: thread.threadId,
         subject: thread.subject,
         badges: thread.badges,
@@ -121,13 +121,13 @@ async function main(): Promise<void> {
     console.log(`Mailbox: ${formatMailbox(health.mailbox)}`);
     console.log(`Mail API: ${MAIL_BASE_URL}`);
     console.log(`Threads: ${health.counts.threads} total, queue ${health.counts.queueDepth}, active task ${health.counts.activeTaskId ?? 'none'}`);
-    if (inbox.threads.length > 0) {
-      console.log('Inbox preview:');
-      for (const thread of inbox.threads.slice(0, 3)) {
+    if (codexThreads.threads.length > 0) {
+      console.log('Codex preview:');
+      for (const thread of codexThreads.threads.slice(0, 3)) {
         console.log(`- ${thread.subject}`);
       }
     } else {
-      console.log('Inbox preview: no synced threads were returned.');
+      console.log('Codex preview: no synced codex threads were returned.');
     }
     console.log(`Proof artifact: ${PROOF_PATH}`);
 

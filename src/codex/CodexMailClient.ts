@@ -2,7 +2,7 @@ import {hasExplicitConfiguredOrigin, isLoopbackOrigin, resolveConfiguredMailOrig
 import {readStoredAppSettings} from '../site-settings';
 import {withLocalNetworkAccess} from '../local-network-access';
 
-export type CodexMailViewId = 'inbox' | 'unread' | 'starred' | 'sent' | 'all-mail' | 'codex';
+export type CodexMailViewId = 'codex' | 'queued' | 'working' | 'review' | 'blocked' | 'done';
 export type CodexMailThreadAction =
   | 'mark-read'
   | 'mark-unread'
@@ -104,6 +104,12 @@ export interface CodexMailHealth {
   views: CodexMailView[];
 }
 
+export interface CodexMailEvent {
+  at: string;
+  details: Record<string, unknown>;
+  type: string;
+}
+
 const PUBLIC_CONFIG_PATH = '/api/mail/public-config';
 const HEALTH_PATH = '/api/mail/health';
 const VIEWS_PATH = '/api/mail/views';
@@ -181,6 +187,35 @@ export class CodexMailClient {
       },
     );
     return response.thread;
+  }
+
+  public openEventStream(handlers: {
+    onChange: (event: CodexMailEvent) => void;
+    onError?: () => void;
+  }): EventSource | null {
+    if (typeof window.EventSource !== 'function') {
+      return null;
+    }
+
+    const eventSource = new EventSource(this.buildHttpUrl('/api/mail/events'), {
+      withCredentials: true,
+    });
+
+    const handleEvent = (event: MessageEvent<string>) => {
+      try {
+        const payload = JSON.parse(event.data) as CodexMailEvent;
+        handlers.onChange(payload);
+      } catch {
+        return;
+      }
+    };
+
+    eventSource.addEventListener('change', handleEvent as EventListener);
+    eventSource.onerror = () => {
+      handlers.onError?.();
+    };
+
+    return eventSource;
   }
 
   public async applyThreadAction(threadId: string, action: CodexMailThreadAction): Promise<void> {

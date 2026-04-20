@@ -18,7 +18,7 @@ const ACCESS_POLL_TIMEOUT_MS = 60_000;
 export class CodexMailboardPage {
   private readonly client = new CodexMailClient();
   private readonly view: CodexMailboardView;
-  private activeView: CodexMailViewId = 'inbox';
+  private activeView: CodexMailViewId = 'codex';
   private availableViews: CodexMailView[] = [];
   private visibleThreads: CodexMailThreadSummary[] = [];
   private selectedThreadId: string | null = null;
@@ -28,6 +28,8 @@ export class CodexMailboardPage {
   private unlocked = false;
   private composeOpen = false;
   private mailboxLoadVersion = 0;
+  private eventSource: EventSource | null = null;
+  private streamReloadHandle: number | null = null;
 
   constructor(root: HTMLDivElement) {
     this.view = new CodexMailboardView(root, {
@@ -75,12 +77,12 @@ export class CodexMailboardPage {
         label: 'Open New User Setup',
       });
       this.view.setUnlockPending(false, 'Open New User Setup');
-      this.view.setStatus('Save your hosted Mail Origin on New User before unlocking the shared mailbox.');
+      this.view.setStatus('Save your hosted Mail Origin on New User before unlocking the codex mailbox.');
       this.view.setMailboxSummary('No hosted mailbox origin is configured for this site yet.');
       this.view.setHealthSummary('Open New User and save a private Mail Origin first.');
       this.view.setAuthSummary('Private-host setup required before Cloudflare Access can begin.');
       this.view.setLockState(true, 'No hosted Mail Origin configured yet. Open New User to continue.');
-      this.view.setCurrentViewLabel('Inbox');
+      this.view.setCurrentViewLabel('Codex');
       this.view.setSearchQuery('');
       this.view.focusUnlock();
       return;
@@ -97,14 +99,14 @@ export class CodexMailboardPage {
         });
     this.view.setUnlockPending(false, localDaemon ? 'Use This Computer' : 'Unlock With Cloudflare Access');
     this.view.setStatus(localDaemon ? 'Checking this computer...' : 'Waiting for Cloudflare Access.');
-    this.view.setMailboxSummary(localDaemon ? 'Shared mailbox appears after this computer responds.' : 'Your hosted mailbox will appear after unlock.');
+    this.view.setMailboxSummary(localDaemon ? 'Codex threads appear after this computer responds.' : 'Codex threads appear after unlock.');
     this.view.setHealthSummary(`Browser mail origin: ${this.client.getMailOrigin()}`);
     this.view.setAuthSummary(
       localDaemon
         ? 'This page will use the local gmail-agent daemon on this computer.'
         : 'Cloudflare Access required.',
     );
-    this.view.setCurrentViewLabel('Inbox');
+    this.view.setCurrentViewLabel('Codex');
     this.view.setSearchQuery('');
     this.view.focusUnlock();
 
@@ -114,6 +116,7 @@ export class CodexMailboardPage {
   }
 
   public dispose(): void {
+    this.stopEventStream();
     this.view.dispose();
   }
 
@@ -152,7 +155,7 @@ export class CodexMailboardPage {
       await this.adoptUnlockedState(publicOrigin);
     } catch (error) {
       this.unlocked = false;
-      this.view.setStatus(readErrorMessage(error, 'Unable to unlock the shared mailbox.'));
+      this.view.setStatus(readErrorMessage(error, 'Unable to unlock the codex mailbox.'));
       this.view.setAuthSummary('Cloudflare Access is still required.');
       this.view.setLockState(true, readErrorMessage(error, 'Unlock failed.'));
       this.view.focusUnlock();
@@ -171,15 +174,17 @@ export class CodexMailboardPage {
         : `Cloudflare Access ready for ${publicOrigin}.`,
     );
     this.view.setLockState(false, localDaemon ? 'This computer is connected.' : 'Cloudflare Access active.');
-    this.view.setStatus(localDaemon ? 'Loading the shared mailbox from this computer...' : 'Loading your hosted mailbox...');
+    this.view.setStatus(localDaemon ? 'Loading codex threads from this computer...' : 'Loading codex threads...');
+    this.startEventStream();
     await this.reloadMailbox();
   }
 
-  private async reloadMailbox(): Promise<void> {
+  private async reloadMailbox(options: {refreshDetail?: boolean} = {}): Promise<void> {
     if (!this.unlocked) {
       return;
     }
 
+    const refreshDetail = options.refreshDetail ?? true;
     const mailboxLoadVersion = ++this.mailboxLoadVersion;
     const localDaemon = this.client.usesLocalDaemon();
     let activeViewLabel = resolveViewLabel(this.availableViews, this.activeView);
@@ -188,11 +193,11 @@ export class CodexMailboardPage {
     this.view.setSearchQuery(this.searchQuery);
     this.view.setMailboxSummary(
       localDaemon
-        ? 'Loading mailbox summary from this computer...'
-        : 'Loading hosted mailbox summary...',
+        ? 'Loading codex summary from this computer...'
+        : 'Loading codex summary...',
     );
     this.view.setHealthSummary(
-      `Checking mailbox health at ${this.client.getMailOrigin()}`,
+      `Checking codex health at ${this.client.getMailOrigin()}`,
     );
     this.view.setThreadsLoading(
       this.searchQuery
@@ -247,27 +252,29 @@ export class CodexMailboardPage {
         this.view.setStatus(
           this.searchQuery
             ? 'No threads matched the current search.'
-            : 'This mailbox view is empty right now.',
+            : 'This codex view is empty right now.',
         );
         return;
       }
 
-      await this.loadThreadDetail(this.selectedThreadId);
-      if (mailboxLoadVersion !== this.mailboxLoadVersion) {
-        return;
+      if (refreshDetail) {
+        await this.loadThreadDetail(this.selectedThreadId);
+        if (mailboxLoadVersion !== this.mailboxLoadVersion) {
+          return;
+        }
       }
 
       this.view.setStatus(
         this.searchQuery
-          ? `Loaded ${threads.length} matching thread${threads.length === 1 ? '' : 's'} from ${activeViewLabel}.`
-          : `Loaded ${threads.length} thread${threads.length === 1 ? '' : 's'} from ${activeViewLabel}.`,
+          ? `Loaded ${threads.length} matching codex thread${threads.length === 1 ? '' : 's'} from ${activeViewLabel}.`
+          : `Loaded ${threads.length} codex thread${threads.length === 1 ? '' : 's'} from ${activeViewLabel}.`,
       );
     } catch (error) {
       const message = readErrorMessage(
         error,
         this.client.usesLocalDaemon()
-          ? 'Unable to load the shared mailbox from this computer.'
-          : 'Unable to load your hosted mailbox.',
+          ? 'Unable to load codex threads from this computer.'
+          : 'Unable to load codex threads.',
       );
       if (mailboxLoadVersion !== this.mailboxLoadVersion) {
         return;
@@ -489,7 +496,7 @@ export class CodexMailboardPage {
     } catch (error) {
       this.unlocked = false;
       this.view.setStatus(readErrorMessage(error, 'This computer is not reachable yet.'));
-      this.view.setMailboxSummary('Local gmail-agent daemon unavailable.');
+      this.view.setMailboxSummary('Local codex mailbox unavailable.');
       this.view.setHealthSummary(formatLocalMailboxHint(await this.readLocalPermissionState(), this.client.getMailOrigin()));
       this.view.setAuthSummary('Press Use This Computer, or save a custom host on New User.');
       this.view.setLockState(true, formatLocalMailboxHint(await this.readLocalPermissionState(), this.client.getMailOrigin()));
@@ -510,7 +517,7 @@ export class CodexMailboardPage {
     const hint = formatLocalMailboxHint(permissionState, this.client.getMailOrigin());
 
     this.view.setStatus(hint);
-    this.view.setMailboxSummary('Shared mailbox appears after this computer allows local access.');
+    this.view.setMailboxSummary('Codex threads appear after this computer allows local access.');
     this.view.setHealthSummary(hint);
     this.view.setAuthSummary(
       permissionState === 'granted'
@@ -531,12 +538,54 @@ export class CodexMailboardPage {
   private async readLocalPermissionState(): Promise<LocalNetworkAccessState> {
     return await readLocalNetworkAccessState(this.client.getMailOrigin());
   }
+
+  private startEventStream(): void {
+    this.stopEventStream();
+
+    if (this.client.usesLocalDaemon()) {
+      return;
+    }
+
+    this.eventSource = this.client.openEventStream({
+      onChange: () => {
+        this.scheduleStreamReload();
+      },
+      onError: () => {
+        this.scheduleStreamReload();
+      },
+    });
+  }
+
+  private stopEventStream(): void {
+    if (this.streamReloadHandle !== null) {
+      window.clearTimeout(this.streamReloadHandle);
+      this.streamReloadHandle = null;
+    }
+
+    this.eventSource?.close();
+    this.eventSource = null;
+  }
+
+  private scheduleStreamReload(): void {
+    if (!this.unlocked) {
+      return;
+    }
+
+    if (this.streamReloadHandle !== null) {
+      window.clearTimeout(this.streamReloadHandle);
+    }
+
+    this.streamReloadHandle = window.setTimeout(() => {
+      this.streamReloadHandle = null;
+      void this.reloadMailbox({refreshDetail: false});
+    }, 250);
+  }
 }
 
 function formatMailboxSummary(health: CodexMailHealth): string {
   const mailbox = health.mailbox;
   if (!mailbox) {
-    return 'Shared daemon mailbox unavailable.';
+    return 'Codex mailbox unavailable.';
   }
 
   return mailbox.displayName
@@ -547,7 +596,7 @@ function formatMailboxSummary(health: CodexMailHealth): string {
 function formatHealthSummary(health: CodexMailHealth): string {
   const queueDepth = health.counts.queueDepth;
   const runtimeOrigin = typeof health.runtime.publicOrigin === 'string' ? health.runtime.publicOrigin : 'local';
-  return `${health.counts.threads} mailbox threads | ${health.counts.tasks} codex tasks | queue ${queueDepth} | origin ${runtimeOrigin}`;
+  return `${health.counts.threads} codex threads | ${health.counts.tasks} codex tasks | queue ${queueDepth} | origin ${runtimeOrigin}`;
 }
 
 function resolveViewLabel(views: CodexMailView[], activeView: CodexMailViewId): string {
@@ -555,12 +604,12 @@ function resolveViewLabel(views: CodexMailView[], activeView: CodexMailViewId): 
 }
 
 const DEFAULT_VIEW_LABELS: Record<CodexMailViewId, string> = {
-  'all-mail': 'All Mail',
   codex: 'Codex',
-  inbox: 'Inbox',
-  sent: 'Sent',
-  starred: 'Starred',
-  unread: 'Unread',
+  queued: 'Queued',
+  working: 'Working',
+  review: 'Review',
+  blocked: 'Blocked',
+  done: 'Done',
 };
 
 function pickSelectedThreadId(

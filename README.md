@@ -21,7 +21,7 @@ Current proven invariant:
 - `npm run test:browser:onboarding` stays green as the explicit onboarding alias
 - `npm run test:browser:new-user` is green for the bring-your-own-host guide and local origin settings flow
 - `npm run test:browser:logs` is green for the xterm.js `/logs/` history and filter route
-- `npm run test:browser:codex` is green for the `/codex/` local-first mailboard connect, Gmail search, mailbox-view switching, inbox actions, reply, and compose screenshot proof
+- `npm run test:browser:codex` is green for the `/codex/` local-first codex mailboard connect, codex-thread search, status-view switching, mail actions, reply, and compose screenshot proof
 - `npm run test:browser:dag-network-build` is green for the canonical zero-data 2D + 3D interaction proof
 - `npm run test:browser:suite` is green for the broader browser matrix around the onboarding-first product path
 - `npm run test:dag:static` is green for pure DAG validation, layout, edge, and model mutation rules
@@ -117,7 +117,7 @@ https://your-user.github.io/linker/?demoPreset=dag-rank-fanout&cameraLabel=wp-10
 
 `/new-user/` is now the optional custom-host page: leave Auth and Mail blank to use the shared Codex tunnel, or save private origins in local browser settings if you want a different Linker server.
 
-`/auth/` and `/codex/` on GitHub Pages now default to `https://codex.dialtone.earth`, matching the tunnel-first pattern used by `cad-pga`. `http://127.0.0.1:4192` remains the local dev default when Linker itself is running on `127.0.0.1` or `localhost`. `/codex/` behaves like a compact Gmail inbox client with search, Inbox/Unread/Starred/Sent/All Mail/Codex views, thread-level read-star-archive controls, reply, and compose. For local development:
+`/auth/` and `/codex/` on GitHub Pages now default to `https://codex.dialtone.earth`, matching the tunnel-first pattern used by `cad-pga`. `http://127.0.0.1:4192` remains the local dev default when Linker itself is running on `127.0.0.1` or `localhost`. `/codex/` now behaves like a codex-only mailbox client with fast daemon-state list views, `Codex/Queued/Working/Review/Blocked/Done` buckets, codex-thread search, thread-level read-star-archive controls, reply, compose, and a hosted EventSource refresh path so live daemon changes can appear without a full manual reload. For local development:
 
 ```bash
 Copy-Item .env.codex.local.example .env.local
@@ -144,7 +144,7 @@ For a broader quick debug snapshot, run:
 npm run diagnose
 ```
 
-That command checks `gmail-agent` auth, whether the local codex daemon is running, `/api/mail/public-config`, `/api/mail/health`, inbox-thread fetch timing, and the live `App`, `Auth`, `Codex`, `Logs`, `New User`, and `README` routes. It writes the full report to `artifacts/system-diagnose.json`.
+That command checks `gmail-agent` auth, whether the local codex daemon is running, `/api/mail/public-config`, `/api/mail/health`, codex-thread fetch timing, and the live `App`, `Auth`, `Codex`, `Logs`, `New User`, and `README` routes. It writes the full report to `artifacts/system-diagnose.json`.
 
 ## 3. CLI Workflow
 
@@ -228,8 +228,8 @@ npm run perf:orbit-stutter -- --label-set benchmark --label-count 4096 --segment
 - `status strip`: the compact live table at the top of the screen
 - `onboard panel`: the guided walkthrough panel that temporarily replaces the status strip on first-run GitHub Pages visits
 - `mailboard`: the `/codex/` mailbox UI backed by the shared `gmail-agent` daemon
-- `mail view`: the currently selected mailbox filter on the `/codex/` bottom pad
-- `mail search`: the `/codex/` mailbox query input used to filter the current mail view
+- `mail view`: the currently selected codex status filter on the `/codex/` bottom pad
+- `mail search`: the `/codex/` codex-thread query input used to filter the current mail view
 - `thread row`: one visible mailbox summary in the `/codex/` list
 - `label chip`: a small mailbox label badge shown on a thread row or message
 - `thread action grid`: the `/codex/` detail-grid of Gmail controls like read, unread, star, and archive
@@ -259,7 +259,7 @@ npm run perf:orbit-stutter -- --label-set benchmark --label-count 4096 --segment
 - `menu button`: the bottom-right button on the active pads that returns the user to the `Menu` hub
 - `editor overlays`: the selection box, ranked-selection badges, and ghost-slot markers drawn over the canvas
 - `mail meta cards`: the `/codex/` top status cards for mailbox, health, and current mail view
-- `thread list`: the `/codex/` scrollable list of mailbox thread summaries
+- `thread list`: the `/codex/` scrollable list of codex thread summaries
 - `message pane`: the `/codex/` conversation view with message text, task history, and Gmail action grid
 - `compose panel`: the `/codex/` new-mail form that opens inside the message pane
 - `mail pad`: the `/codex/` bottom 3x3 pad for mailbox view switching plus `Refresh`, `Compose`, and `Clear`
@@ -273,9 +273,9 @@ npm run perf:orbit-stutter -- --label-set benchmark --label-count 4096 --segment
 - `src/auth-page.ts`: simple connection/status route that opens Codex on the shared tunnel by default and falls back to saved custom hosts when present
 - `src/new-user-page.ts`: minimal custom-host guide with private repo/auth/mail origin inputs stored in local browser settings
 - `src/codex-page.ts`: `/codex/` route shell that mounts the mailboard UI inside the shared docs navigation
-- `src/codex/CodexMailboardPage.ts`: codex route controller for local-daemon auto-connect, saved-host fallback, Gmail mailbox loading, search, view switching, inbox actions, reply, and compose
-- `src/codex/CodexMailClient.ts`: browser client for the shared `gmail-agent` mail API with the shared tunnel as the live-site default
-- `src/codex/CodexMailboardView.ts`: mobile-first monochrome mailboard DOM, local-first connect state, Gmail search form, thread list, action grid, message pane, and bottom 3x3 mail pad
+- `src/codex/CodexMailboardPage.ts`: codex route controller for local-daemon auto-connect, saved-host fallback, codex-thread loading, search, status-view switching, streamed refresh, mail actions, reply, and compose
+- `src/codex/CodexMailClient.ts`: browser client for the shared `gmail-agent` mail API with the shared tunnel as the live-site default plus hosted EventSource updates
+- `src/codex/CodexMailboardView.ts`: mobile-first monochrome mailboard DOM, local-first connect state, codex search form, thread list, action grid, message pane, and bottom 3x3 mail pad
 - `src/codex/codexMailboard.css`: `/codex/` mailboard layout and mobile-to-desktop route styling
 - `src/logs-page.ts`: `/logs/` route shell that mounts the browser log terminal UI inside the shared docs navigation
 - `src/logs/log-model.ts`: browser log entry types, source-line parsing, CLI command parsing, and filter helpers

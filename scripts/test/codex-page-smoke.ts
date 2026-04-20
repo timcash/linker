@@ -75,8 +75,8 @@ export async function runCodexPageSmokeFlow(
     inSent: false,
     badges: ['Unread', 'needs-reply'],
   };
-  const codexThread: MockThread = {
-    threadId: 'thread-codex',
+  const workingThread: MockThread = {
+    threadId: 'thread-working',
     latestMessageId: 'msg-work-2',
     subject: 'codex keep working on logs',
     updatedAt: '2026-04-17T18:10:00.000Z',
@@ -89,49 +89,72 @@ export async function runCodexPageSmokeFlow(
     from: 'Repo Owner <owner@example.com>',
     to: ['Repo Owner <owner@example.com>'],
     excerpt: 'Continue the logs route cleanup and reply with the final diff summary.',
-    labelIds: ['INBOX', 'STARRED', 'Label_codex'],
-    labelNames: ['Inbox', 'Starred', 'Codex/Working'],
-    unread: false,
-    starred: true,
+    labelIds: ['INBOX', 'UNREAD', 'Label_codex'],
+    labelNames: ['Working', 'Green', 'linker'],
+    unread: true,
+    starred: false,
     inInbox: true,
     inSent: false,
-    badges: ['Starred', 'working', 'green'],
+    badges: ['working', 'green'],
   };
-  const sentThread: MockThread = {
-    threadId: 'thread-sent',
-    latestMessageId: 'msg-sent-1',
-    subject: 'Tuesday follow-up',
-    updatedAt: '2026-04-17T17:20:00.000Z',
-    workspaceKey: null,
-    workspacePath: null,
-    status: null,
+  const queuedThread: MockThread = {
+    threadId: 'thread-queued',
+    latestMessageId: 'msg-queued-1',
+    subject: 'codex add README performance note',
+    updatedAt: '2026-04-17T17:58:00.000Z',
+    workspaceKey: 'linker',
+    workspacePath: 'C:/Users/timca/linker',
+    status: 'queued',
     triage: null,
-    taskCount: 0,
-    latestTaskId: null,
-    from: 'Repo Owner <owner@example.com>',
-    to: ['Jane <jane@example.com>'],
-    excerpt: 'Tuesday afternoon works for me.',
-    labelIds: ['SENT'],
-    labelNames: ['Sent'],
+    taskCount: 1,
+    latestTaskId: 'task-0003',
+    from: 'linker',
+    to: ['Repo Owner <owner@example.com>'],
+    excerpt: 'Add a short note about the faster codex-only thread list.',
+    labelIds: ['Label_codex'],
+    labelNames: ['Queued', 'Plan', 'linker'],
     unread: false,
     starred: false,
     inInbox: false,
-    inSent: true,
-    badges: ['Sent'],
+    inSent: false,
+    badges: ['queued', 'plan'],
+  };
+  const doneThread: MockThread = {
+    threadId: 'thread-done',
+    latestMessageId: 'msg-done-1',
+    subject: 'codex ship onboarding copy refresh',
+    updatedAt: '2026-04-17T17:25:00.000Z',
+    workspaceKey: 'linker',
+    workspacePath: 'C:/Users/timca/linker',
+    status: 'done',
+    triage: null,
+    taskCount: 1,
+    latestTaskId: 'task-0004',
+    from: 'linker',
+    to: ['Repo Owner <owner@example.com>'],
+    excerpt: 'The onboarding copy refresh is shipped and verified.',
+    labelIds: ['Label_codex'],
+    labelNames: ['Done', 'Complete', 'linker'],
+    unread: false,
+    starred: false,
+    inInbox: false,
+    inSent: false,
+    badges: ['done', 'complete'],
   };
   const threadStore = new Map<string, MockThread>([
     [humanThread.threadId, humanThread],
-    [codexThread.threadId, codexThread],
-    [sentThread.threadId, sentThread],
+    [workingThread.threadId, workingThread],
+    [queuedThread.threadId, queuedThread],
+    [doneThread.threadId, doneThread],
   ]);
 
   const buildViews = () => [
-    {id: 'inbox', label: 'Inbox', description: 'Recent inbox threads.', kind: 'mail', count: countThreads('inbox')},
-    {id: 'unread', label: 'Unread', description: 'Unread inbox threads.', kind: 'mail', count: countThreads('unread')},
-    {id: 'starred', label: 'Starred', description: 'Starred threads.', kind: 'mail', count: countThreads('starred')},
-    {id: 'sent', label: 'Sent', description: 'Recently sent mail.', kind: 'mail', count: countThreads('sent')},
-    {id: 'all-mail', label: 'All Mail', description: 'Recent mail across the mailbox.', kind: 'mail', count: countThreads('all-mail')},
     {id: 'codex', label: 'Codex', description: 'Codex-related conversations.', kind: 'status', count: countThreads('codex')},
+    {id: 'queued', label: 'Queued', description: 'Queued codex threads.', kind: 'status', count: countThreads('queued')},
+    {id: 'working', label: 'Working', description: 'Active codex threads.', kind: 'status', count: countThreads('working')},
+    {id: 'review', label: 'Review', description: 'Threads waiting on review.', kind: 'status', count: countThreads('review')},
+    {id: 'blocked', label: 'Blocked', description: 'Blocked codex threads.', kind: 'status', count: countThreads('blocked')},
+    {id: 'done', label: 'Done', description: 'Completed codex threads.', kind: 'status', count: countThreads('done')},
   ];
 
   const filterThreads = (view: string, query = ''): MockThread[] => {
@@ -139,19 +162,16 @@ export async function runCodexPageSmokeFlow(
     const allThreads = Array.from(threadStore.values())
       .filter((thread) => {
         switch (view) {
-          case 'unread':
-            return thread.unread && thread.inInbox;
-          case 'starred':
-            return thread.starred;
-          case 'sent':
-            return thread.inSent;
-          case 'all-mail':
-            return true;
+          case 'queued':
+          case 'working':
+          case 'review':
+          case 'blocked':
+          case 'done':
+            return thread.status === view;
           case 'codex':
             return /codex/i.test(thread.subject);
-          case 'inbox':
           default:
-            return thread.inInbox;
+            return /codex/i.test(thread.subject);
         }
       })
       .sort((left, right) => String(right.updatedAt ?? '').localeCompare(String(left.updatedAt ?? '')));
@@ -187,7 +207,7 @@ export async function runCodexPageSmokeFlow(
     latestReplyToMessageId: thread.latestMessageId,
     loadError: null,
     actions: buildActions(thread),
-    tasks: thread.threadId === 'thread-codex'
+    tasks: thread.threadId === 'thread-working'
       ? [{
           id: 'task-0002',
           status: 'working',
@@ -197,8 +217,18 @@ export async function runCodexPageSmokeFlow(
           requestText: 'Continue the logs route cleanup and reply with the final diff summary.',
           workerSummary: 'Focused on the logs route and browser smoke.',
         }]
+      : thread.threadId === 'thread-queued'
+        ? [{
+            id: 'task-0003',
+            status: 'queued',
+            requestedAt: '2026-04-17T17:55:00.000Z',
+            completedAt: null,
+            workflowStage: 'plan',
+            requestText: 'Add a short note about the faster codex-only thread list.',
+            workerSummary: null,
+          }]
       : [],
-    messages: thread.threadId === 'thread-codex'
+    messages: thread.threadId === 'thread-working'
       ? [
           {
             id: 'msg-work-1',
@@ -207,8 +237,8 @@ export async function runCodexPageSmokeFlow(
             sentAt: '2026-04-17T18:02:00.000Z',
             snippet: 'The logs route is almost done.',
             bodyText: 'The logs route is almost done.',
-            labelIds: ['INBOX', 'STARRED', 'Label_codex'],
-            labelNames: ['Inbox', 'Starred', 'Codex/Working'],
+            labelIds: ['Label_codex'],
+            labelNames: ['Working', 'Green'],
           },
           {
             id: 'msg-work-2',
@@ -217,8 +247,8 @@ export async function runCodexPageSmokeFlow(
             sentAt: '2026-04-17T18:05:00.000Z',
             snippet: 'Please keep going and finish the smoke test.',
             bodyText: 'Please keep going and finish the smoke test.',
-            labelIds: ['INBOX', 'STARRED', 'Label_codex'],
-            labelNames: ['Inbox', 'Starred', 'Codex/Working'],
+            labelIds: ['Label_codex'],
+            labelNames: ['Working', 'Green'],
           },
         ]
       : [
@@ -338,8 +368,8 @@ export async function runCodexPageSmokeFlow(
           publicOrigin: DEFAULT_LOCAL_MAIL_ORIGIN,
         },
         counts: {
-          threads: countThreads('all-mail'),
-          tasks: 1,
+          threads: countThreads('codex'),
+          tasks: 3,
           queueDepth: 1,
           activeTaskId: 'task-0002',
           events: 12,
@@ -358,7 +388,7 @@ export async function runCodexPageSmokeFlow(
     }
 
     if (pathname === '/api/mail/threads') {
-      const view = url.searchParams.get('view') ?? 'inbox';
+      const view = url.searchParams.get('view') ?? 'codex';
       const q = url.searchParams.get('q') ?? '';
       await respondJson(request, {
         ok: true,
@@ -507,15 +537,15 @@ export async function runCodexPageSmokeFlow(
     });
 
     assert.equal(unlockedState.shellLocked, false, 'The local-first mailboard should unlock automatically when this computer responds.');
-    assert.equal(unlockedState.currentView, 'Inbox', 'The unlocked mailboard should default to the Inbox view.');
-    assert.equal(unlockedState.threadCount, 2, 'The unlocked mailboard should show the mocked inbox threads.');
+    assert.equal(unlockedState.currentView, 'Codex', 'The unlocked mailboard should default to the codex view.');
+    assert.equal(unlockedState.threadCount, 3, 'The unlocked mailboard should only show mocked codex threads.');
     assert.equal(unlockedState.mainColumns, 1, 'The mobile mailboard should stay in a single column.');
     assert.equal(unlockedState.padColumns, 3, 'The bottom pad should remain a 3x3 grid after auto-connect.');
     assert.equal(unlockedState.composeVisible, false, 'Compose should stay closed until the user opens it.');
     assert.match(unlockedState.mailboxText, /owner@example\.com/i, 'The mailbox card should show the shared daemon mailbox.');
     assert.match(unlockedState.authText, /connected to this computer/i, 'The auth card should show the local unlocked state.');
-    assert.match(unlockedState.statusText, /loaded 2 threads/i, 'The status card should confirm the mailbox load.');
-    assert.match(unlockedState.searchPlaceholder, /search the mailbox/i, 'The unlocked mailboard should expose a mailbox search input.');
+    assert.match(unlockedState.statusText, /loaded 3 codex threads/i, 'The status card should confirm the codex thread load.');
+    assert.match(unlockedState.searchPlaceholder, /search codex threads/i, 'The unlocked mailboard should expose a codex search input.');
     assert.match(unlockedState.unlockLabel, /connected/i, 'The primary lock action should collapse into the connected state.');
     assert.equal(unlockedState.codexViewMode, 'mailboard', 'The unlocked mailboard should expose the mailboard view mode.');
     assert.ok(
@@ -529,12 +559,12 @@ export async function runCodexPageSmokeFlow(
 
     await saveCodexScreenshot(context, 'codex-mailboard-local');
 
-    await page.type('[data-codex-search-input]', 'Tuesday');
+    await page.type('[data-codex-search-input]', 'logs');
     await page.click('[data-codex-search-submit]');
     await page.waitForFunction(() => {
       return (
         document.querySelectorAll('.codex-thread-row').length === 1
-        && (document.querySelector('[data-codex-status]')?.textContent ?? '').includes('matching thread')
+        && /matching codex thread/i.test(document.querySelector('[data-codex-status]')?.textContent ?? '')
       );
     });
 
@@ -546,9 +576,9 @@ export async function runCodexPageSmokeFlow(
       };
     });
 
-    assert.equal(searchState.threadCount, 1, 'Searching the mailbox should filter the visible threads.');
-    assert.match(searchState.threadTitle, /quick question/i, 'The filtered search result should load the matching human thread.');
-    assert.match(searchState.statusText, /matching thread/i, 'The status text should acknowledge the filtered search.');
+    assert.equal(searchState.threadCount, 1, 'Searching the mailboard should filter the visible codex threads.');
+    assert.match(searchState.threadTitle, /keep working on logs/i, 'The filtered search result should load the matching codex thread.');
+    assert.match(searchState.statusText, /matching codex thread/i, 'The status text should acknowledge the filtered search.');
 
     await page.waitForFunction(() => {
       const button = document.querySelector<HTMLButtonElement>('[data-codex-thread-action="mark-read"]');
@@ -582,13 +612,15 @@ export async function runCodexPageSmokeFlow(
 
     await page.click('[data-codex-clear-search]');
     await page.waitForFunction(() => {
-      return document.querySelectorAll('.codex-thread-row').length === 1;
+      return document.querySelectorAll('.codex-thread-row').length === 3;
     });
 
-    await page.click('[data-codex-view-button="codex"]');
+    await page.$eval('[data-codex-view-button="done"]', (button) => {
+      (button as HTMLButtonElement).click();
+    });
     await page.waitForFunction(() => {
       return (
-        (document.querySelector('[data-codex-view]')?.textContent?.trim() ?? '') === 'Codex'
+        (document.querySelector('[data-codex-view]')?.textContent?.trim() ?? '') === 'Done'
         && document.querySelectorAll('.codex-thread-row').length === 1
       );
     });
@@ -605,9 +637,19 @@ export async function runCodexPageSmokeFlow(
       };
     });
 
-    assert.equal(codexState.currentView, 'Codex', 'The view card should follow the selected mailbox view.');
-    assert.match(codexState.messageText, /finish the smoke test/i, 'Selecting the codex view should load the codex thread messages.');
-    assert.match(codexState.taskText, /logs route cleanup/i, 'The codex view should still surface linked codex task context.');
+    assert.equal(codexState.currentView, 'Done', 'The view card should follow the selected codex status view.');
+    assert.match(codexState.messageText, /onboarding copy refresh/i, 'Selecting the done view should load the done codex thread messages.');
+    assert.match(codexState.taskText, /thread has not started codex work yet|^$/i, 'Done view without mock task detail should stay clean.');
+
+    await page.$eval('[data-codex-view-button="working"]', (button) => {
+      (button as HTMLButtonElement).click();
+    });
+    await page.waitForFunction(() => {
+      return (
+        (document.querySelector('[data-codex-view]')?.textContent?.trim() ?? '') === 'Working'
+        && document.querySelectorAll('.codex-thread-row').length === 1
+      );
+    });
 
     await page.type('[data-codex-reply-body]', 'I cleaned up the logs route and I am rerunning the smoke now.');
     await page.$eval('[data-codex-reply-send]', (button) => {
@@ -622,7 +664,7 @@ export async function runCodexPageSmokeFlow(
     await page.waitForFunction(() => {
       const statusText = document.querySelector('[data-codex-status]')?.textContent ?? '';
       const replyValue = document.querySelector<HTMLTextAreaElement>('[data-codex-reply-body]')?.value ?? '';
-      return /loaded 1 thread/i.test(statusText) && replyValue === '';
+      return /loaded 1 codex thread/i.test(statusText) && replyValue === '';
     });
 
     await page.click('[data-codex-action-button="compose"]');
@@ -645,11 +687,11 @@ export async function runCodexPageSmokeFlow(
     assert.deepEqual(
       actionCalls,
       [
-        {threadId: 'thread-human', action: 'mark-read'},
-        {threadId: 'thread-human', action: 'star'},
-        {threadId: 'thread-human', action: 'archive'},
+        {threadId: 'thread-working', action: 'mark-read'},
+        {threadId: 'thread-working', action: 'star'},
+        {threadId: 'thread-working', action: 'archive'},
       ],
-      'The mailboard should issue the expected inbox action sequence for the selected thread.',
+      'The mailboard should issue the expected action sequence for the selected codex thread.',
     );
 
     await saveCodexScreenshot(context, 'codex-mailboard-unlocked');

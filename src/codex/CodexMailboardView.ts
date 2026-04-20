@@ -20,7 +20,7 @@ interface CodexMailboardViewCallbacks {
   onSendCompose: (input: {to: string; subject: string; body: string}) => void;
 }
 
-const VIEW_BUTTON_IDS: CodexMailViewId[] = ['inbox', 'unread', 'starred', 'sent', 'all-mail', 'codex'];
+const VIEW_BUTTON_IDS: CodexMailViewId[] = ['codex', 'queued', 'working', 'review', 'blocked', 'done'];
 const DETAIL_ACTION_ORDER: CodexMailThreadAction[] = [
   'mark-read',
   'mark-unread',
@@ -75,7 +75,7 @@ export class CodexMailboardView {
         <header class="codex-mail-topbar">
           <section class="codex-mail-topbar-copy">
             <p class="codex-mail-eyebrow">Codex Mailboard</p>
-            <h1 class="codex-mail-title">Shared Gmail inbox.</h1>
+            <h1 class="codex-mail-title">Codex task mailbox.</h1>
           </section>
         </header>
 
@@ -86,15 +86,15 @@ export class CodexMailboardView {
           </div>
           <div class="codex-mail-meta-card">
             <span class="codex-mail-meta-label">Mailbox</span>
-            <p class="codex-mail-meta-value" data-codex-mailbox>Shared mailbox unavailable.</p>
+            <p class="codex-mail-meta-value" data-codex-mailbox>Codex mailbox unavailable.</p>
           </div>
           <div class="codex-mail-meta-card">
             <span class="codex-mail-meta-label">View</span>
-            <p class="codex-mail-meta-value" data-codex-view>Inbox</p>
+            <p class="codex-mail-meta-value" data-codex-view>Codex</p>
           </div>
           <div class="codex-mail-meta-card codex-mail-meta-card--wide">
             <span class="codex-mail-meta-label">Health</span>
-            <p class="codex-mail-meta-value" data-codex-health>Health appears after the mailbox responds.</p>
+            <p class="codex-mail-meta-value" data-codex-health>Health appears after codex responds.</p>
           </div>
           <div class="codex-mail-meta-card codex-mail-meta-card--wide">
             <span class="codex-mail-meta-label">Target</span>
@@ -105,34 +105,34 @@ export class CodexMailboardView {
         <section class="codex-mail-main">
           <div class="codex-thread-list-shell">
             <div class="codex-thread-list-header">
-              <p class="codex-section-label">Inbox Search</p>
+              <p class="codex-section-label">Codex Search</p>
               <form class="codex-mail-search-form" data-codex-search-form>
                 <input
                   class="codex-form-input codex-mail-search-input"
                   type="search"
                   data-codex-search-input
-                  placeholder="Search the mailbox"
+                  placeholder="Search codex threads"
                 />
                 <button class="codex-mail-inline-button" type="submit" data-codex-search-submit>Search</button>
                 <button class="codex-mail-inline-button" type="button" data-codex-clear-search>Clear</button>
               </form>
             </div>
             <div class="codex-thread-list" data-codex-thread-list>
-              <p class="codex-thread-empty">Unlock the mailboard to load the mailbox list.</p>
+              <p class="codex-thread-empty">Unlock the mailboard to load codex threads.</p>
             </div>
           </div>
 
           <div class="codex-thread-panel" data-codex-thread-panel>
             <div class="codex-thread-empty-state">
               <p class="codex-section-label">Thread</p>
-              <p>Select a Gmail thread to inspect messages, labels, and inbox actions.</p>
+              <p>Select a codex thread to inspect messages, tasks, and mail actions.</p>
             </div>
           </div>
 
           <div class="codex-mail-lock-overlay" data-codex-lock>
             <div class="codex-mail-lock-card">
               <p class="codex-mail-lock-eyebrow">Mailbox</p>
-              <h2 class="codex-mail-lock-title">Connect the shared mailbox.</h2>
+              <h2 class="codex-mail-lock-title">Connect the codex mailbox.</h2>
               <div class="codex-mail-lock-actions" data-codex-lock-actions>
                 <button class="codex-mail-primary-button" type="button" data-codex-unlock-button>Use This Computer</button>
                 <a class="codex-mail-secondary-link" data-codex-authorize-link href="https://mail.example.com/codex/" target="_blank" rel="noopener noreferrer">Use Custom Host</a>
@@ -334,7 +334,7 @@ export class CodexMailboardView {
     }
 
     if (threads.length === 0) {
-      this.threadList.innerHTML = `<p class="codex-thread-empty">No threads match the current mailbox view.</p>`;
+      this.threadList.innerHTML = `<p class="codex-thread-empty">No codex threads match the current view.</p>`;
       this.setThreadActionsPending(false);
       return;
     }
@@ -385,7 +385,7 @@ export class CodexMailboardView {
       this.threadPanel.innerHTML = `
         <div class="codex-thread-empty-state">
           <p class="codex-section-label">Thread</p>
-          <p>Select a Gmail thread to inspect messages, labels, and inbox actions.</p>
+          <p>Select a codex thread to inspect messages, tasks, and mail actions.</p>
         </div>
       `;
       this.composePanel = null;
@@ -416,7 +416,7 @@ export class CodexMailboardView {
         </header>
 
         <section class="codex-thread-action-panel">
-          <p class="codex-section-label">Inbox Actions</p>
+          <p class="codex-section-label">Mail Actions</p>
           <div class="codex-thread-action-grid">
             ${actionButtons}
           </div>
@@ -563,12 +563,12 @@ export class CodexMailboardView {
 
 function renderPadButtons(): string {
   const buttons = [
-    {kind: 'view', id: 'inbox', label: 'Inbox'},
-    {kind: 'view', id: 'unread', label: 'Unread'},
-    {kind: 'view', id: 'starred', label: 'Starred'},
-    {kind: 'view', id: 'sent', label: 'Sent'},
-    {kind: 'view', id: 'all-mail', label: 'All Mail'},
     {kind: 'view', id: 'codex', label: 'Codex'},
+    {kind: 'view', id: 'queued', label: 'Queued'},
+    {kind: 'view', id: 'working', label: 'Working'},
+    {kind: 'view', id: 'review', label: 'Review'},
+    {kind: 'view', id: 'blocked', label: 'Blocked'},
+    {kind: 'view', id: 'done', label: 'Done'},
     {kind: 'action', id: 'refresh', label: 'Refresh'},
     {kind: 'action', id: 'compose', label: 'Compose'},
     {kind: 'action', id: 'clear-search', label: 'Clear'},
@@ -666,6 +666,10 @@ function buildThreadChips(thread: CodexMailThreadSummary): string {
 
   for (const labelName of thread.labelNames.slice(0, 4)) {
     chips.add(labelName);
+  }
+
+  for (const badge of thread.badges.slice(0, 4)) {
+    chips.add(badge);
   }
 
   return Array.from(chips)

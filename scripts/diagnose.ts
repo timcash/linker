@@ -286,13 +286,13 @@ async function diagnoseMailHealth(): Promise<CheckResult> {
 async function diagnoseMailThreads(): Promise<CheckResult> {
   const startedAt = Date.now();
   try {
-    const inbox = await fetchJson<MailThreadsResponse>('/api/mail/threads?view=inbox', MAIL_THREADS_TIMEOUT_MS);
+    const codexThreads = await fetchJson<MailThreadsResponse>('/api/mail/threads?view=codex', MAIL_THREADS_TIMEOUT_MS);
     return {
       kind: 'mail-threads',
-      ok: inbox.ok === true,
-      detail: `Loaded ${inbox.threads.length} inbox threads.`,
+      ok: codexThreads.ok === true,
+      detail: `Loaded ${codexThreads.threads.length} codex threads.`,
       durationMs: Date.now() - startedAt,
-      previewSubjects: inbox.threads.slice(0, 3).map((thread) => thread.subject),
+      previewSubjects: codexThreads.threads.slice(0, 3).map((thread) => thread.subject),
     };
   } catch (error) {
     return {
