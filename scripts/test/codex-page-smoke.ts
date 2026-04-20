@@ -517,8 +517,10 @@ export async function runCodexPageSmokeFlow(
       const shell = document.querySelector<HTMLElement>('.codex-mail-shell');
       const pad = document.querySelector<HTMLElement>('.codex-mail-pad');
       const main = document.querySelector<HTMLElement>('.codex-mail-main');
+      const viewButtons = Array.from(document.querySelectorAll<HTMLElement>('[data-codex-view-button]'));
       return {
         authText: document.querySelector<HTMLElement>('[data-codex-auth]')?.textContent?.trim() ?? '',
+        buttonWidths: viewButtons.map((button) => Math.round(button.getBoundingClientRect().width)),
         codexViewMode: document.body.dataset.codexViewMode ?? '',
         composeVisible:
           document.querySelector<HTMLElement>('[data-codex-compose-panel]')?.classList.contains('codex-compose-panel--open') ?? false,
@@ -526,6 +528,7 @@ export async function runCodexPageSmokeFlow(
         mailboxText: document.querySelector<HTMLElement>('[data-codex-mailbox]')?.textContent?.trim() ?? '',
         mainColumns: main ? window.getComputedStyle(main).gridTemplateColumns.split(' ').length : 0,
         padColumns: pad ? window.getComputedStyle(pad).gridTemplateColumns.split(' ').length : 0,
+        padJustifyContent: pad ? window.getComputedStyle(pad).justifyContent : '',
         shellLocked: shell?.classList.contains('codex-mail-shell--locked') ?? false,
         statusText: document.querySelector<HTMLElement>('[data-codex-status]')?.textContent?.trim() ?? '',
         searchPlaceholder:
@@ -533,6 +536,12 @@ export async function runCodexPageSmokeFlow(
         unlockLabel:
           document.querySelector<HTMLButtonElement>('[data-codex-unlock-button]')?.textContent?.trim() ?? '',
         threadCount: document.querySelectorAll('.codex-thread-row').length,
+        viewCounts: Object.fromEntries(
+          viewButtons.map((button) => [
+            button.dataset.codexViewButton ?? '',
+            button.dataset.codexViewCount ?? '',
+          ]),
+        ),
       };
     });
 
@@ -541,6 +550,11 @@ export async function runCodexPageSmokeFlow(
     assert.equal(unlockedState.threadCount, 3, 'The unlocked mailboard should only show mocked codex threads.');
     assert.equal(unlockedState.mainColumns, 1, 'The mobile mailboard should stay in a single column.');
     assert.equal(unlockedState.padColumns, 3, 'The bottom pad should remain a 3x3 grid after auto-connect.');
+    assert.equal(unlockedState.padJustifyContent, 'center', 'The bottom pad should center the fixed-size buttons instead of stretching them.');
+    assert.ok(
+      unlockedState.buttonWidths.every((width) => width === unlockedState.buttonWidths[0]),
+      'All codex filter buttons should keep the same fixed width.',
+    );
     assert.equal(unlockedState.composeVisible, false, 'Compose should stay closed until the user opens it.');
     assert.match(unlockedState.mailboxText, /owner@example\.com/i, 'The mailbox card should show the shared daemon mailbox.');
     assert.match(unlockedState.authText, /connected to this computer/i, 'The auth card should show the local unlocked state.');
@@ -548,6 +562,18 @@ export async function runCodexPageSmokeFlow(
     assert.match(unlockedState.searchPlaceholder, /search codex threads/i, 'The unlocked mailboard should expose a codex search input.');
     assert.match(unlockedState.unlockLabel, /connected/i, 'The primary lock action should collapse into the connected state.');
     assert.equal(unlockedState.codexViewMode, 'mailboard', 'The unlocked mailboard should expose the mailboard view mode.');
+    assert.deepEqual(
+      unlockedState.viewCounts,
+      {
+        codex: '3',
+        queued: '1',
+        working: '1',
+        review: '0',
+        blocked: '0',
+        done: '1',
+      },
+      'The codex filter buttons should show per-view counts instead of repeating the same value.',
+    );
     assert.ok(
       seenRequests.some((request) => request.includes('GET /api/mail/public-config')),
       'The local-first codex page should probe the local public-config route on load.',

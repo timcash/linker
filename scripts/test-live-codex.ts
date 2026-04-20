@@ -96,15 +96,55 @@ try {
     threadCount: document.querySelectorAll('.codex-thread-row').length,
   }));
 
+  const filterState = await page.evaluate(() => {
+    const pad = document.querySelector<HTMLElement>('.codex-mail-pad');
+    const viewButtons = Array.from(document.querySelectorAll<HTMLElement>('[data-codex-view-button]'));
+    return {
+      buttonWidths: viewButtons.map((button) => Math.round(button.getBoundingClientRect().width)),
+      justifyContent: pad ? window.getComputedStyle(pad).justifyContent : '',
+      viewCounts: Object.fromEntries(
+        viewButtons.map((button) => [
+          button.dataset.codexViewButton ?? '',
+          Number(button.dataset.codexViewCount ?? '0'),
+        ]),
+      ) as Record<string, number>,
+    };
+  });
+
   assert.match(initialState.mailboxText, /@/i, 'The hosted codex page should show a live mailbox address.');
   assert.match(initialState.currentView, /^Codex$/i, 'The hosted codex page should unlock into Codex.');
   assert.match(initialState.authText, /cloudflare access ready|connected to this computer/i, 'The hosted codex page should report an unlocked auth state.');
   assert.ok(initialState.threadCount >= 1, 'The hosted codex page should render at least one thread row.');
+  assert.equal(filterState.justifyContent, 'center', 'The hosted codex filter pad should center fixed-size buttons.');
+  assert.ok(
+    filterState.buttonWidths.every((width) => width === filterState.buttonWidths[0]),
+    'The hosted codex filter buttons should keep a constant width.',
+  );
+  assert.equal(
+    initialState.threadCount,
+    filterState.viewCounts.codex,
+    'The Codex filter count should match the visible codex thread rows on first load.',
+  );
+
+  await clickElement(page, '[data-codex-view-button="blocked"]');
+  await page.waitForFunction(() => {
+    return (document.querySelector('[data-codex-view]')?.textContent?.trim() ?? '') === 'Blocked';
+  }, {timeout: 60_000});
+  await page.waitForFunction(
+    (expectedCount) => document.querySelectorAll('.codex-thread-row').length === expectedCount,
+    {timeout: 60_000},
+    filterState.viewCounts.blocked ?? 0,
+  );
 
   await clickElement(page, '[data-codex-view-button="done"]');
   await page.waitForFunction(() => {
     return (document.querySelector('[data-codex-view]')?.textContent?.trim() ?? '') === 'Done';
   }, {timeout: 60_000});
+  await page.waitForFunction(
+    (expectedCount) => document.querySelectorAll('.codex-thread-row').length === expectedCount,
+    {timeout: 60_000},
+    filterState.viewCounts.done ?? 0,
+  );
 
   await clickElement(page, '[data-codex-view-button="codex"]');
   await page.waitForFunction(() => {

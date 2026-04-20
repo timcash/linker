@@ -324,7 +324,10 @@ export class CodexMailboardView {
       }
 
       button.classList.toggle('codex-mail-pad-button--active', viewId === activeViewId);
-      button.innerHTML = `<span>${escapeHtml(view.label)}</span><strong>${view.count}</strong>`;
+      button.classList.toggle('codex-mail-pad-button--empty', view.count === 0);
+      button.dataset.codexViewCount = String(view.count);
+      button.setAttribute('aria-label', `${view.label} (${view.count})`);
+      button.innerHTML = renderPadButtonContent(view.label, String(view.count));
     }
   }
 
@@ -577,12 +580,27 @@ function renderPadButtons(): string {
   return buttons
     .map((button) => {
       if (button.kind === 'view') {
-        return `<button type="button" class="codex-mail-pad-button" data-codex-view-button="${button.id}"><span>${escapeHtml(button.label)}</span><strong>0</strong></button>`;
+        return `<button type="button" class="codex-mail-pad-button" data-codex-view-button="${button.id}" data-codex-view-count="0" aria-label="${escapeHtml(button.label)} (0)">${renderPadButtonContent(button.label, '0')}</button>`;
       }
 
-      return `<button type="button" class="codex-mail-pad-button" data-codex-action-button="${button.id}"><span>${escapeHtml(button.label)}</span><strong>*</strong></button>`;
+      return `<button type="button" class="codex-mail-pad-button codex-mail-pad-button--action" data-codex-action-button="${button.id}">${renderPadButtonContent(button.label, resolveActionMeta(button.id))}</button>`;
     })
     .join('');
+}
+
+function renderPadButtonContent(label: string, meta: string): string {
+  return `<span class="codex-mail-pad-label">${escapeHtml(label)}</span><span class="codex-mail-pad-meta">${escapeHtml(meta)}</span>`;
+}
+
+function resolveActionMeta(actionId: 'refresh' | 'compose' | 'clear-search'): string {
+  switch (actionId) {
+    case 'refresh':
+      return 'Sync';
+    case 'compose':
+      return 'Draft';
+    case 'clear-search':
+      return 'Reset';
+  }
 }
 
 function renderThreadActions(detail: CodexMailThreadDetail): string {

@@ -300,30 +300,58 @@ body.codex-route {
 }
 
 .codex-mail-pad {
+  --codex-mail-pad-cell-width: 96px;
+  --codex-mail-pad-cell-height: 60px;
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: repeat(3, var(--codex-mail-pad-cell-width));
+  grid-auto-rows: var(--codex-mail-pad-cell-height);
+  justify-content: center;
   gap: 6px;
 }
 
 .codex-mail-pad-button {
   display: grid;
-  gap: 2px;
+  inline-size: 100%;
+  block-size: 100%;
+  gap: 4px;
   align-content: center;
-  justify-items: start;
-  padding: 8px 10px;
+  justify-items: center;
+  padding: 8px 6px;
   font-family: "Space Mono", monospace;
-  font-size: 0.7rem;
-  text-align: left;
+  font-size: 0.72rem;
+  text-align: center;
 }
 
-.codex-mail-pad-button strong {
-  font-size: 0.72rem;
-  color: var(--muted);
+.codex-mail-pad-label {
+  line-height: 1.1;
+}
+
+.codex-mail-pad-meta {
+  color: var(--ink-strong);
+  font-size: 0.92rem;
+  font-variant-numeric: tabular-nums;
+  font-weight: 700;
+  line-height: 1;
+}
+
+.codex-mail-pad-button--action .codex-mail-pad-meta {
+  color: #bdbdbd;
+  font-size: 0.68rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.codex-mail-pad-button--empty .codex-mail-pad-meta {
+  color: #787878;
 }
 
 .codex-mail-pad-button--active {
   border-color: var(--border-strong);
   background: var(--ink-strong);
+  color: var(--bg);
+}
+
+.codex-mail-pad-button--active .codex-mail-pad-meta {
   color: var(--bg);
 }
 
