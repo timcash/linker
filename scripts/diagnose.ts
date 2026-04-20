@@ -566,7 +566,7 @@ function printHumanSummary(report: DiagnoseReport): void {
   console.log(`Summary: ${report.summary.ok} ok, ${report.summary.warn} warn, ${report.summary.fail} fail`);
   console.log(`Artifact: ${REPORT_PATH}`);
   console.log('');
-  console.log('Note: hosted /codex/ still needs one Use This Computer click in the browser so Chrome can grant loopback access.');
+  console.log('Note: hosted /codex/ should use the shared codex.dialtone.earth tunnel. Local 127.0.0.1 is now dev-only.');
 }
 
 function formatMailbox(mailbox: MailHealth['mailbox']): string {

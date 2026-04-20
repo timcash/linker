@@ -60,7 +60,7 @@ class NewUserPage {
         <p class="eyebrow">New User</p>
         <h1>Set a custom host.</h1>
         <p class="lede">
-          Leave Auth and Mail blank to use This Computer. Save values here only if you want a different server.
+          Leave Auth and Mail blank to use the shared Codex tunnel. Save values here only if you want a different server.
         </p>
       </header>
 
@@ -173,7 +173,7 @@ class NewUserPage {
       mailOrigin: '',
       repoUrl: '',
     });
-    this.setStatus('Cleared custom host settings. This Computer is active again.');
+    this.setStatus('Cleared custom host settings. The shared Codex tunnel is active again.');
     this.syncFields();
   };
 
@@ -197,11 +197,13 @@ class NewUserPage {
     }
 
     if (this.effectiveAuthValue) {
-      this.effectiveAuthValue.textContent = this.currentSettings.authOrigin || 'This Computer';
+      this.effectiveAuthValue.textContent =
+        this.currentSettings.authOrigin || 'Shared Tunnel';
     }
 
     if (this.effectiveMailValue) {
-      this.effectiveMailValue.textContent = this.currentSettings.mailOrigin || 'This Computer';
+      this.effectiveMailValue.textContent =
+        this.currentSettings.mailOrigin || 'Shared Tunnel';
     }
   }
 

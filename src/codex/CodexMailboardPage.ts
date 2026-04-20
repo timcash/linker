@@ -181,24 +181,25 @@ export class CodexMailboardPage {
     }
 
     const mailboxLoadVersion = ++this.mailboxLoadVersion;
+    const localDaemon = this.client.usesLocalDaemon();
     let activeViewLabel = resolveViewLabel(this.availableViews, this.activeView);
 
     this.view.setCurrentViewLabel(activeViewLabel);
     this.view.setSearchQuery(this.searchQuery);
     this.view.setMailboxSummary(
-      this.client.usesLocalDaemon()
+      localDaemon
         ? 'Loading mailbox summary from this computer...'
         : 'Loading hosted mailbox summary...',
     );
     this.view.setHealthSummary(
-      this.client.usesLocalDaemon()
-        ? `Checking mailbox health at ${this.client.getMailOrigin()}`
-        : `Checking mailbox health at ${this.client.getMailOrigin()}`,
+      `Checking mailbox health at ${this.client.getMailOrigin()}`,
     );
     this.view.setThreadsLoading(
       this.searchQuery
         ? `Searching ${activeViewLabel}...`
-        : `Loading ${activeViewLabel} threads from this computer...`,
+        : localDaemon
+          ? `Loading ${activeViewLabel} threads from this computer...`
+          : `Loading ${activeViewLabel} threads from the shared tunnel...`,
     );
 
     try {
@@ -210,36 +211,24 @@ export class CodexMailboardPage {
       this.view.setMailboxSummary(formatMailboxSummary(health));
       this.view.setHealthSummary(formatHealthSummary(health));
       this.view.setSearchQuery(this.searchQuery);
-
-      try {
-        const views = await this.client.fetchViews();
-        if (mailboxLoadVersion !== this.mailboxLoadVersion) {
-          return;
-        }
-
-        this.availableViews = views;
-        activeViewLabel = resolveViewLabel(views, this.activeView);
-        this.view.setViews(views, this.activeView);
-        this.view.setCurrentViewLabel(activeViewLabel);
-      } catch (error) {
-        if (mailboxLoadVersion !== this.mailboxLoadVersion) {
-          return;
-        }
-
-        this.view.setStatus(
-          readErrorMessage(error, 'Mailbox views are still loading.'),
-        );
-      }
+      this.availableViews = health.views;
+      activeViewLabel = resolveViewLabel(health.views, this.activeView);
+      this.view.setViews(health.views, this.activeView);
+      this.view.setCurrentViewLabel(activeViewLabel);
 
       this.view.setStatus(
         this.searchQuery
           ? `Searching ${activeViewLabel}...`
-          : `Connected to this computer. Loading ${activeViewLabel}...`,
+          : localDaemon
+            ? `Connected to this computer. Loading ${activeViewLabel}...`
+            : `Cloudflare Access ready. Loading ${activeViewLabel}...`,
       );
       this.view.setThreadsLoading(
         this.searchQuery
           ? `Searching ${activeViewLabel}...`
-          : `Loading ${activeViewLabel} threads from this computer...`,
+          : localDaemon
+            ? `Loading ${activeViewLabel} threads from this computer...`
+            : `Loading ${activeViewLabel} threads from the shared tunnel...`,
       );
 
       const threads = await this.client.fetchThreads(this.activeView, this.searchQuery);

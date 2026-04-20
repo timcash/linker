@@ -1,6 +1,6 @@
 # Linker
 
-Linker is a `luma.gl` + WebGPU DAG workplane viewer and editor with aligned `12x12x12` label grids, `rank/lane/depth` 3D navigation, a compact mobile-style menu-first control pad, an installable fullscreen PWA shell with a shared SVG icon and route manifest, a browser `/codex` Gmail inbox client that talks to the shared `gmail-agent` daemon on this computer by default, a `/new-user/` route for optional custom-host setup, and a browser `/logs` terminal page for timestamped history with source-line filters.
+Linker is a `luma.gl` + WebGPU DAG workplane viewer and editor with aligned `12x12x12` label grids, `rank/lane/depth` 3D navigation, a compact mobile-style menu-first control pad, an installable fullscreen PWA shell with a shared SVG icon and route manifest, a browser `/codex` Gmail inbox client that targets the shared `https://codex.dialtone.earth` tunnel by default on the hosted site, a `/new-user/` route for optional custom-host setup, and a browser `/logs` terminal page for timestamped history with source-line filters.
 
 ## 1. Live Onboarding
 
@@ -63,8 +63,8 @@ Current review queue:
 - the hosted onboarding screenshots under `artifacts/test-screenshots/` remain the visual contract for each guided step from empty root to the finished five-node DAG plus one stitched 2D local link
 - direct 3D workplane picking plus explicit DAG edge create/remove between already-existing workplanes are still the main product gaps
 - every publish should still end with a live pass over `/`, `/auth/`, `/codex/`, `/readme/`, and `/logs/`
-- `/auth/` and `/codex/` on GitHub Pages should use `http://127.0.0.1:4192` on this computer by default when the shared `gmail-agent` daemon is running
-- `/new-user/` is the optional privacy-safe route for replacing the default This Computer path with local browser-only custom-host settings
+- `/auth/` and `/codex/` on GitHub Pages should use `https://codex.dialtone.earth` by default, with `http://127.0.0.1:4192` reserved for local dev
+- `/new-user/` is the optional privacy-safe route for replacing the shared tunnel default with local browser-only custom-host settings
 
 ## 2. Screenshot and Links
 
@@ -115,9 +115,9 @@ Example:
 https://your-user.github.io/linker/?demoPreset=dag-rank-fanout&cameraLabel=wp-10:1:1:1
 ```
 
-`/new-user/` is now the optional custom-host page: leave Auth and Mail blank to use This Computer, or save private origins in local browser settings if you want a different Linker server.
+`/new-user/` is now the optional custom-host page: leave Auth and Mail blank to use the shared Codex tunnel, or save private origins in local browser settings if you want a different Linker server.
 
-`/auth/` and `/codex/` on GitHub Pages now default to This Computer. If the shared `gmail-agent` daemon is running on `http://127.0.0.1:4192`, the live site can use it directly from this machine. `/codex/` behaves like a compact Gmail inbox client with search, Inbox/Unread/Starred/Sent/All Mail/Codex views, thread-level read-star-archive controls, reply, and compose. For local development:
+`/auth/` and `/codex/` on GitHub Pages now default to `https://codex.dialtone.earth`, matching the tunnel-first pattern used by `cad-pga`. `http://127.0.0.1:4192` remains the local dev default when Linker itself is running on `127.0.0.1` or `localhost`. `/codex/` behaves like a compact Gmail inbox client with search, Inbox/Unread/Starred/Sent/All Mail/Codex views, thread-level read-star-archive controls, reply, and compose. For local development:
 
 ```bash
 Copy-Item .env.codex.local.example .env.local
@@ -127,12 +127,13 @@ cd ..\\linker
 npm run dev -- --host 127.0.0.1
 ```
 
-The Linker browser app now defaults to `http://127.0.0.1:4192` for `/auth/` and `/codex/` on this machine, including from the live GitHub Pages site. `gmail-agent` must answer the Private Network Access preflight for the current GitHub Pages origin, so the hosted page can reach the local loopback daemon from this browser.
+The Linker browser app now defaults to `https://codex.dialtone.earth` for `/auth/` and `/codex/` on GitHub Pages. Local `http://127.0.0.1:4192` remains a dev-only fallback when Linker is running from `127.0.0.1` or `localhost`.
 
 To prove the shared mailbox sync from this repo itself, run:
 
 ```bash
 npm run test:codex:mail-sync
+npm run test:live:codex
 ```
 
 That command checks the sibling `gmail-agent` auth state, starts the shared daemon if needed, calls the live `/api/mail/*` surface, and writes a proof artifact to `artifacts/codex-mail-sync-proof.json` when the local Gmail sync is healthy.
@@ -267,13 +268,13 @@ npm run perf:orbit-stutter -- --label-set benchmark --label-count 4096 --segment
 
 - `src/main.ts`: app entry point
 - `src/docs-shell.ts`: shared fullscreen site menu with breadcrumb hierarchy, `Navigation` plus nested `Settings` sections, embedded/floating placements, install-state UI, and repo/link helpers used by the app and docs routes
-- `src/remote-config.ts`: generic repo plus browser-side auth and mail origin resolution helpers, with This Computer as the default live-site target
+- `src/remote-config.ts`: generic repo plus browser-side auth and mail origin resolution helpers, with `https://codex.dialtone.earth` as the default hosted target and local loopback reserved for dev
 - `src/pwa.ts`: shared PWA runtime for service worker registration, display-mode detection, and install-prompt state
-- `src/auth-page.ts`: simple connection/status route that opens Codex on This Computer by default and falls back to saved custom hosts when present
+- `src/auth-page.ts`: simple connection/status route that opens Codex on the shared tunnel by default and falls back to saved custom hosts when present
 - `src/new-user-page.ts`: minimal custom-host guide with private repo/auth/mail origin inputs stored in local browser settings
 - `src/codex-page.ts`: `/codex/` route shell that mounts the mailboard UI inside the shared docs navigation
 - `src/codex/CodexMailboardPage.ts`: codex route controller for local-daemon auto-connect, saved-host fallback, Gmail mailbox loading, search, view switching, inbox actions, reply, and compose
-- `src/codex/CodexMailClient.ts`: browser client for the shared `gmail-agent` mail API with This Computer as the live-site default
+- `src/codex/CodexMailClient.ts`: browser client for the shared `gmail-agent` mail API with the shared tunnel as the live-site default
 - `src/codex/CodexMailboardView.ts`: mobile-first monochrome mailboard DOM, local-first connect state, Gmail search form, thread list, action grid, message pane, and bottom 3x3 mail pad
 - `src/codex/codexMailboard.css`: `/codex/` mailboard layout and mobile-to-desktop route styling
 - `src/logs-page.ts`: `/logs/` route shell that mounts the browser log terminal UI inside the shared docs navigation

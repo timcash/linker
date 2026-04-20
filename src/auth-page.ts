@@ -1,9 +1,9 @@
 import {createSiteMenu, resolveSiteHref, type SiteMenuHandle} from './docs-shell';
 import {
+  DEFAULT_REMOTE_AUTH_ORIGIN,
   hasExplicitConfiguredOrigin,
   isLoopbackOrigin,
   normalizeAbsoluteHttpUrl,
-  readConfiguredAuthOrigin,
 } from './remote-config';
 import {readLocalNetworkAccessState, withLocalNetworkAccess} from './local-network-access';
 import {readStoredAppSettings} from './site-settings';
@@ -115,9 +115,9 @@ class AuthPage {
     shell.innerHTML = `
       <header class="docs-hero auth-hero">
         <p class="eyebrow">Auth</p>
-        <h1>Connect Linker to this computer.</h1>
+        <h1>Connect Linker to Codex.</h1>
         <p class="lede">
-          Use This Computer for the shared local daemon. Save a custom host only if you want a different Linker server.
+          Use the shared Codex tunnel on the hosted site. Save a custom host only if you want a different Linker server.
         </p>
       </header>
 
@@ -126,7 +126,7 @@ class AuthPage {
           <span class="auth-label">Mode</span>
           <p class="auth-value" data-auth-mode-summary></p>
           <nav class="auth-mode-toggle" role="group" aria-label="Linker auth mode">
-            <button type="button" class="auth-mode-btn" data-auth-mode-button="auto">This Computer</button>
+            <button type="button" class="auth-mode-btn" data-auth-mode-button="auto">Shared Tunnel</button>
             <button type="button" class="auth-mode-btn" data-auth-mode-button="auth">Saved Host</button>
             <button type="button" class="auth-mode-btn" data-auth-mode-button="dev">This Tab</button>
           </nav>
@@ -235,8 +235,8 @@ class AuthPage {
 
     if (this.requiresHostedSetup(origin)) {
       this.setOriginText('No saved custom host is configured yet.');
-      this.setHealthText('Open New User only if you want a custom host instead of This Computer.');
-      this.appendLog('system', 'Saved-host setup is empty. This Computer mode is still available.');
+      this.setHealthText('Open New User only if you want a custom host instead of the shared tunnel.');
+      this.appendLog('system', 'Saved-host setup is empty. The shared tunnel is still available.');
       window.clearTimeout(timeout);
       return;
     }
@@ -524,12 +524,16 @@ class AuthPage {
       return false;
     }
 
-    return !hasExplicitConfiguredOrigin({
+    if (hasExplicitConfiguredOrigin({
       configuredOrigin:
         (import.meta.env.VITE_LINKER_AUTH_ORIGIN as string | undefined) ||
         (import.meta.env.VITE_CODEX_MAIL_URL as string | undefined),
       storedOrigin: readStoredAppSettings().authOrigin || readStoredAppSettings().mailOrigin,
-    });
+    })) {
+      return false;
+    }
+
+    return isPlaceholderHostedOrigin(origin);
   }
 
   private syncActionButtons(origin = this.resolveHttpOrigin()): void {
@@ -561,11 +565,7 @@ class AuthPage {
       normalizeAbsoluteHttpUrl(import.meta.env.VITE_LINKER_AUTH_ORIGIN as string | undefined) ||
       normalizeAbsoluteHttpUrl(import.meta.env.VITE_CODEX_MAIL_URL as string | undefined);
 
-    return readConfiguredAuthOrigin({
-      configuredOrigin: explicitOrigin,
-      hostname: window.location.hostname,
-      locationOrigin: window.location.origin,
-    });
+    return explicitOrigin || DEFAULT_REMOTE_AUTH_ORIGIN;
   }
 
   private async fetchAccessConfig(origin: string, signal: AbortSignal): Promise<AccessConfigResponse> {
@@ -622,8 +622,17 @@ class AuthPage {
   }
 }
 
+function isPlaceholderHostedOrigin(origin: string): boolean {
+  try {
+    const hostname = new URL(origin).hostname;
+    return /example\.com$/i.test(hostname);
+  } catch {
+    return true;
+  }
+}
+
 const modeCopyMap: Record<AuthMode, string> = {
-  auto: 'This Computer uses the local shared daemon.',
+  auto: 'Shared Tunnel uses the default Codex tunnel on the hosted site and local dev origin in this tab.',
   auth: 'Saved Host uses the Auth or Mail origin from New User.',
   dev: 'This Tab stays on the page you opened.',
 };

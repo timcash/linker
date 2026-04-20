@@ -105,7 +105,7 @@ export async function runAuthPageSmokeFlow(
     await context.page.waitForSelector('[data-site-menu-overlay]:not([hidden])');
     await context.page.waitForFunction(() => {
       const heading = document.querySelector('h1');
-      return heading?.textContent?.includes('Connect Linker to this computer') ?? false;
+      return heading?.textContent?.includes('Connect Linker to Codex') ?? false;
     });
     await context.page.waitForFunction(() => {
       const health = document.querySelector('[data-auth-health]');
@@ -174,10 +174,10 @@ export async function runAuthPageSmokeFlow(
       '[data-auth-mode-button="auth"]',
       (element) => (element as HTMLButtonElement).click(),
     );
-    await context.page.waitForFunction(() => {
+    await context.page.waitForFunction((expectedOrigin) => {
       const origin = document.querySelector('[data-auth-origin]');
-      return origin?.textContent?.includes('https://auth.example.com') ?? false;
-    });
+      return origin?.textContent?.includes(expectedOrigin) ?? false;
+    }, {}, DEFAULT_REMOTE_AUTH_ORIGIN);
     await context.page.waitForFunction(() => {
       const health = document.querySelector('[data-auth-health]');
       return health?.textContent?.includes('Hosted mail API reachable.') ?? false;
@@ -228,7 +228,7 @@ export async function runAuthPageSmokeFlow(
     assert.ok(pageState.navLabels.some((label) => /README/i.test(label)), 'The fullscreen menu should include the README route.');
     assert.match(
       pageState.bodyText,
-      /Use This Computer for the shared local daemon\./u,
+      /Use the shared Codex tunnel on the hosted site\./u,
       'The /auth route should keep the copy short and focused.',
     );
     assert.match(

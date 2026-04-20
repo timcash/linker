@@ -115,7 +115,7 @@ export class CodexMailClient {
     return (
       window.location.hostname.endsWith('github.io') &&
       !isLoopbackOrigin(mailOrigin) &&
-      !hasExplicitConfiguredOrigin({
+      !hasUsableHostedOrigin(mailOrigin, {
         configuredOrigin: import.meta.env.VITE_CODEX_MAIL_URL as string | undefined,
         storedOrigin: readStoredAppSettings().mailOrigin,
       })
@@ -255,6 +255,20 @@ export class CodexMailClient {
       }),
     );
   }
+}
+
+function hasUsableHostedOrigin(
+  resolvedOrigin: string,
+  input: {
+    configuredOrigin?: string;
+    storedOrigin?: string;
+  },
+): boolean {
+  if (hasExplicitConfiguredOrigin(input)) {
+    return true;
+  }
+
+  return /^https:\/\/[^/]+$/i.test(resolvedOrigin) && !/example\.com$/i.test(new URL(resolvedOrigin).hostname);
 }
 
 export class CodexAccessError extends Error {}

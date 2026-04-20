@@ -1,7 +1,7 @@
 import {readStoredAppSettings} from './site-settings';
 
-export const DEFAULT_REMOTE_AUTH_ORIGIN = 'https://auth.example.com';
-export const DEFAULT_REMOTE_MAIL_ORIGIN = 'https://mail.example.com';
+export const DEFAULT_REMOTE_AUTH_ORIGIN = 'https://codex.dialtone.earth';
+export const DEFAULT_REMOTE_MAIL_ORIGIN = 'https://codex.dialtone.earth';
 export const DEFAULT_LOCAL_MAIL_ORIGIN = 'http://127.0.0.1:4192';
 export const DEFAULT_REPO_URL = 'https://github.com/your-org/linker';
 export const DEFAULT_LIVE_SITE_URL = 'https://your-user.github.io/linker/';
@@ -43,7 +43,7 @@ export function resolveConfiguredAuthOrigin(input: ResolveOriginInput): string {
     return configuredOrigin;
   }
 
-  if (input.hostname.endsWith('github.io')) {
+  if (isLoopbackHostname(input.hostname)) {
     return DEFAULT_LOCAL_MAIL_ORIGIN;
   }
 
@@ -59,15 +59,11 @@ export function resolveConfiguredMailOrigin(input: ResolveOriginInput): string {
     return configuredOrigin;
   }
 
-  if (input.hostname.endsWith('github.io')) {
+  if (isLoopbackHostname(input.hostname)) {
     return DEFAULT_LOCAL_MAIL_ORIGIN;
   }
 
-  if (input.hostname === '127.0.0.1' || input.hostname === 'localhost') {
-    return DEFAULT_LOCAL_MAIL_ORIGIN;
-  }
-
-  return input.locationOrigin;
+  return DEFAULT_REMOTE_MAIL_ORIGIN || input.locationOrigin;
 }
 
 export function isLoopbackHostname(hostname: string): boolean {

@@ -29,13 +29,13 @@ export async function runNewUserPageSmokeFlow(
   assert.equal(initialState.title, 'Linker New User', 'The new-user route should set a dedicated page title.');
   assert.equal(
     initialState.authValue,
-    'This Computer',
-    'The new-user route should default auth to this computer when no custom host is saved.',
+    'Shared Tunnel',
+    'The new-user route should default auth to the shared tunnel when no custom host is saved.',
   );
   assert.equal(
     initialState.mailValue,
-    'This Computer',
-    'The new-user route should default mail to this computer when no custom host is saved.',
+    'Shared Tunnel',
+    'The new-user route should default mail to the shared tunnel when no custom host is saved.',
   );
   assert.equal(
     initialState.repoValue,
@@ -81,7 +81,7 @@ export async function runNewUserPageSmokeFlow(
   assert.match(savedState.currentNavLabel, /New User/i, 'The fullscreen menu should mark the new-user route as active.');
   assert.ok(savedState.navLabels.some((label) => /Auth/i.test(label)), 'The fullscreen menu should include the auth route.');
   assert.ok(savedState.navLabels.some((label) => /Codex/i.test(label)), 'The fullscreen menu should include the codex route.');
-  assert.match(savedState.bodyText, /Leave Auth and Mail blank to use This Computer\./u, 'The new-user route should keep the setup copy short.');
+  assert.match(savedState.bodyText, /Leave Auth and Mail blank to use the shared Codex tunnel\./u, 'The new-user route should keep the setup copy short.');
   assert.match(savedState.repoValue, /https:\/\/github\.com\/acme\/linker-private/u, 'Saving the repo URL should update the effective value.');
   assert.match(savedState.authValue, /https:\/\/auth\.acme\.test/u, 'Saving the auth origin should update the effective value.');
   assert.match(savedState.mailValue, /https:\/\/mail\.acme\.test/u, 'Saving the mail origin should update the effective value.');
@@ -99,7 +99,7 @@ export async function runNewUserPageSmokeFlow(
     const auth = document.querySelector('[data-new-user-effective-auth]');
     return (
       (status?.textContent?.includes('Cleared custom host settings') ?? false) &&
-      (auth?.textContent?.includes('This Computer') ?? false)
+      (auth?.textContent?.includes('Shared Tunnel') ?? false)
     );
   });
 

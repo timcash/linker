@@ -31,6 +31,7 @@
     "test:browser:suite": "tsx scripts/test.ts --flow full",
     "test:codex:mail-sync": "tsx scripts/test-codex-mail-sync.ts",
     "test:live": "tsx scripts/test-live.ts",
+    "test:live:codex": "tsx scripts/test-live-codex.ts",
     "test:preview": "tsx scripts/test-preview.ts"
   },
   "dependencies": {

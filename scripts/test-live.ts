@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import {spawn} from 'node:child_process';
 
 import {DEFAULT_LIVE_SITE_URL} from '../src/remote-config';
 import {appendLogEvent, initializeUnifiedLog} from './logging';
@@ -34,7 +35,7 @@ for (let index = 2; index < process.argv.length; index += 1) {
 const liveUrl =
   (typeof args.get('url') === 'string' ? String(args.get('url')) : '') ||
   process.env.LINKER_LIVE_URL ||
-  DEFAULT_LIVE_SITE_URL;
+  await resolveLiveSiteUrl();
 const allowUnsupported = args.has('allow-unsupported') || process.env.LINKER_ALLOW_UNSUPPORTED === '1';
 const expectOnboarding = args.has('expect-onboarding');
 
@@ -118,4 +119,68 @@ try {
   throw error;
 } finally {
   await browser.close();
+}
+
+async function resolveLiveSiteUrl(): Promise<string> {
+  if (process.env.LINKER_LIVE_URL) {
+    return normalizeBaseUrl(process.env.LINKER_LIVE_URL);
+  }
+
+  const remoteUrl = await readGitRemoteUrl().catch(() => '');
+  const derivedUrl = deriveGitHubPagesUrl(remoteUrl);
+  if (derivedUrl) {
+    return normalizeBaseUrl(derivedUrl);
+  }
+
+  return normalizeBaseUrl(DEFAULT_LIVE_SITE_URL);
+}
+
+async function readGitRemoteUrl(): Promise<string> {
+  return await new Promise<string>((resolve, reject) => {
+    const child = spawn('git', ['config', '--get', 'remote.origin.url'], {
+      cwd: process.cwd(),
+      stdio: ['ignore', 'pipe', 'pipe'],
+    });
+
+    let stdout = '';
+    let stderr = '';
+    child.stdout.on('data', (chunk) => {
+      stdout += String(chunk);
+    });
+    child.stderr.on('data', (chunk) => {
+      stderr += String(chunk);
+    });
+    child.on('error', reject);
+    child.on('close', (code) => {
+      if (code === 0) {
+        resolve(stdout.trim());
+        return;
+      }
+
+      reject(new Error((stderr || stdout || `git exited with status ${code}`).trim()));
+    });
+  });
+}
+
+function deriveGitHubPagesUrl(remoteUrl: string): string {
+  const match = String(remoteUrl || '').trim().match(/github\.com[:/](.+?)\/(.+?)(?:\.git)?$/i);
+  if (!match) {
+    return '';
+  }
+
+  const owner = match[1];
+  const repo = match[2];
+  if (!owner || !repo) {
+    return '';
+  }
+
+  return `https://${owner}.github.io/${repo}/`;
+}
+
+function normalizeBaseUrl(value: string): string {
+  const parsed = new URL(value);
+  parsed.pathname = parsed.pathname.replace(/\/?$/u, '/');
+  parsed.search = '';
+  parsed.hash = '';
+  return parsed.toString();
 }
