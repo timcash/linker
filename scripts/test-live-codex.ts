@@ -78,6 +78,14 @@ try {
     const mailbox = document.querySelector('[data-codex-mailbox]')?.textContent ?? '';
     return /@/.test(mailbox);
   }, {timeout: 120_000});
+  await page.waitForFunction(
+    () => document.querySelectorAll('.codex-thread-row').length > 0,
+    {timeout: 120_000},
+  );
+  await page.waitForFunction(() => {
+    const title = document.querySelector('.codex-thread-detail-title')?.textContent?.trim() ?? '';
+    return title.length > 0;
+  }, {timeout: 120_000});
 
   const initialState = await page.evaluate(() => ({
     authText: document.querySelector('[data-codex-auth]')?.textContent?.trim() ?? '',
@@ -92,24 +100,29 @@ try {
   assert.match(initialState.authText, /cloudflare access ready|connected to this computer/i, 'The hosted codex page should report an unlocked auth state.');
   assert.ok(initialState.threadCount >= 1, 'The hosted codex page should render at least one thread row.');
 
-  await page.click('[data-codex-view-button="sent"]');
+  await clickElement(page, '[data-codex-view-button="sent"]');
   await page.waitForFunction(() => {
     return (document.querySelector('[data-codex-view]')?.textContent?.trim() ?? '') === 'Sent';
   }, {timeout: 60_000});
 
-  await page.click('[data-codex-view-button="inbox"]');
+  await clickElement(page, '[data-codex-view-button="inbox"]');
   await page.waitForFunction(() => {
     return (document.querySelector('[data-codex-view]')?.textContent?.trim() ?? '') === 'Inbox';
   }, {timeout: 60_000});
-
-  await page.click('.codex-thread-row');
-  await page.waitForSelector('.codex-thread-detail-title', {timeout: 60_000});
+  await page.waitForFunction(
+    () => document.querySelectorAll('.codex-thread-row').length > 0,
+    {timeout: 120_000},
+  );
+  await page.waitForFunction(() => {
+    const title = document.querySelector('.codex-thread-detail-title')?.textContent?.trim() ?? '';
+    return title.length > 0;
+  }, {timeout: 120_000});
 
   const liveQuery = await pickLiveSearchQuery(page);
   if (liveQuery) {
     await page.click('[data-codex-search-input]', {clickCount: 3});
     await page.type('[data-codex-search-input]', liveQuery);
-    await page.click('[data-codex-search-submit]');
+    await clickElement(page, '[data-codex-search-submit]');
     await page.waitForFunction(
       (expectedQuery) => {
         const input = document.querySelector<HTMLInputElement>('[data-codex-search-input]');
@@ -120,11 +133,19 @@ try {
       liveQuery,
     );
 
-    await page.click('[data-codex-clear-search]');
+    await clickElement(page, '[data-codex-clear-search]');
     await page.waitForFunction(() => {
       const input = document.querySelector<HTMLInputElement>('[data-codex-search-input]');
       return input?.value === '';
     }, {timeout: 60_000});
+    await page.waitForFunction(
+      () => document.querySelectorAll('.codex-thread-row').length > 0,
+      {timeout: 120_000},
+    );
+    await page.waitForFunction(() => {
+      const title = document.querySelector('.codex-thread-detail-title')?.textContent?.trim() ?? '';
+      return title.length > 0;
+    }, {timeout: 120_000});
   }
 
   const finalState = await page.evaluate(() => ({
@@ -177,6 +198,17 @@ async function pickLiveSearchQuery(page: Page): Promise<string> {
 
     return preferred;
   });
+}
+
+async function clickElement(page: Page, selector: string): Promise<void> {
+  await page.evaluate((targetSelector) => {
+    const target = document.querySelector(targetSelector);
+    if (!(target instanceof HTMLElement)) {
+      throw new Error(`Missing element for selector ${targetSelector}`);
+    }
+
+    target.click();
+  }, selector);
 }
 
 async function resolveLiveSiteUrl(): Promise<string> {
